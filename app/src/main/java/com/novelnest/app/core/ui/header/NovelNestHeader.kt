@@ -115,13 +115,12 @@ private fun NovelNestHeaderWithActionPreview() {
         icon = Icons.Rounded.Search,
         modifier = Modifier.background(NovelBackground),
         actions = {
-            IconButton(onClick = {}) {
-                Icon(
-                    imageVector = Icons.Rounded.BookmarkBorder,
-                    contentDescription = "Bookmarks",
-                    tint = NovelTextSecondary
-                )
-            }
+            com.novelnest.app.core.ui.NovelNestIconButton(
+                icon = Icons.Rounded.BookmarkBorder,
+                contentDescription = "Bookmarks",
+                tint = NovelTextSecondary,
+                onClick = {}
+            )
         }
     )
 }

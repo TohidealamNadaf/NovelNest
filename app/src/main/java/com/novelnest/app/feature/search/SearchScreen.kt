@@ -64,6 +64,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
 import androidx.compose.ui.semantics.Role
 import com.novelnest.app.core.ui.NovelCard
+import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
@@ -98,23 +99,12 @@ fun SearchScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .bounceClick(
-                        scaleDown = BounceScale.Small,
-                        onClickLabel = "Back",
-                        role = Role.Button
-                    ) { onBack() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    tint = NovelTextPrimary
-                )
-            }
+            NovelNestIconButton(
+                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = "Navigate back",
+                tint = NovelTextPrimary,
+                onClick = onBack
+            )
 
             // Search Bar Input Field
             Box(
@@ -169,24 +159,13 @@ fun SearchScreen(
                     )
 
                     if (uiState.query.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .bounceClick(
-                                    scaleDown = BounceScale.Small,
-                                    onClickLabel = "Clear search query",
-                                    role = Role.Button
-                                ) { viewModel.clearQuery() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = "Clear",
-                                tint = NovelTextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        NovelNestIconButton(
+                            icon = Icons.Rounded.Close,
+                            contentDescription = "Clear search query",
+                            tint = NovelTextSecondary,
+                            iconSize = 18.dp,
+                            onClick = { viewModel.clearQuery() }
+                        )
                     }
                 }
             }

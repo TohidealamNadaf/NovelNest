@@ -44,6 +44,7 @@ import com.novelnest.app.core.designsystem.NovelSecondary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.HeroCarousel
+import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.NovelSectionRow
 import com.novelnest.app.core.ui.SearchBarTrigger
 import com.novelnest.app.core.ui.SourceTabRow
@@ -71,13 +72,12 @@ fun HomeScreen(
             title = "NovelNest",
             icon = Icons.Rounded.AutoStories,
             actions = {
-                IconButton(onClick = {}) {
-                    Icon(
-                        imageVector = Icons.Rounded.BookmarkBorder,
-                        contentDescription = "Bookmarks",
-                        tint = NovelTextSecondary
-                    )
-                }
+                NovelNestIconButton(
+                    icon = Icons.Rounded.BookmarkBorder,
+                    contentDescription = "Bookmarks",
+                    tint = NovelTextSecondary,
+                    onClick = {}
+                )
             }
         )
 

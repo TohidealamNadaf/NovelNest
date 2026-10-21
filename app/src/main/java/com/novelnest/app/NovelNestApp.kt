@@ -69,6 +69,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.footer.FooterDestination
 import com.novelnest.app.core.ui.footer.NovelNestFooter
 import com.novelnest.app.data.repository.NovelRepository
@@ -258,13 +259,12 @@ private fun NovelPreviewSheetContent(
                 }
             }
 
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "Close",
-                    tint = NovelTextSecondary
-                )
-            }
+            NovelNestIconButton(
+                icon = Icons.Rounded.Close,
+                contentDescription = "Close preview",
+                tint = NovelTextSecondary,
+                onClick = onDismiss
+            )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
