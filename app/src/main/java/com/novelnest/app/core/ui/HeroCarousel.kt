@@ -51,6 +51,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import kotlinx.coroutines.delay
 
@@ -121,7 +122,7 @@ private fun HeroSlideCard(
             .clip(RoundedCornerShape(16.dp))
             .background(NovelSurfaceVariant)
             .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(16.dp))
-            .clickable { onClick() }
+            .bounceClick(scaleDown = 0.96f, onClick = onClick)
     ) {
         // Backdrop image
         AsyncImage(
@@ -245,30 +246,33 @@ private fun HeroSlideCard(
                     fontWeight = FontWeight.Medium
                 )
 
-                Button(
-                    onClick = onClick,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = NovelPrimary,
-                        contentColor = NovelOnPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 12.dp,
-                        vertical = 4.dp
-                    ),
-                    modifier = Modifier.height(30.dp)
+                Box(
+                    modifier = Modifier
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NovelPrimary)
+                        .bounceClick(scaleDown = 0.90f, onClick = onClick)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoStories,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Read",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoStories,
+                            contentDescription = null,
+                            tint = NovelOnPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Read",
+                            color = NovelOnPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 
@@ -72,7 +73,7 @@ fun NovelSectionRow(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable { onSeeAllClick() }
+                modifier = Modifier.bounceClick(scaleDown = 0.92f, onClick = onSeeAllClick)
             ) {
                 Text(
                     text = "See all",

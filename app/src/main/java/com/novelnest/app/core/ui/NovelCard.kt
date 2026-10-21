@@ -44,6 +44,8 @@ import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
 
+import com.novelnest.app.core.ui.animation.bounceClick
+
 @Composable
 fun NovelCard(
     novel: Novel,
@@ -54,7 +56,7 @@ fun NovelCard(
         modifier = modifier
             .width(135.dp)
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() }
+            .bounceClick(scaleDown = 0.94f, onClick = onClick)
     ) {
         // Poster with cover image, badges, and gradient
         Box(

@@ -30,6 +30,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
+import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.NovelSourceType
 
 @Composable
@@ -46,7 +47,7 @@ fun SearchBarTrigger(
             .clip(RoundedCornerShape(14.dp))
             .background(NovelSurfaceVariant)
             .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(14.dp))
-            .clickable { onClick() }
+            .bounceClick(scaleDown = 0.97f, onClick = onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.CenterStart
     ) {
