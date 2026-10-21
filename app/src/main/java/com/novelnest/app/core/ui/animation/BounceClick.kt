@@ -40,14 +40,15 @@ object BounceScale {
 fun Modifier.bounceClick(
     scaleDown: Float = BounceScale.Small,
     enabled: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
     indication: Indication? = null,
     onClickLabel: String? = null,
     role: Role? = null,
     onClick: () -> Unit
 ): Modifier = composed {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val isFocused by interactionSource.collectIsFocusedAsState()
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    val isPressed by source.collectIsPressedAsState()
+    val isFocused by source.collectIsFocusedAsState()
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
     val scale by animateFloatAsState(
@@ -86,7 +87,7 @@ fun Modifier.bounceClick(
             }
         }
         .clickable(
-            interactionSource = interactionSource,
+            interactionSource = source,
             indication = indication,
             enabled = enabled,
             onClickLabel = onClickLabel,
@@ -102,13 +103,14 @@ fun Modifier.bounceSelectable(
     selected: Boolean,
     scaleDown: Float = BounceScale.Small,
     enabled: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
     indication: Indication? = null,
     role: Role? = Role.Tab,
     onClick: () -> Unit
 ): Modifier = composed {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val isFocused by interactionSource.collectIsFocusedAsState()
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    val isPressed by source.collectIsPressedAsState()
+    val isFocused by source.collectIsFocusedAsState()
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
     val scale by animateFloatAsState(
@@ -148,7 +150,7 @@ fun Modifier.bounceSelectable(
         }
         .selectable(
             selected = selected,
-            interactionSource = interactionSource,
+            interactionSource = source,
             indication = indication,
             enabled = enabled,
             role = role,
