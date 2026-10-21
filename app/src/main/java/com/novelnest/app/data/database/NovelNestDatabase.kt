@@ -19,7 +19,7 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
         SectionNovelCrossRef::class
     ],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class NovelNestDatabase : RoomDatabase() {
@@ -39,7 +39,6 @@ abstract class NovelNestDatabase : RoomDatabase() {
                     "novelnest_cache.db"
                 )
                     .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance
