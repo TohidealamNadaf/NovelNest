@@ -49,6 +49,8 @@ class SettingsViewModel(
     fun setAmoledAppMode(enabled: Boolean) = preferencesManager.updateAmoledAppMode(enabled)
     fun setDataSaver(enabled: Boolean) = preferencesManager.updateDataSaver(enabled)
     fun setDefaultSource(ordinal: Int) = preferencesManager.updateDefaultSource(ordinal)
+    fun setHapticFeedback(enabled: Boolean) = preferencesManager.updateHapticFeedback(enabled)
+    fun setReducedMotion(enabled: Boolean) = preferencesManager.updateReducedMotion(enabled)
 
     fun clearCache() {
         viewModelScope.launch(Dispatchers.IO) {

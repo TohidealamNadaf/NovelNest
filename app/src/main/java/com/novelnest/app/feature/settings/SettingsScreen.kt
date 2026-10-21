@@ -545,6 +545,27 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(vertical = 12.dp)
                             )
 
+                            // Haptic Feedback Toggle
+                            SettingsToggleRow(
+                                title = "Haptic Touch Feedback",
+                                subtitle = "Subtle tactile vibrations on button clicks, tabs, and bookmark actions",
+                                checked = appSettings.hapticFeedbackEnabled,
+                                onCheckedChange = { viewModel.setHapticFeedback(it) }
+                            )
+
+                            HorizontalDivider(
+                                color = NovelSurfaceBorder.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            )
+
+                            // Reduced Motion Toggle
+                            SettingsToggleRow(
+                                title = "Reduce Motion",
+                                subtitle = "Simplify transitions and disable spring bouncing for accessibility",
+                                checked = appSettings.reducedMotion,
+                                onCheckedChange = { viewModel.setReducedMotion(it) }
+                            )
+
                             // Clear Cache Row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

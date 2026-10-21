@@ -44,6 +44,8 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceSelectable
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.model.NovelSourceType
 
 /**
@@ -59,6 +61,7 @@ fun SourceTabRow(
 ) {
     val density = LocalDensity.current
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
+    val playHaptic = rememberNovelNestHaptic()
 
     // Store measured (xOffset, width) in Dp for each tab in parent coordinates
     var tabBounds by remember { mutableStateOf(mapOf<NovelSourceType, Pair<Dp, Dp>>()) }
@@ -155,7 +158,10 @@ fun SourceTabRow(
                             selected = isSelected,
                             scaleDown = BounceScale.Small,
                             role = Role.Tab,
-                            onClick = { onSourceSelected(source) }
+                            onClick = {
+                                playHaptic(NovelNestHapticType.LIGHT_TICK)
+                                onSourceSelected(source)
+                            }
                         ),
                     contentAlignment = Alignment.Center
                 ) {

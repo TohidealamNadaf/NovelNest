@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.novelnest.app.core.ui.animation.shimmerPlaceholder
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BookmarkBorder
@@ -58,6 +60,7 @@ import com.novelnest.app.core.ui.HeroCarousel
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.NovelSectionRow
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.animation.AnimatedBookmarkButton
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.header.NovelNestHeader
@@ -102,11 +105,10 @@ fun HomeScreen(
             title = "NovelNest",
             icon = Icons.Rounded.AutoStories,
             actions = {
-                NovelNestIconButton(
-                    icon = Icons.Rounded.BookmarkBorder,
-                    contentDescription = "Bookmarks",
-                    tint = NovelTextSecondary,
-                    onClick = {}
+                var isBookmarksActive by remember { mutableStateOf(false) }
+                AnimatedBookmarkButton(
+                    isBookmarked = isBookmarksActive,
+                    onToggle = { isBookmarksActive = it }
                 )
             }
         )
@@ -158,23 +160,7 @@ fun HomeScreen(
 
                 when {
                     isCurrentSource && uiState.isLoading && sourceSections.isEmpty() -> {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator(
-                                color = NovelPrimary,
-                                strokeWidth = 3.dp,
-                                modifier = Modifier.size(40.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Loading ${source.displayName}...",
-                                color = NovelTextSecondary,
-                                fontSize = 14.sp
-                            )
-                        }
+                        HomeShimmerFeed(sourceName = source.displayName)
                     }
 
                     isCurrentSource && uiState.errorMessage != null && sourceSections.isEmpty() -> {
@@ -233,6 +219,59 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeShimmerFeed(sourceName: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // Hero placeholder
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(210.dp)
+                .padding(horizontal = 16.dp)
+                .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(16.dp))
+        )
+
+        // Section row placeholder
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(140.dp)
+                    .height(20.dp)
+                    .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(6.dp))
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                repeat(3) {
+                    Column(modifier = Modifier.width(135.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(190.dp)
+                                .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(12.dp))
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .height(14.dp)
+                                .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(4.dp))
+                        )
                     }
                 }
             }

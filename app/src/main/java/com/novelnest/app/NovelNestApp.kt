@@ -284,12 +284,19 @@ private fun NovelPreviewSheetContent(
                 }
             }
 
-            NovelNestIconButton(
-                icon = Icons.Rounded.Close,
-                contentDescription = "Close preview",
-                tint = NovelTextSecondary,
-                onClick = onDismiss
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                var isBookmarked by remember(novel.id) { mutableStateOf(false) }
+                com.novelnest.app.core.ui.animation.AnimatedBookmarkButton(
+                    isBookmarked = isBookmarked,
+                    onToggle = { isBookmarked = it }
+                )
+                NovelNestIconButton(
+                    icon = Icons.Rounded.Close,
+                    contentDescription = "Close preview",
+                    tint = NovelTextSecondary,
+                    onClick = onDismiss
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))

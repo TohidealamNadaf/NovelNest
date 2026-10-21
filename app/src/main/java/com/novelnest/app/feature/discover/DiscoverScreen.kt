@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import com.novelnest.app.core.ui.animation.shimmerPlaceholder
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -60,8 +62,10 @@ import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.SearchBarTrigger
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.animation.BounceScale
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
@@ -75,6 +79,7 @@ fun DiscoverScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
+    val playHaptic = rememberNovelNestHaptic()
 
     // Independent scroll position per source for discovering novels
     val gridStates = remember {
@@ -136,7 +141,10 @@ fun DiscoverScreen(
                             scaleDown = BounceScale.Small,
                             onClickLabel = "Filter by $genre",
                             role = Role.Tab
-                        ) { viewModel.selectGenre(genre) }
+                        ) {
+                            playHaptic(NovelNestHapticType.LIGHT_TICK)
+                            viewModel.selectGenre(genre)
+                        }
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -190,17 +198,7 @@ fun DiscoverScreen(
                 }
 
                 if (isCurrentSource && uiState.isLoading && sourceNovels.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator(
-                            color = NovelPrimary,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                    DiscoverShimmerGrid()
                 } else {
                     LazyVerticalGrid(
                         state = sourceGridState,
@@ -214,11 +212,50 @@ fun DiscoverScreen(
                             NovelCard(
                                 novel = novel,
                                 modifier = Modifier.fillMaxWidth(),
-                                onClick = { onNovelClick(novel) }
+                                onClick = {
+                                    playHaptic(NovelNestHapticType.ACTION_CONFIRM)
+                                    onNovelClick(novel)
+                                }
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoverShimmerGrid() {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = com.novelnest.app.core.ui.footer.rememberFooterBottomPadding()),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(6) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.7f)
+                        .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(12.dp))
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(16.dp)
+                        .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(4.dp))
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .height(12.dp)
+                        .shimmerPlaceholder(visible = true, shape = RoundedCornerShape(4.dp))
+                )
             }
         }
     }

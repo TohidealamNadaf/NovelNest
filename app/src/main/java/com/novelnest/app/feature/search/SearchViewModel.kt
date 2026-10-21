@@ -94,4 +94,12 @@ class SearchViewModel(
             it.copy(query = "", results = emptyList(), hasSearched = false, isSearching = false)
         }
     }
+
+    fun clearRecentSearches() {
+        _uiState.update { it.copy(recentSearches = emptyList()) }
+    }
+
+    fun removeRecentSearch(keyword: String) {
+        _uiState.update { it.copy(recentSearches = it.recentSearches.filterNot { item -> item == keyword }) }
+    }
 }

@@ -57,8 +57,10 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceSelectable
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 
 /**
  * Navigation destination specification for the decoupled footer component.
@@ -84,6 +86,7 @@ fun NovelNestFooter(
 ) {
     var itemCenters by remember { mutableStateOf(mapOf<String, Dp>()) }
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
+    val playHaptic = rememberNovelNestHaptic()
 
     Box(
         modifier = modifier
@@ -135,7 +138,10 @@ fun NovelNestFooter(
                         icon = destination.icon,
                         label = destination.label,
                         isSelected = destination.route == selectedRoute,
-                        onClick = { onNavigate(destination.route) },
+                        onClick = {
+                            playHaptic(NovelNestHapticType.LIGHT_TICK)
+                            onNavigate(destination.route)
+                        },
                         onPositioned = { centerX ->
                             if (itemCenters[destination.route] != centerX) {
                                 itemCenters = itemCenters + (destination.route to centerX)

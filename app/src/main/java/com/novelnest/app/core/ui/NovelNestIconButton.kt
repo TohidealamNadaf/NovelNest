@@ -21,6 +21,9 @@ import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
+
 /**
  * Standard tactile icon button for NovelNest.
  * Guarantees a minimum 48dp touch target for accessibility, tactile spring bounce,
@@ -36,6 +39,8 @@ fun NovelNestIconButton(
     iconSize: Dp = 22.dp,
     enabled: Boolean = true
 ) {
+    val playHaptic = rememberNovelNestHaptic()
+
     Box(
         modifier = modifier
             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -48,7 +53,10 @@ fun NovelNestIconButton(
                 enabled = enabled,
                 onClickLabel = contentDescription,
                 role = Role.Button,
-                onClick = onClick
+                onClick = {
+                    playHaptic(NovelNestHapticType.LIGHT_TICK)
+                    onClick()
+                }
             ),
         contentAlignment = Alignment.Center
     ) {

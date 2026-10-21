@@ -32,7 +32,9 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.animation.BounceScale
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.model.NovelSourceType
 
 @Composable
@@ -41,6 +43,8 @@ fun SearchBarTrigger(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val playHaptic = rememberNovelNestHaptic()
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -53,7 +57,10 @@ fun SearchBarTrigger(
                 scaleDown = BounceScale.Medium,
                 onClickLabel = "Search ${currentSource.displayName}",
                 role = Role.Button,
-                onClick = onClick
+                onClick = {
+                    playHaptic(NovelNestHapticType.LIGHT_TICK)
+                    onClick()
+                }
             )
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.CenterStart

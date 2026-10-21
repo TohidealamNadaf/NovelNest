@@ -97,5 +97,7 @@ data class GeneralAppSettings(
     val amoledAppMode: Boolean = false,
     val dataSaver: Boolean = false,
     val defaultSourceOrdinal: Int = 0,
-    val autoBookmarkOnRead: Boolean = true
+    val autoBookmarkOnRead: Boolean = true,
+    val hapticFeedbackEnabled: Boolean = true,
+    val reducedMotion: Boolean = false
 )

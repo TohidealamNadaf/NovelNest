@@ -57,12 +57,16 @@ class ReaderPreferencesManager(context: Context) {
         val dataSaver = prefs.getBoolean(KEY_DATA_SAVER, false)
         val defaultSource = prefs.getInt(KEY_DEFAULT_SOURCE, 0)
         val autoBookmark = prefs.getBoolean(KEY_AUTO_BOOKMARK, true)
+        val haptics = prefs.getBoolean(KEY_HAPTIC_FEEDBACK, true)
+        val reducedMotion = prefs.getBoolean(KEY_REDUCED_MOTION, false)
 
         return GeneralAppSettings(
             amoledAppMode = amoled,
             dataSaver = dataSaver,
             defaultSourceOrdinal = defaultSource,
-            autoBookmarkOnRead = autoBookmark
+            autoBookmarkOnRead = autoBookmark,
+            hapticFeedbackEnabled = haptics,
+            reducedMotion = reducedMotion
         )
     }
 
@@ -157,6 +161,16 @@ class ReaderPreferencesManager(context: Context) {
         _appSettings.update { it.copy(autoBookmarkOnRead = enabled) }
     }
 
+    fun updateHapticFeedback(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HAPTIC_FEEDBACK, enabled).apply()
+        _appSettings.update { it.copy(hapticFeedbackEnabled = enabled) }
+    }
+
+    fun updateReducedMotion(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REDUCED_MOTION, enabled).apply()
+        _appSettings.update { it.copy(reducedMotion = enabled) }
+    }
+
     companion object {
         private const val PREFS_NAME = "novelnest_preferences"
 
@@ -177,5 +191,7 @@ class ReaderPreferencesManager(context: Context) {
         private const val KEY_DATA_SAVER = "app_data_saver"
         private const val KEY_DEFAULT_SOURCE = "app_default_source"
         private const val KEY_AUTO_BOOKMARK = "app_auto_bookmark"
+        private const val KEY_HAPTIC_FEEDBACK = "app_haptic_feedback"
+        private const val KEY_REDUCED_MOTION = "app_reduced_motion"
     }
 }

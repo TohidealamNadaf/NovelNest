@@ -58,7 +58,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +78,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.NovelNestIconButton
+import com.novelnest.app.core.ui.animation.AnimatedBookmarkButton
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.bounceSelectable
@@ -319,13 +322,21 @@ fun ReaderScreen(
                         }
                     }
 
-                    // Quick Settings Trigger
-                    NovelNestIconButton(
-                        icon = Icons.Rounded.FormatSize,
-                        contentDescription = "Adjust reader settings",
-                        tint = NovelPrimary,
-                        onClick = { viewModel.showQuickSettings(true) }
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        var isBookmarked by remember(uiState.novel?.id) { mutableStateOf(false) }
+                        AnimatedBookmarkButton(
+                            isBookmarked = isBookmarked,
+                            onToggle = { isBookmarked = it }
+                        )
+
+                        // Quick Settings Trigger
+                        NovelNestIconButton(
+                            icon = Icons.Rounded.FormatSize,
+                            contentDescription = "Adjust reader settings",
+                            tint = NovelPrimary,
+                            onClick = { viewModel.showQuickSettings(true) }
+                        )
+                    }
                 }
             }
         }
