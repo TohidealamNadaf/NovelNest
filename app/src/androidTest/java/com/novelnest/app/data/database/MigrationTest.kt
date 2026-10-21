@@ -1,7 +1,6 @@
 package com.novelnest.app.data.database
 
 import androidx.room.testing.MigrationTestHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
@@ -16,8 +15,7 @@ class MigrationTest {
     @get:Rule
     val helper: MigrationTestHelper = MigrationTestHelper(
         InstrumentationRegistry.getInstrumentation(),
-        NovelNestDatabase::class.java.canonicalName,
-        FrameworkSQLiteOpenHelperFactory()
+        NovelNestDatabase::class.java
     )
 
     @Test
