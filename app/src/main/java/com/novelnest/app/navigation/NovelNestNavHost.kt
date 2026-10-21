@@ -18,10 +18,13 @@ import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.repository.NovelRepository
+import com.novelnest.app.feature.detail.NovelDetailScreen
+import com.novelnest.app.feature.detail.NovelDetailViewModel
 import com.novelnest.app.feature.discover.DiscoverScreen
 import com.novelnest.app.feature.discover.DiscoverViewModel
 import com.novelnest.app.feature.home.HomeScreen
 import com.novelnest.app.feature.home.HomeViewModel
+import com.novelnest.app.feature.notification.NotificationScreen
 import com.novelnest.app.feature.reader.ReaderScreen
 import com.novelnest.app.feature.reader.ReaderViewModel
 import com.novelnest.app.feature.search.SearchScreen
@@ -58,7 +61,13 @@ fun NovelNestNavHost(
                 onNavigateToSearch = { source ->
                     navController.navigate(NovelNestDestination.Search.createRoute(source.ordinal))
                 },
-                onNovelClick = onNovelClick
+                onNovelClick = onNovelClick,
+                onNavigateToNotifications = {
+                    navController.navigate(NovelNestDestination.Notifications.route)
+                },
+                onNavigateToSettings = {
+                    navController.navigate(NovelNestDestination.Settings.route)
+                }
             )
         }
 
@@ -121,6 +130,65 @@ fun NovelNestNavHost(
                 viewModel = searchViewModel,
                 onBack = { navController.popBackStack() },
                 onNovelClick = onNovelClick
+            )
+        }
+
+        // FULL NOVEL DETAIL & CHAPTER LIST SCREEN
+        composable(
+            route = NovelNestDestination.Detail.route,
+            arguments = listOf(
+                navArgument("novelId") {
+                    type = NavType.StringType
+                }
+            ),
+            enterTransition = {
+                slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight / 4 },
+                    animationSpec = tween(320)
+                ) + fadeIn(animationSpec = tween(320))
+            },
+            exitTransition = {
+                slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight / 4 },
+                    animationSpec = tween(250)
+                ) + fadeOut(animationSpec = tween(250))
+            }
+        ) { backStackEntry ->
+            val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
+            val detailViewModel = remember(novelId) {
+                NovelDetailViewModel(novelId, repository)
+            }
+
+            NovelDetailScreen(
+                viewModel = detailViewModel,
+                onBack = { navController.popBackStack() },
+                onStartReading = { id, _ ->
+                    navController.navigate(NovelNestDestination.Reader.createRoute(id))
+                }
+            )
+        }
+
+        // NOTIFICATIONS SCREEN
+        composable(
+            route = NovelNestDestination.Notifications.route,
+            enterTransition = {
+                slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight / 4 },
+                    animationSpec = tween(300)
+                ) + fadeIn(animationSpec = tween(300))
+            },
+            exitTransition = {
+                slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight / 4 },
+                    animationSpec = tween(250)
+                ) + fadeOut(animationSpec = tween(250))
+            }
+        ) {
+            NotificationScreen(
+                onBack = { navController.popBackStack() },
+                onNovelClick = { novelId ->
+                    navController.navigate(NovelNestDestination.Detail.createRoute(novelId))
+                }
             )
         }
 

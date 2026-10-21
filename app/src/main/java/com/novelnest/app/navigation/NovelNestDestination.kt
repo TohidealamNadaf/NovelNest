@@ -10,4 +10,8 @@ sealed class NovelNestDestination(val route: String) {
     data object Reader : NovelNestDestination("reader/{novelId}") {
         fun createRoute(novelId: String) = "reader/$novelId"
     }
+    data object Detail : NovelNestDestination("detail/{novelId}") {
+        fun createRoute(novelId: String) = "detail/$novelId"
+    }
+    data object Notifications : NovelNestDestination("notifications")
 }

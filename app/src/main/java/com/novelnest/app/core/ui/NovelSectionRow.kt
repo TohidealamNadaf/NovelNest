@@ -78,21 +78,12 @@ fun NovelSectionRow(
                         else -> Icons.Rounded.AutoStories
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(NovelPrimary.copy(alpha = 0.12f))
-                            .border(0.5.dp, NovelPrimary.copy(alpha = 0.25f), RoundedCornerShape(7.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = sectionIcon,
-                            contentDescription = null,
-                            tint = NovelPrimary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = sectionIcon,
+                        contentDescription = null,
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -109,7 +100,7 @@ fun NovelSectionRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = NovelTextSecondary,
                         fontSize = 11.sp,
-                        modifier = Modifier.padding(start = 34.dp, top = 2.dp)
+                        modifier = Modifier.padding(start = 28.dp, top = 2.dp)
                     )
                 }
             }

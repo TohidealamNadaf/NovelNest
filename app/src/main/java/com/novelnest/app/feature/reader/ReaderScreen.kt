@@ -1,92 +1,68 @@
 package com.novelnest.app.feature.reader
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FormatSize
-import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
-import com.novelnest.app.core.designsystem.NovelSurfaceBorder
-import com.novelnest.app.core.designsystem.NovelSurfaceVariant
-import com.novelnest.app.core.designsystem.NovelTextPrimary
-import com.novelnest.app.core.designsystem.NovelTextSecondary
-import com.novelnest.app.core.ui.NovelNestIconButton
-import com.novelnest.app.core.ui.animation.AnimatedBookmarkButton
-import com.novelnest.app.core.ui.animation.BounceScale
-import com.novelnest.app.core.ui.animation.bounceClick
-import com.novelnest.app.core.ui.animation.bounceSelectable
-import com.novelnest.app.data.preferences.ReaderScrollMode
-import com.novelnest.app.data.preferences.ReaderSettings
-import com.novelnest.app.data.preferences.ReaderTheme
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
+import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
+import com.novelnest.app.feature.reader.components.ChapterCutSection
+import com.novelnest.app.feature.reader.components.PullChapterIndicator
+import com.novelnest.app.feature.reader.components.ReaderQuickSettingsSheet
+import com.novelnest.app.feature.reader.components.ReaderTopBar
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     viewModel: ReaderViewModel,
@@ -95,11 +71,33 @@ fun ReaderScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val settings by viewModel.readerSettings.collectAsState()
-    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val playHaptic = rememberNovelNestHaptic()
+    val areAnimationsDisabled = rememberAreAnimationsDisabled()
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
     val currentTheme = settings.theme
     val textColor = currentTheme.textColor.copy(alpha = settings.textBrightness)
     val secondaryColor = currentTheme.secondaryTextColor.copy(alpha = settings.textBrightness)
+
+    // Navigation direction tracking: 1 for next chapter (slides up), -1 for previous chapter (slides down)
+    var navDirection by remember { mutableIntStateOf(1) }
+
+    fun navigateToNextChapter() {
+        if (uiState.currentChapterIndex < uiState.chapters.size - 1) {
+            playHaptic(NovelNestHapticType.LIGHT_TICK)
+            navDirection = 1
+            viewModel.nextChapter()
+        }
+    }
+
+    fun navigateToPrevChapter() {
+        if (uiState.currentChapterIndex > 0) {
+            playHaptic(NovelNestHapticType.LIGHT_TICK)
+            navDirection = -1
+            viewModel.prevChapter()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -125,125 +123,144 @@ fun ReaderScreen(
                 )
             }
         } else if (uiState.chapters.isNotEmpty()) {
-            val currentChapter = uiState.chapters[uiState.currentChapterIndex]
+            val hasNextChapter = uiState.currentChapterIndex < uiState.chapters.size - 1
+            val hasPrevChapter = uiState.currentChapterIndex > 0
 
-            // Main Reading Canvas
-            if (settings.scrollMode == ReaderScrollMode.CONTINUOUS) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { viewModel.toggleChrome() }
-                        ),
-                    contentPadding = PaddingValues(
-                        start = 20.dp,
-                        end = 20.dp,
-                        top = 80.dp,
-                        bottom = 100.dp
-                    )
-                ) {
-                    item {
-                        Text(
-                            text = currentChapter.title,
-                            fontFamily = settings.fontFamily.fontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = (settings.fontSizeSp + 4f).sp,
-                            lineHeight = ((settings.fontSizeSp + 4f) * settings.lineHeightMultiplier).sp,
-                            color = textColor,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                    }
-
-                    items(currentChapter.paragraphs) { paragraph ->
-                        Text(
-                            text = paragraph,
-                            fontFamily = settings.fontFamily.fontFamily,
-                            fontSize = settings.fontSizeSp.sp,
-                            lineHeight = (settings.fontSizeSp * settings.lineHeightMultiplier).sp,
-                            color = textColor,
-                            modifier = Modifier.padding(bottom = settings.paragraphSpacingDp.dp)
-                        )
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Button(
-                                onClick = { viewModel.prevChapter() },
-                                enabled = uiState.currentChapterIndex > 0,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = currentTheme.surfaceColor,
-                                    contentColor = textColor,
-                                    disabledContainerColor = currentTheme.surfaceColor.copy(alpha = 0.4f),
-                                    disabledContentColor = secondaryColor.copy(alpha = 0.3f)
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.sizeIn(minHeight = 44.dp)
-                            ) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Previous", fontSize = 12.sp)
-                            }
-
-                            Text(
-                                text = "${uiState.currentChapterIndex + 1} / ${uiState.chapters.size}",
-                                color = secondaryColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+            // Animated chapter transition: next chapter pulls up from below; previous pulls down from above
+            AnimatedContent(
+                targetState = uiState.currentChapterIndex,
+                transitionSpec = {
+                    if (areAnimationsDisabled) {
+                        fadeIn(animationSpec = tween(150)) togetherWith fadeOut(animationSpec = tween(150))
+                    } else if (navDirection >= 0) {
+                        // Next chapter pulls up from bottom
+                        (slideInVertically(animationSpec = tween(340, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } +
+                            fadeIn(animationSpec = tween(300)))
+                            .togetherWith(
+                                slideOutVertically(animationSpec = tween(340, easing = FastOutSlowInEasing)) { fullHeight -> -fullHeight } +
+                                    fadeOut(animationSpec = tween(240))
                             )
+                    } else {
+                        // Previous chapter pulls down from above
+                        (slideInVertically(animationSpec = tween(340, easing = FastOutSlowInEasing)) { fullHeight -> -fullHeight } +
+                            fadeIn(animationSpec = tween(300)))
+                            .togetherWith(
+                                slideOutVertically(animationSpec = tween(340, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } +
+                                    fadeOut(animationSpec = tween(240))
+                            )
+                    }
+                },
+                label = "chapter_reading_transition"
+            ) { chapterIndex ->
+                val chapter = uiState.chapters[chapterIndex]
+                val listState = rememberLazyListState()
 
-                            Button(
-                                onClick = { viewModel.nextChapter() },
-                                enabled = uiState.currentChapterIndex < uiState.chapters.size - 1,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = NovelPrimary,
-                                    contentColor = NovelOnPrimary,
-                                    disabledContainerColor = currentTheme.surfaceColor.copy(alpha = 0.4f),
-                                    disabledContentColor = secondaryColor.copy(alpha = 0.3f)
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.sizeIn(minHeight = 44.dp)
-                            ) {
-                                Text("Next", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                // Scroll to top on chapter change
+                LaunchedEffect(chapterIndex) {
+                    listState.scrollToItem(0)
+                }
+
+                // Interactive pull offset for swipe-up (bottom) and swipe-down (top) overscroll
+                val pullOffset = remember { Animatable(0f) }
+                val thresholdPx = with(density) { 75.dp.toPx() }
+
+                // NestedScrollConnection detects overscroll at boundaries
+                val pullScrollConnection = remember(listState, hasPrevChapter, hasNextChapter, thresholdPx) {
+                    object : NestedScrollConnection {
+                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                            if (source == NestedScrollSource.UserInput) {
+                                val current = pullOffset.value
+                                // Pulling back up from downward pull
+                                if (current > 0f && available.y < 0f) {
+                                    val consumed = available.y.coerceAtLeast(-current)
+                                    coroutineScope.launch { pullOffset.snapTo(current + consumed) }
+                                    return Offset(0f, consumed)
+                                }
+                                // Pulling back down from upward pull
+                                if (current < 0f && available.y > 0f) {
+                                    val consumed = available.y.coerceAtMost(-current)
+                                    coroutineScope.launch { pullOffset.snapTo(current + consumed) }
+                                    return Offset(0f, consumed)
+                                }
                             }
+                            return Offset.Zero
+                        }
+
+                        override fun onPostScroll(
+                            consumed: Offset,
+                            available: Offset,
+                            source: NestedScrollSource
+                        ): Offset {
+                            if (source == NestedScrollSource.UserInput) {
+                                // 1. Swipe down at top of chapter -> pull previous chapter from above
+                                if (available.y > 0f && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && hasPrevChapter) {
+                                    val delta = available.y * 0.45f
+                                    val newTarget = (pullOffset.value + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
+                                    coroutineScope.launch { pullOffset.snapTo(newTarget) }
+                                    return Offset(0f, available.y)
+                                }
+
+                                // 2. Swipe up at end of chapter -> pull next chapter from below
+                                if (available.y < 0f && !listState.canScrollForward && hasNextChapter) {
+                                    val delta = available.y * 0.45f
+                                    val newTarget = (pullOffset.value + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
+                                    coroutineScope.launch { pullOffset.snapTo(newTarget) }
+                                    return Offset(0f, available.y)
+                                }
+                            }
+                            return Offset.Zero
+                        }
+
+                        override suspend fun onPreFling(available: Velocity): Velocity {
+                            val current = pullOffset.value
+                            if (current >= thresholdPx && hasPrevChapter) {
+                                navigateToPrevChapter()
+                            } else if (current <= -thresholdPx && hasNextChapter) {
+                                navigateToNextChapter()
+                            }
+                            pullOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                            return Velocity.Zero
                         }
                     }
                 }
-            } else {
-                // Paged horizontal flip mode
-                val pagerState = rememberPagerState(
-                    initialPage = uiState.currentChapterIndex,
-                    pageCount = { uiState.chapters.size }
-                )
 
-                HorizontalPager(
-                    state = pagerState,
+                // Fire haptic tick when crossing pull threshold
+                var hasFiredThresholdHaptic by remember { mutableStateOf(false) }
+                LaunchedEffect(pullOffset.value) {
+                    val currentAbs = kotlin.math.abs(pullOffset.value)
+                    if (currentAbs >= thresholdPx && !hasFiredThresholdHaptic) {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        hasFiredThresholdHaptic = true
+                    } else if (currentAbs < thresholdPx * 0.7f) {
+                        hasFiredThresholdHaptic = false
+                    }
+                }
+
+                val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 62.dp
+
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { viewModel.toggleChrome() }
-                        )
-                ) { page ->
-                    val chapter = uiState.chapters[page]
+                        .nestedScroll(pullScrollConnection)
+                ) {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationY = pullOffset.value }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { viewModel.toggleChrome() }
+                            ),
                         contentPadding = PaddingValues(
                             start = 20.dp,
                             end = 20.dp,
-                            top = 80.dp,
-                            bottom = 100.dp
+                            top = topPadding,
+                            bottom = 48.dp
                         )
                     ) {
+                        // Chapter Title Header
                         item {
                             Text(
                                 text = chapter.title,
@@ -252,10 +269,11 @@ fun ReaderScreen(
                                 fontSize = (settings.fontSizeSp + 4f).sp,
                                 lineHeight = ((settings.fontSizeSp + 4f) * settings.lineHeightMultiplier).sp,
                                 color = textColor,
-                                modifier = Modifier.padding(bottom = 16.dp)
+                                modifier = Modifier.padding(bottom = 18.dp)
                             )
                         }
 
+                        // Chapter Paragraphs
                         items(chapter.paragraphs) { paragraph ->
                             Text(
                                 text = paragraph,
@@ -266,249 +284,65 @@ fun ReaderScreen(
                                 modifier = Modifier.padding(bottom = settings.paragraphSpacingDp.dp)
                             )
                         }
+
+                        // End-of-chapter cut section with '---' border space and Tap/Swipe Up caption
+                        item {
+                            ChapterCutSection(
+                                hasNextChapter = hasNextChapter,
+                                textColor = textColor,
+                                secondaryColor = secondaryColor,
+                                onNextChapter = { navigateToNextChapter() }
+                            )
+                        }
                     }
+
+                    // Pull Down Indicator (Previous Chapter Preview & Release state)
+                    PullChapterIndicator(
+                        isPullingDown = true,
+                        pullDistancePx = pullOffset.value.coerceAtLeast(0f),
+                        thresholdPx = thresholdPx,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = topPadding + 8.dp)
+                    )
+
+                    // Pull Up Indicator (Next Chapter Preview & Release state)
+                    PullChapterIndicator(
+                        isPullingDown = false,
+                        pullDistancePx = (-pullOffset.value).coerceAtLeast(0f),
+                        thresholdPx = thresholdPx,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 28.dp)
+                    )
                 }
             }
         }
 
-        // TOP IMMERSIVE CONTROL BAR
-        AnimatedVisibility(
-            visible = uiState.isChromeVisible,
-            enter = slideInVertically(initialOffsetY = { -it }),
-            exit = slideOutVertically(targetOffsetY = { -it }),
+        // Properly placed Top Reading Control Header (Footer removed completely)
+        ReaderTopBar(
+            novelTitle = uiState.novel?.title ?: "NovelNest",
+            chapterTitle = if (uiState.chapters.isNotEmpty()) uiState.chapters[uiState.currentChapterIndex].title else "",
+            currentTheme = currentTheme,
+            textColor = textColor,
+            secondaryColor = secondaryColor,
+            isVisible = uiState.isChromeVisible,
+            onBack = onBack,
+            onOpenSettings = { viewModel.showQuickSettings(true) },
             modifier = Modifier.align(Alignment.TopCenter)
-        ) {
-            Surface(
-                color = currentTheme.surfaceColor.copy(alpha = 0.95f),
-                shadowElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        NovelNestIconButton(
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Leave reading mode",
-                            tint = textColor,
-                            onClick = onBack
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            Text(
-                                text = uiState.novel?.title ?: "NovelNest",
-                                color = textColor,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (uiState.chapters.isNotEmpty()) {
-                                Text(
-                                    text = uiState.chapters[uiState.currentChapterIndex].title,
-                                    color = secondaryColor,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
+        )
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        var isBookmarked by remember(uiState.novel?.id) { mutableStateOf(false) }
-                        AnimatedBookmarkButton(
-                            isBookmarked = isBookmarked,
-                            onToggle = { isBookmarked = it }
-                        )
-
-                        // Quick Settings Trigger
-                        NovelNestIconButton(
-                            icon = Icons.Rounded.FormatSize,
-                            contentDescription = "Adjust reader settings",
-                            tint = NovelPrimary,
-                            onClick = { viewModel.showQuickSettings(true) }
-                        )
-                    }
-                }
-            }
-        }
-
-        // BOTTOM IMMERSIVE PROGRESSION BAR
-        AnimatedVisibility(
-            visible = uiState.isChromeVisible,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            Surface(
-                color = currentTheme.surfaceColor.copy(alpha = 0.95f),
-                shadowElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    NovelNestIconButton(
-                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "Previous chapter",
-                        tint = if (uiState.currentChapterIndex > 0) textColor else secondaryColor.copy(alpha = 0.4f),
-                        enabled = uiState.currentChapterIndex > 0,
-                        onClick = { viewModel.prevChapter() }
-                    )
-
-                    Text(
-                        text = "Chapter ${uiState.currentChapterIndex + 1} of ${uiState.chapters.size}",
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    NovelNestIconButton(
-                        icon = Icons.AutoMirrored.Rounded.ArrowForward,
-                        contentDescription = "Next chapter",
-                        tint = if (uiState.currentChapterIndex < uiState.chapters.size - 1) NovelPrimary else secondaryColor.copy(alpha = 0.4f),
-                        enabled = uiState.currentChapterIndex < uiState.chapters.size - 1,
-                        onClick = { viewModel.nextChapter() }
-                    )
-                }
-            }
-        }
-
-        // QUICK READER SETTINGS BOTTOM SHEET
+        // Quick Reader Typography & Theme Customization Sheet
         if (uiState.showQuickSettingsSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { viewModel.showQuickSettings(false) },
-                sheetState = bottomSheetState,
-                containerColor = currentTheme.surfaceColor,
-                dragHandle = null
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Reading Customization",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = textColor,
-                            fontWeight = FontWeight.Bold
-                        )
-                        NovelNestIconButton(
-                            icon = Icons.Rounded.Close,
-                            contentDescription = "Close reader settings",
-                            tint = secondaryColor,
-                            onClick = { viewModel.showQuickSettings(false) }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Theme selector in sheet
-                    Text("Theme Palette", color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.selectableGroup()
-                    ) {
-                        items(ReaderTheme.entries) { theme ->
-                            val isSelected = theme == settings.theme
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 62.dp, height = 48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(theme.backgroundColor)
-                                    .border(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) NovelPrimary else Color(0x33888888),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .bounceSelectable(
-                                        selected = isSelected,
-                                        scaleDown = BounceScale.Small,
-                                        onClick = { viewModel.setTheme(theme) }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        Icons.Rounded.Check,
-                                        contentDescription = "Active",
-                                        tint = NovelPrimary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                } else {
-                                    Text("Aa", color = theme.textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Font Size quick stepper
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Font Size: ${settings.fontSizeSp.toInt()}sp", color = textColor, fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NovelNestIconButton(
-                                icon = Icons.Rounded.Remove,
-                                contentDescription = "Smaller font",
-                                tint = textColor,
-                                onClick = { viewModel.setFontSize(settings.fontSizeSp - 1f) }
-                            )
-                            NovelNestIconButton(
-                                icon = Icons.Rounded.Add,
-                                contentDescription = "Larger font",
-                                tint = textColor,
-                                onClick = { viewModel.setFontSize(settings.fontSizeSp + 1f) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Slider(
-                        value = settings.fontSizeSp,
-                        onValueChange = { viewModel.setFontSize(it) },
-                        valueRange = 12f..28f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = NovelPrimary,
-                            activeTrackColor = NovelPrimary,
-                            inactiveTrackColor = Color(0x33888888)
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = { viewModel.showQuickSettings(false) },
-                        colors = ButtonDefaults.buttonColors(containerColor = NovelPrimary, contentColor = NovelOnPrimary),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) {
-                        Text("Apply & Resume Reading", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+            ReaderQuickSettingsSheet(
+                settings = settings,
+                textColor = textColor,
+                secondaryColor = secondaryColor,
+                onDismiss = { viewModel.showQuickSettings(false) },
+                onSetTheme = { viewModel.setTheme(it) },
+                onSetFontSize = { viewModel.setFontSize(it) },
+                onSetLineHeight = { viewModel.setLineHeight(it) }
+            )
         }
     }
 }

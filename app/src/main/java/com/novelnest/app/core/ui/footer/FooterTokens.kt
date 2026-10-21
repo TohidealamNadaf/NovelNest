@@ -8,22 +8,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Shared layout dimension tokens for the floating capsule footer dock.
+ * Shared layout dimension tokens for the docked navigation footer.
  */
 object FooterTokens {
-    val CapsuleHeight: Dp = 58.dp
-    val VerticalPadding: Dp = 10.dp
-    val TotalFooterHeight: Dp = CapsuleHeight + (VerticalPadding * 2) // 78.dp
+    val BarHeight: Dp = 64.dp
+    val TotalFooterHeight: Dp = BarHeight
 }
 
 /**
- * Returns bottom contentPadding for scrollable containers displayed above the floating footer.
- * Calculates footer height + outer vertical margins + current navigation bar insets + safety margin.
- * Guarantees that the last item will never be hidden behind the capsule on either
+ * Returns bottom contentPadding for scrollable containers displayed above the footer bar.
+ * Calculates footer bar height + system navigation bar insets + safety margin.
+ * Guarantees that the last item will never be hidden behind the footer on either
  * gesture navigation or 3-button navigation.
  */
 @Composable
-fun rememberFooterBottomPadding(extraMargin: Dp = 12.dp): Dp {
+fun rememberFooterBottomPadding(extraMargin: Dp = 16.dp): Dp {
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    return FooterTokens.TotalFooterHeight + navBarInset + extraMargin
+    return FooterTokens.BarHeight + navBarInset + extraMargin
 }

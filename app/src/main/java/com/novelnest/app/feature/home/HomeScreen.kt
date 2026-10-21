@@ -6,8 +6,12 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -29,20 +33,21 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.novelnest.app.core.ui.animation.shimmerPlaceholder
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
@@ -60,9 +64,10 @@ import com.novelnest.app.core.ui.HeroCarousel
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.NovelSectionRow
 import com.novelnest.app.core.ui.SearchBarTrigger
-import com.novelnest.app.core.ui.animation.AnimatedBookmarkButton
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
+import com.novelnest.app.core.ui.animation.shimmerPlaceholder
+import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
 import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
@@ -74,6 +79,8 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToSearch: (NovelSourceType) -> Unit,
     onNovelClick: (Novel) -> Unit,
+    onNavigateToNotifications: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -82,6 +89,17 @@ fun HomeScreen(
     // Independent scroll position per source so state is preserved when switching back
     val listStates = remember {
         NovelSourceType.entries.associateWith { LazyListState() }
+    }
+
+    // Active scroll state for current source
+    val currentSource = uiState.selectedSource
+    val currentListState = listStates[currentSource] ?: rememberLazyListState()
+
+    // Dynamic scroll collapse detection
+    val isScrolled by remember(currentSource, currentListState) {
+        derivedStateOf {
+            currentListState.firstVisibleItemIndex > 0 || currentListState.firstVisibleItemScrollOffset > 30
+        }
     }
 
     // Retain sections per source during animated tab switching
@@ -100,30 +118,58 @@ fun HomeScreen(
             .fillMaxSize()
             .background(NovelBackground)
     ) {
-        // Reusable App Header
+        // App Header: Title + Collapsed Search Icon + Notification Icon + Profile Icon
         NovelNestHeader(
             title = "NovelNest",
             icon = Icons.Rounded.AutoStories,
             actions = {
-                var isBookmarksActive by remember { mutableStateOf(false) }
-                AnimatedBookmarkButton(
-                    isBookmarked = isBookmarksActive,
-                    onToggle = { isBookmarksActive = it }
+                // Collapsed search icon appears smoothly in top row when scrolled
+                AnimatedVisibility(
+                    visible = isScrolled,
+                    enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.8f),
+                    exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.8f)
+                ) {
+                    NovelNestIconButton(
+                        icon = Icons.Rounded.Search,
+                        contentDescription = "Search Novels",
+                        onClick = { onNavigateToSearch(uiState.selectedSource) }
+                    )
+                }
+
+                // Notification Icon -> navigates to notifications page
+                NovelNestIconButton(
+                    icon = Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notifications",
+                    onClick = onNavigateToNotifications
+                )
+
+                // Profile Icon -> navigates to settings/profile page
+                NovelNestIconButton(
+                    icon = Icons.Rounded.PersonOutline,
+                    contentDescription = "Profile & Settings",
+                    onClick = onNavigateToSettings
                 )
             }
         )
 
-        // Source Tabs (NovelPhoenix, FWN, Asura Scans)
-        SourceTabRow(
-            selectedSource = uiState.selectedSource,
-            onSourceSelected = { viewModel.selectSource(it) }
-        )
+        // Source Tabs + Search Field: animates out on scroll, transitioning into the header's search icon
+        AnimatedVisibility(
+            visible = !isScrolled,
+            enter = expandVertically(animationSpec = tween(260)) + fadeIn(animationSpec = tween(200)),
+            exit = shrinkVertically(animationSpec = tween(260)) + fadeOut(animationSpec = tween(200))
+        ) {
+            Column {
+                SourceTabRow(
+                    selectedSource = uiState.selectedSource,
+                    onSourceSelected = { viewModel.selectSource(it) }
+                )
 
-        // Animated Search Trigger (transitions to Search Screen)
-        SearchBarTrigger(
-            currentSource = uiState.selectedSource,
-            onClick = { onNavigateToSearch(uiState.selectedSource) }
-        )
+                SearchBarTrigger(
+                    currentSource = uiState.selectedSource,
+                    onClick = { onNavigateToSearch(uiState.selectedSource) }
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(4.dp))
 
@@ -202,7 +248,7 @@ fun HomeScreen(
                         LazyColumn(
                             state = sourceListState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = com.novelnest.app.core.ui.footer.rememberFooterBottomPadding()),
+                            contentPadding = PaddingValues(bottom = rememberFooterBottomPadding()),
                             verticalArrangement = Arrangement.spacedBy(20.dp)
                         ) {
                             items(sourceSections, key = { it.id }) { section ->

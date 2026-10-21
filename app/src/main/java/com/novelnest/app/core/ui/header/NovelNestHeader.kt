@@ -31,6 +31,9 @@ import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+
 /**
  * Reusable, modular Top Header component for NovelNest screens.
  * Supports custom branding icon, title, optional subtitle, and trailing action slots.
@@ -47,7 +50,8 @@ fun NovelNestHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .heightIn(min = 60.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -88,7 +92,8 @@ fun NovelNestHeader(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.height(48.dp)
         ) {
             actions()
         }

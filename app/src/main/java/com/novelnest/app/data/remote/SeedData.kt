@@ -435,4 +435,11 @@ object SeedData {
                     novel.synopsis.lowercase().contains(q)
         }
     }
+
+    fun findNovelById(id: String): Novel? {
+        val all = (novelPhoenixHeroSlides + novelPhoenixTrending + novelPhoenixLatest +
+                fwnHeroSlides + fwnTrending +
+                asuraHeroSlides + asuraTrending + asuraLatest)
+        return all.find { it.id == id }
+    }
 }
