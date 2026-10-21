@@ -64,7 +64,7 @@ class AsuraSource(
                     NovelSection(
                         id = "asura-hero",
                         title = "Top Manhwa Spotlight",
-                        iconEmoji = "⚔️",
+                        iconEmoji = "",
                         subtitle = "High adrenaline Korean manhwa",
                         type = SectionType.HERO_SLIDER,
                         novels = parsedManhwa.take(3).ifEmpty { SeedData.asuraHeroSlides }
@@ -72,7 +72,7 @@ class AsuraSource(
                     NovelSection(
                         id = "asura-trending",
                         title = "Most Popular Manhwa",
-                        iconEmoji = "🔥",
+                        iconEmoji = "",
                         subtitle = "Trending updates from Asura Scans",
                         type = SectionType.HORIZONTAL_LIST,
                         novels = parsedManhwa.drop(3).take(6).ifEmpty { SeedData.asuraTrending }
@@ -80,7 +80,7 @@ class AsuraSource(
                     NovelSection(
                         id = "asura-latest",
                         title = "Fresh Releases",
-                        iconEmoji = "⚡",
+                        iconEmoji = "",
                         subtitle = "Brand new manhwa chapters",
                         type = SectionType.HORIZONTAL_LIST,
                         novels = parsedManhwa.drop(9).ifEmpty { SeedData.asuraLatest }

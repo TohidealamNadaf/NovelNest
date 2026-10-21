@@ -89,7 +89,7 @@ class NovelPhoenixSource(
                     NovelSection(
                         id = "np-hero",
                         title = "Phoenix Featured",
-                        iconEmoji = "🔥",
+                        iconEmoji = "",
                         subtitle = "Top picks on NovelPhoenix",
                         type = SectionType.HERO_SLIDER,
                         novels = heroList.ifEmpty { SeedData.novelPhoenixHeroSlides }
@@ -97,7 +97,7 @@ class NovelPhoenixSource(
                     NovelSection(
                         id = "np-trending",
                         title = "Top Trending Novels",
-                        iconEmoji = "⚡",
+                        iconEmoji = "",
                         subtitle = "Most read on NovelPhoenix this week",
                         type = SectionType.HORIZONTAL_LIST,
                         novels = trendingList.ifEmpty { SeedData.novelPhoenixTrending }
@@ -105,7 +105,7 @@ class NovelPhoenixSource(
                     NovelSection(
                         id = "np-latest",
                         title = "Recently Added & Completed",
-                        iconEmoji = "✨",
+                        iconEmoji = "",
                         subtitle = "Fresh novel updates",
                         type = SectionType.HORIZONTAL_LIST,
                         novels = latestList.ifEmpty { SeedData.novelPhoenixLatest }

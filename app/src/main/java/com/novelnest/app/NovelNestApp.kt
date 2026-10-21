@@ -70,7 +70,12 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.footer.FooterDestination
 import com.novelnest.app.core.ui.footer.NovelNestFooter
@@ -101,17 +106,20 @@ fun NovelNestApp(
             FooterDestination(
                 route = NovelNestDestination.Home.route,
                 label = "Home",
-                icon = Icons.Rounded.Home
+                unselectedIcon = Icons.Outlined.Home,
+                selectedIcon = Icons.Filled.Home
             ),
             FooterDestination(
                 route = NovelNestDestination.Discover.route,
                 label = "Discover",
-                icon = Icons.Rounded.Explore
+                unselectedIcon = Icons.Outlined.Explore,
+                selectedIcon = Icons.Filled.Explore
             ),
             FooterDestination(
                 route = NovelNestDestination.Settings.route,
                 label = "Settings",
-                icon = Icons.Rounded.Settings
+                unselectedIcon = Icons.Outlined.Settings,
+                selectedIcon = Icons.Filled.Settings
             )
         )
     }

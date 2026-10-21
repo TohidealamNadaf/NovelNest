@@ -66,7 +66,7 @@ class FreeWebNovelSource(
                     NovelSection(
                         id = "fwn-hero",
                         title = "FWN Highlights",
-                        iconEmoji = "📖",
+                        iconEmoji = "",
                         subtitle = "Popular free web novels",
                         type = SectionType.HERO_SLIDER,
                         novels = parsedNovels.take(3).ifEmpty { SeedData.fwnHeroSlides }
@@ -74,7 +74,7 @@ class FreeWebNovelSource(
                     NovelSection(
                         id = "fwn-trending",
                         title = "Hot Rankings",
-                        iconEmoji = "🏆",
+                        iconEmoji = "",
                         subtitle = "Top ranked books on FreeWebNovel",
                         type = SectionType.HORIZONTAL_LIST,
                         novels = parsedNovels.drop(3).ifEmpty { SeedData.fwnTrending }

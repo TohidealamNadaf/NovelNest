@@ -1,12 +1,14 @@
 package com.novelnest.app.core.ui.footer
 
 import android.os.Build
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,22 +26,30 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -64,18 +74,36 @@ import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 
 /**
  * Navigation destination specification for the decoupled footer component.
+ * Supports dual-state icons (unselected outlined & selected filled) for rich animated morphs.
  */
 data class FooterDestination(
     val route: String,
     val label: String,
-    val icon: ImageVector
-)
+    val unselectedIcon: ImageVector,
+    val selectedIcon: ImageVector = unselectedIcon
+) {
+    /** Backward compatibility constructor accepting a single icon */
+    constructor(route: String, label: String, icon: ImageVector) : this(
+        route = route,
+        label = label,
+        unselectedIcon = icon,
+        selectedIcon = icon
+    )
+
+    val icon: ImageVector get() = unselectedIcon
+}
 
 /**
  * Modern floating capsule navigation footer.
  * Fully decoupled from NavController and screen types.
- * Features a single glowing indicator dot sliding between items with spring physics,
- * spring icon bouncing on selection, and accessible selectable semantics.
+ * Features:
+ * - Animated icon transitions:
+ *   - Home: vertical hop, scale pulse, and outlined-to-filled morph
+ *   - Discover: 360-degree compass needle rotation and outlined-to-filled morph
+ *   - Settings: 90-degree gear rotation and outlined-to-filled morph
+ * - Comfortable padding room around the active card hover / selected pill
+ * - Single sliding glowing indicator pill sliding between items with spring physics
+ * - Accessible selectable semantics and haptic feedback
  */
 @Composable
 fun NovelNestFooter(
@@ -92,21 +120,21 @@ fun NovelNestFooter(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 28.dp, vertical = 10.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Floating pill container
-        val pillShape = RoundedCornerShape(29.dp)
+        // Floating pill container with generous bounds
+        val pillShape = RoundedCornerShape(32.dp)
         val shadowModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Modifier.shadow(
-                elevation = 12.dp,
+                elevation = 14.dp,
                 shape = pillShape,
                 ambientColor = Color.Black,
-                spotColor = NovelPrimary.copy(alpha = 0.25f)
+                spotColor = NovelPrimary.copy(alpha = 0.28f)
             )
         } else {
             Modifier.shadow(
-                elevation = 12.dp,
+                elevation = 14.dp,
                 shape = pillShape
             )
         }
@@ -114,29 +142,29 @@ fun NovelNestFooter(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
+                .height(64.dp)
                 .then(shadowModifier)
                 .clip(pillShape)
                 .background(NovelSurface.copy(alpha = 0.96f))
                 .border(
                     width = 1.dp,
-                    color = NovelSurfaceBorder.copy(alpha = 0.8f),
+                    color = NovelSurfaceBorder.copy(alpha = 0.85f),
                     shape = pillShape
                 )
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                // Generous container padding creates room around active card hover
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .selectableGroup(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 destinations.forEach { destination ->
                     FooterNavItem(
-                        icon = destination.icon,
-                        label = destination.label,
+                        destination = destination,
                         isSelected = destination.route == selectedRoute,
                         onClick = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
@@ -152,7 +180,7 @@ fun NovelNestFooter(
                 }
             }
 
-            // Single sliding glowing indicator dot
+            // Single sliding glowing indicator pill
             val targetCenterX = itemCenters[selectedRoute]
             if (targetCenterX != null) {
                 val animatedDotCenterX by animateDpAsState(
@@ -171,10 +199,10 @@ fun NovelNestFooter(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(bottom = 5.dp)
-                        .offset(x = animatedDotCenterX - 2.dp)
-                        .size(4.dp)
-                        .clip(CircleShape)
+                        .padding(bottom = 3.dp)
+                        .offset(x = animatedDotCenterX - 6.dp)
+                        .size(width = 12.dp, height = 3.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
                         .background(NovelPrimary)
                 )
             }
@@ -184,8 +212,7 @@ fun NovelNestFooter(
 
 @Composable
 private fun FooterNavItem(
-    icon: ImageVector,
-    label: String,
+    destination: FooterDestination,
     isSelected: Boolean,
     onClick: () -> Unit,
     onPositioned: (Dp) -> Unit,
@@ -194,44 +221,33 @@ private fun FooterNavItem(
     val density = LocalDensity.current
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
-    val iconScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.15f else 1.0f,
-        animationSpec = if (areAnimationsDisabled) {
-            snap()
-        } else {
-            spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
-            )
-        },
-        label = "footer_icon_scale"
+    // Active Card Hover & Selection Styling with dedicated padding room
+    val bgPillColor by animateColorAsState(
+        targetValue = if (isSelected) NovelSurfaceVariant.copy(alpha = 0.92f) else Color.Transparent,
+        animationSpec = if (areAnimationsDisabled) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        label = "footer_pill_bg"
+    )
+
+    val activeBorderColor by animateColorAsState(
+        targetValue = if (isSelected) NovelSurfaceBorder.copy(alpha = 0.85f) else Color.Transparent,
+        animationSpec = if (areAnimationsDisabled) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        label = "footer_pill_border"
     )
 
     val contentColor by animateColorAsState(
         targetValue = if (isSelected) NovelPrimary else NovelTextSecondary,
-        animationSpec = if (areAnimationsDisabled) {
-            snap()
-        } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
-        },
+        animationSpec = if (areAnimationsDisabled) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "footer_color"
     )
 
-    val bgPillColor by animateColorAsState(
-        targetValue = if (isSelected) NovelSurfaceVariant.copy(alpha = 0.7f) else Color.Transparent,
-        animationSpec = if (areAnimationsDisabled) {
-            snap()
-        } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
-        },
-        label = "footer_pill_bg"
-    )
-
+    // Dedicated item card container with internal & external padding room
     Box(
         modifier = modifier
-            .height(50.dp)
-            .clip(RoundedCornerShape(25.dp))
+            .padding(horizontal = 2.dp, vertical = 2.dp)
+            .height(48.dp)
+            .clip(RoundedCornerShape(20.dp))
             .background(bgPillColor)
+            .border(1.dp, activeBorderColor, RoundedCornerShape(20.dp))
             .onGloballyPositioned { coordinates ->
                 val centerX = with(density) {
                     coordinates.positionInParent().x.toDp() + (coordinates.size.width.toDp() / 2f)
@@ -250,27 +266,126 @@ private fun FooterNavItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier
-                    .size(22.dp)
-                    .scale(iconScale)
-                    .clearAndSetSemantics { }
+            AnimatedNavIcon(
+                destination = destination,
+                isSelected = isSelected,
+                contentColor = contentColor,
+                areAnimationsDisabled = areAnimationsDisabled
             )
 
             Spacer(modifier = Modifier.height(2.dp))
 
             Text(
-                text = label,
+                text = destination.label,
                 color = contentColor,
                 fontSize = 11.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
             )
+        }
+    }
+}
 
-            // Space reserved for sliding indicator dot
-            Spacer(modifier = Modifier.height(6.dp))
+/**
+ * Animated navigation icon with destination-specific interactive motions:
+ * - Home: Bouncy vertical hop + scale pulse + filled transition
+ * - Discover: 360-degree compass rotation + filled transition
+ * - Settings: 90-degree gear rotation + filled transition
+ */
+@Composable
+private fun AnimatedNavIcon(
+    destination: FooterDestination,
+    isSelected: Boolean,
+    contentColor: Color,
+    areAnimationsDisabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var hasBeenSelected by remember { mutableStateOf(isSelected) }
+
+    // Home vertical hop animation
+    var homeHopTrigger by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isSelected) {
+        if (isSelected && destination.route.contains("home", ignoreCase = true)) {
+            homeHopTrigger = 1f
+        } else {
+            homeHopTrigger = 0f
+        }
+        hasBeenSelected = isSelected
+    }
+
+    val hopOffset by animateDpAsState(
+        targetValue = if (homeHopTrigger == 1f && !areAnimationsDisabled) (-4).dp else 0.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "home_hop_offset"
+    )
+
+    // Destination-specific rotation (Discover compass spin 360°, Settings gear turn 90°)
+    val targetRotation = when {
+        !isSelected -> 0f
+        destination.route.contains("discover", ignoreCase = true) -> 360f
+        destination.route.contains("settings", ignoreCase = true) -> 90f
+        else -> 0f
+    }
+
+    val iconRotation by animateFloatAsState(
+        targetValue = if (areAnimationsDisabled) 0f else targetRotation,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "nav_icon_rotation"
+    )
+
+    val iconScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.15f else 1.0f,
+        animationSpec = if (areAnimationsDisabled) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            )
+        },
+        label = "nav_icon_scale"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(24.dp)
+            .graphicsLayer {
+                scaleX = iconScale
+                scaleY = iconScale
+                rotationZ = iconRotation
+                translationY = if (destination.route.contains("home", ignoreCase = true)) hopOffset.toPx() else 0f
+            }
+            .clearAndSetSemantics { }
+    ) {
+        // Soft pulsing glow behind Home icon when active
+        if (isSelected && destination.route.contains("home", ignoreCase = true)) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(NovelPrimary.copy(alpha = 0.15f))
+            )
+        }
+
+        // Smooth crossfade between unselected (outlined) and selected (filled) icons
+        Crossfade(
+            targetState = isSelected,
+            animationSpec = tween(durationMillis = 180),
+            label = "nav_icon_morph"
+        ) { selected ->
+            val iconVector = if (selected) destination.selectedIcon else destination.unselectedIcon
+            Icon(
+                imageVector = iconVector,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }
@@ -279,9 +394,24 @@ private fun FooterNavItem(
 @Composable
 private fun NovelNestFooterHomeSelectedPreview() {
     val sampleDestinations = listOf(
-        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
-        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
+        FooterDestination(
+            route = "home",
+            label = "Home",
+            unselectedIcon = Icons.Outlined.Home,
+            selectedIcon = Icons.Filled.Home
+        ),
+        FooterDestination(
+            route = "discover",
+            label = "Discover",
+            unselectedIcon = Icons.Outlined.Explore,
+            selectedIcon = Icons.Filled.Explore
+        ),
+        FooterDestination(
+            route = "settings",
+            label = "Settings",
+            unselectedIcon = Icons.Outlined.Settings,
+            selectedIcon = Icons.Filled.Settings
+        )
     )
     NovelNestFooter(
         destinations = sampleDestinations,
@@ -294,9 +424,24 @@ private fun NovelNestFooterHomeSelectedPreview() {
 @Composable
 private fun NovelNestFooterDiscoverSelectedPreview() {
     val sampleDestinations = listOf(
-        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
-        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
+        FooterDestination(
+            route = "home",
+            label = "Home",
+            unselectedIcon = Icons.Outlined.Home,
+            selectedIcon = Icons.Filled.Home
+        ),
+        FooterDestination(
+            route = "discover",
+            label = "Discover",
+            unselectedIcon = Icons.Outlined.Explore,
+            selectedIcon = Icons.Filled.Explore
+        ),
+        FooterDestination(
+            route = "settings",
+            label = "Settings",
+            unselectedIcon = Icons.Outlined.Settings,
+            selectedIcon = Icons.Filled.Settings
+        )
     )
     NovelNestFooter(
         destinations = sampleDestinations,
@@ -309,28 +454,28 @@ private fun NovelNestFooterDiscoverSelectedPreview() {
 @Composable
 private fun NovelNestFooterSettingsSelectedPreview() {
     val sampleDestinations = listOf(
-        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
-        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
+        FooterDestination(
+            route = "home",
+            label = "Home",
+            unselectedIcon = Icons.Outlined.Home,
+            selectedIcon = Icons.Filled.Home
+        ),
+        FooterDestination(
+            route = "discover",
+            label = "Discover",
+            unselectedIcon = Icons.Outlined.Explore,
+            selectedIcon = Icons.Filled.Explore
+        ),
+        FooterDestination(
+            route = "settings",
+            label = "Settings",
+            unselectedIcon = Icons.Outlined.Settings,
+            selectedIcon = Icons.Filled.Settings
+        )
     )
     NovelNestFooter(
         destinations = sampleDestinations,
         selectedRoute = "settings",
-        onNavigate = {}
-    )
-}
-
-@Preview(name = "Footer - Font Scale 1.5x", fontScale = 1.5f, showBackground = true, backgroundColor = 0xFF0F1216)
-@Composable
-private fun NovelNestFooterLargeFontPreview() {
-    val sampleDestinations = listOf(
-        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
-        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
-    )
-    NovelNestFooter(
-        destinations = sampleDestinations,
-        selectedRoute = "home",
         onNavigate = {}
     )
 }

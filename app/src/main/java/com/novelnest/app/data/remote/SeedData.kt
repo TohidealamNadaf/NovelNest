@@ -347,7 +347,7 @@ object SeedData {
                 NovelSection(
                     id = "np-hero",
                     title = "Phoenix Featured",
-                    iconEmoji = "🔥",
+                    iconEmoji = "",
                     subtitle = "Handpicked light & web novels",
                     type = SectionType.HERO_SLIDER,
                     novels = novelPhoenixHeroSlides
@@ -355,7 +355,7 @@ object SeedData {
                 NovelSection(
                     id = "np-trending",
                     title = "Top Trending Novels",
-                    iconEmoji = "⚡",
+                    iconEmoji = "",
                     subtitle = "Most read on NovelPhoenix this week",
                     type = SectionType.HORIZONTAL_LIST,
                     novels = novelPhoenixTrending
@@ -363,7 +363,7 @@ object SeedData {
                 NovelSection(
                     id = "np-latest",
                     title = "Recently Added & Completed",
-                    iconEmoji = "✨",
+                    iconEmoji = "",
                     subtitle = "Fresh chapters and completed sagas",
                     type = SectionType.HORIZONTAL_LIST,
                     novels = novelPhoenixLatest
@@ -374,7 +374,7 @@ object SeedData {
                 NovelSection(
                     id = "fwn-hero",
                     title = "FWN Highlights",
-                    iconEmoji = "📖",
+                    iconEmoji = "",
                     subtitle = "Popular free web novels",
                     type = SectionType.HERO_SLIDER,
                     novels = fwnHeroSlides
@@ -382,7 +382,7 @@ object SeedData {
                 NovelSection(
                     id = "fwn-trending",
                     title = "Hot Rankings",
-                    iconEmoji = "🏆",
+                    iconEmoji = "",
                     subtitle = "Top ranked books on FreeWebNovel",
                     type = SectionType.HORIZONTAL_LIST,
                     novels = fwnTrending
@@ -393,7 +393,7 @@ object SeedData {
                 NovelSection(
                     id = "asura-hero",
                     title = "Top Manhwa Spotlight",
-                    iconEmoji = "⚔️",
+                    iconEmoji = "",
                     subtitle = "High adrenaline Korean manhwa",
                     type = SectionType.HERO_SLIDER,
                     novels = asuraHeroSlides
@@ -401,7 +401,7 @@ object SeedData {
                 NovelSection(
                     id = "asura-trending",
                     title = "Most Popular Manhwa",
-                    iconEmoji = "🔥",
+                    iconEmoji = "",
                     subtitle = "Trending updates from Asura Scans",
                     type = SectionType.HORIZONTAL_LIST,
                     novels = asuraTrending
@@ -409,7 +409,7 @@ object SeedData {
                 NovelSection(
                     id = "asura-latest",
                     title = "Fresh Releases",
-                    iconEmoji = "⚡",
+                    iconEmoji = "",
                     subtitle = "Brand new manhwa chapters",
                     type = SectionType.HORIZONTAL_LIST,
                     novels = asuraLatest

@@ -3,6 +3,7 @@ package com.novelnest.app.core.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -10,14 +11,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
@@ -170,17 +179,52 @@ fun SourceTabRow(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier.padding(horizontal = 4.dp)
                     ) {
-                        val iconEmoji = when (source) {
-                            NovelSourceType.NOVEL_PHOENIX -> "🔥"
-                            NovelSourceType.FREE_WEB_NOVEL -> "📖"
-                            NovelSourceType.ASURA_SCANS -> "⚔️"
+                        val (sourceIcon, sourceRotation) = when (source) {
+                            NovelSourceType.NOVEL_PHOENIX -> Icons.Rounded.LocalFireDepartment to -10f
+                            NovelSourceType.FREE_WEB_NOVEL -> Icons.AutoMirrored.Rounded.MenuBook to 0f
+                            NovelSourceType.ASURA_SCANS -> Icons.Rounded.Bolt to 12f
                         }
 
-                        Text(
-                            text = iconEmoji,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(end = 4.dp)
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.16f else 1.0f,
+                            animationSpec = if (areAnimationsDisabled) {
+                                snap()
+                            } else {
+                                spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            },
+                            label = "source_icon_scale"
                         )
+
+                        val iconRotation by animateFloatAsState(
+                            targetValue = if (isSelected && !areAnimationsDisabled) sourceRotation else 0f,
+                            animationSpec = if (areAnimationsDisabled) {
+                                snap()
+                            } else {
+                                spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            },
+                            label = "source_icon_rotation"
+                        )
+
+                        Icon(
+                            imageVector = sourceIcon,
+                            contentDescription = null,
+                            tint = textColorAnimation,
+                            modifier = Modifier
+                                .size(15.dp)
+                                .graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                    rotationZ = iconRotation
+                                }
+                        )
+
+                        Spacer(modifier = Modifier.width(5.dp))
 
                         Text(
                             text = when (source) {
