@@ -24,8 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.IconButton
 import androidx.compose.ui.tooling.preview.Preview
+import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
@@ -115,7 +115,7 @@ private fun NovelNestHeaderWithActionPreview() {
         icon = Icons.Rounded.Search,
         modifier = Modifier.background(NovelBackground),
         actions = {
-            com.novelnest.app.core.ui.NovelNestIconButton(
+            NovelNestIconButton(
                 icon = Icons.Rounded.BookmarkBorder,
                 contentDescription = "Bookmarks",
                 tint = NovelTextSecondary,

@@ -12,6 +12,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.novelnest.app.core.designsystem.NovelTextPrimary
@@ -37,6 +40,9 @@ fun NovelNestIconButton(
         modifier = modifier
             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             .clip(CircleShape)
+            .semantics(mergeDescendants = true) {
+                this.contentDescription = contentDescription
+            }
             .bounceClick(
                 scaleDown = BounceScale.Small,
                 enabled = enabled,
@@ -48,9 +54,11 @@ fun NovelNestIconButton(
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = contentDescription,
+            contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(iconSize)
+            modifier = Modifier
+                .size(iconSize)
+                .clearAndSetSemantics { }
         )
     }
 }
