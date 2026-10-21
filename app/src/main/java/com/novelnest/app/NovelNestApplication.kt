@@ -24,6 +24,10 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.preferences.ReaderPreferencesManager(this)
     }
 
+    val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager by lazy {
+        com.novelnest.app.data.bookmark.BookmarkManager(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         HttpFactory.initialize(cacheDir)

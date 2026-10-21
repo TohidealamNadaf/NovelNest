@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,8 +53,12 @@ fun ReaderTopBar(
     textColor: Color,
     secondaryColor: Color,
     isVisible: Boolean,
+    isBookmarked: Boolean = false,
+    isSyncing: Boolean = false,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleBookmark: () -> Unit = {},
+    onResyncChapter: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -116,15 +122,31 @@ fun ReaderTopBar(
                         }
                     }
 
-                    // Right: Actions (Bookmark + Typography Settings)
+                    // Right: Actions (Resync + Bookmark + Typography Settings)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        var isBookmarked by remember(novelTitle) { mutableStateOf(false) }
+                        if (isSyncing) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = NovelPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(20.dp)
+                            )
+                        } else {
+                            NovelNestIconButton(
+                                icon = Icons.Rounded.Refresh,
+                                contentDescription = "Resync chapter content",
+                                tint = secondaryColor,
+                                onClick = onResyncChapter
+                            )
+                        }
+
                         AnimatedBookmarkButton(
                             isBookmarked = isBookmarked,
-                            onToggle = { isBookmarked = it }
+                            onToggle = { onToggleBookmark() }
                         )
 
                         NovelNestIconButton(

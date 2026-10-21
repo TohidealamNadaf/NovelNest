@@ -42,7 +42,7 @@ fun NovelNestNavHost(
     val context = LocalContext.current
     val app = context.applicationContext as NovelNestApplication
 
-    val homeViewModel = remember { HomeViewModel(repository) }
+    val homeViewModel = remember { HomeViewModel(repository, app.bookmarkManager) }
     val discoverViewModel = remember { DiscoverViewModel(repository) }
 
     NavHost(
@@ -156,7 +156,7 @@ fun NovelNestNavHost(
         ) { backStackEntry ->
             val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
             val detailViewModel = remember(novelId) {
-                NovelDetailViewModel(novelId, repository)
+                NovelDetailViewModel(novelId, repository, app.bookmarkManager)
             }
 
             NovelDetailScreen(
@@ -215,7 +215,7 @@ fun NovelNestNavHost(
         ) { backStackEntry ->
             val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
             val readerViewModel = remember(novelId) {
-                ReaderViewModel(novelId, repository, app.preferencesManager)
+                ReaderViewModel(novelId, repository, app.preferencesManager, app.bookmarkManager)
             }
 
             ReaderScreen(

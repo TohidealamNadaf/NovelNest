@@ -169,30 +169,17 @@ class NovelRepositoryImpl(
         novelSlugOrUrl: String,
         forceRefresh: Boolean
     ): Result<List<com.novelnest.app.feature.reader.Chapter>> {
-        val remoteSource = sources[source]
-        if (source == NovelSourceType.NOVEL_PHOENIX && remoteSource is NovelPhoenixSource) {
-            val slug = novelSlugOrUrl.removePrefix("np-").trimEnd('/').substringAfterLast('/')
-            return runCatching {
-                val phoenixChapters = remoteSource.getChapters(slug, fetchAll = false, forceRefresh = forceRefresh)
-                phoenixChapters.map { ch ->
-                    com.novelnest.app.feature.reader.Chapter(
-                        id = ch.id,
-                        title = ch.title,
-                        paragraphs = emptyList()
-                    )
-                }
-            }
-        }
+        val remoteSource = sources[source] ?: return Result.failure(IllegalArgumentException("Unknown source $source"))
+        return remoteSource.getChapters(novelSlugOrUrl, forceRefresh)
+    }
 
-        // Default / fallback chapters
-        val fallbackChapters = (1..60).map { chNum ->
-            com.novelnest.app.feature.reader.Chapter(
-                id = "ch-$chNum",
-                title = "Chapter $chNum: Part $chNum",
-                paragraphs = emptyList()
-            )
-        }
-        return Result.success(fallbackChapters)
+    override suspend fun getChapterContent(
+        source: NovelSourceType,
+        chapterUrlOrId: String,
+        forceRefresh: Boolean
+    ): Result<com.novelnest.app.feature.reader.Chapter> {
+        val remoteSource = sources[source] ?: return Result.failure(IllegalArgumentException("Unknown source $source"))
+        return remoteSource.getChapterContent(chapterUrlOrId, forceRefresh)
     }
 
     private suspend fun readSectionsFromDatabase(source: NovelSourceType): List<NovelSection> {

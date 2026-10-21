@@ -29,10 +29,11 @@ data class NovelDetailUiState(
 
 class NovelDetailViewModel(
     private val novelId: String,
-    private val repository: NovelRepository
+    private val repository: NovelRepository,
+    private val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NovelDetailUiState())
+    private val _uiState = MutableStateFlow(NovelDetailUiState(isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false))
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
 
     init {
@@ -40,7 +41,9 @@ class NovelDetailViewModel(
     }
 
     fun toggleBookmark() {
-        _uiState.update { it.copy(isBookmarked = !it.isBookmarked) }
+        val currentNovel = _uiState.value.novel ?: return
+        val newStatus = bookmarkManager?.toggleBookmark(currentNovel) ?: !_uiState.value.isBookmarked
+        _uiState.update { it.copy(isBookmarked = newStatus) }
     }
 
     fun toggleSynopsis() {

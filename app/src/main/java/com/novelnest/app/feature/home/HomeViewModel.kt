@@ -7,21 +7,41 @@ import com.novelnest.app.data.repository.NovelRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.novelnest.app.data.bookmark.BookmarkManager
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class HomeViewModel(
-    private val repository: NovelRepository
+    private val repository: NovelRepository,
+    private val bookmarkManager: BookmarkManager? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(HomeUiState())
+    private val _uiState = MutableStateFlow(
+        HomeUiState(
+            bookmarkedNovels = bookmarkManager?.bookmarks?.value.orEmpty()
+        )
+    )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private var loadJob: Job? = null
 
     init {
+        observeBookmarks()
         loadSectionsForSource(_uiState.value.selectedSource)
+    }
+
+    private fun observeBookmarks() {
+        if (bookmarkManager == null) return
+        viewModelScope.launch {
+            bookmarkManager.bookmarks.collect { bookmarks ->
+                _uiState.update { it.copy(bookmarkedNovels = bookmarks) }
+            }
+        }
+    }
+
+    fun removeBookmark(novelId: String) {
+        bookmarkManager?.removeBookmark(novelId)
     }
 
     fun selectSource(source: NovelSourceType) {

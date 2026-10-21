@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -149,7 +150,7 @@ fun NovelNestFooter(
         // Pill-shaped container: Solid background, smooth rounded corners, subtle border and shadow
         androidx.compose.foundation.layout.BoxWithConstraints(
             modifier = Modifier
-                .fillMaxWidth()
+                .widthIn(min = 270.dp, max = 290.dp)
                 .height(FooterTokens.PillHeight)
                 .then(shadowModifier)
                 .clip(pillShape)
@@ -159,12 +160,12 @@ fun NovelNestFooter(
                     color = NovelSurfaceBorder.copy(alpha = 0.65f),
                     shape = pillShape
                 )
-                .padding(horizontal = 8.dp, vertical = 5.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             val density = androidx.compose.ui.platform.LocalDensity.current
             val totalWidthPx = with(density) { maxWidth.toPx() }
-            val pillRestWidthPx = with(density) { 52.dp.toPx() }
+            val pillRestWidthPx = with(density) { 76.dp.toPx() }
             val halfPillWidthPx = pillRestWidthPx / 2f
             val count = destinations.size.coerceAtLeast(1)
             val slotWidthPx = if (count > 0) totalWidthPx / count else totalWidthPx
@@ -278,15 +279,15 @@ fun NovelNestFooter(
             val indicatorLeftDp = with(density) { currentLeftPx.toDp() }
             val indicatorWidthDp = with(density) { currentWidthPx.toDp() }
 
-            // 1. Sliding/Stretching Solid Primary Indicator Pill
+            // 1. Sliding/Stretching Solid Primary Indicator Pill (encloses icon AND text with breathing room)
             if (isInitialized) {
                 Box(
                     modifier = Modifier
-                        .offset(x = indicatorLeftDp, y = 2.5.dp)
+                        .offset(x = indicatorLeftDp, y = 0.dp)
                         .width(indicatorWidthDp)
-                        .height(32.dp)
-                        .align(Alignment.TopStart)
-                        .clip(RoundedCornerShape(16.dp))
+                        .fillMaxHeight()
+                        .align(Alignment.CenterStart)
+                        .clip(RoundedCornerShape(26.dp))
                         .background(NovelPrimary)
                 )
             }
@@ -294,7 +295,7 @@ fun NovelNestFooter(
             // 2. Interactive Navigation Items Row
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .selectableGroup(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
@@ -327,18 +328,12 @@ private fun FooterNavItem(
     val itemShape = RoundedCornerShape(26.dp)
 
     // Contrast-aware coloring:
-    // Active icon on solid NovelPrimary indicator pill has crisp dark NovelBackground tint.
-    // Inactive icon uses NovelTextSecondary.
-    val iconContentColor by animateColorAsState(
-        targetValue = if (isSelected) com.novelnest.app.core.designsystem.NovelBackground else NovelTextSecondary,
+    // Active icon & label on solid NovelPrimary indicator pill has crisp dark #0F1216 tint.
+    // Inactive icon & label uses NovelTextSecondary.
+    val contentColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF0F1216) else NovelTextSecondary,
         animationSpec = if (areAnimationsDisabled) snap() else tween(durationMillis = 180),
-        label = "nav_item_icon_color"
-    )
-
-    val labelColor by animateColorAsState(
-        targetValue = if (isSelected) NovelPrimary else NovelTextSecondary,
-        animationSpec = if (areAnimationsDisabled) snap() else spring(stiffness = Spring.StiffnessMediumLow),
-        label = "nav_item_label_color"
+        label = "nav_item_content_color"
     )
 
     Column(
@@ -355,23 +350,18 @@ private fun FooterNavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier.size(width = 52.dp, height = 32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedNavIcon(
-                destination = destination,
-                isSelected = isSelected,
-                contentColor = iconContentColor,
-                areAnimationsDisabled = areAnimationsDisabled
-            )
-        }
+        AnimatedNavIcon(
+            destination = destination,
+            isSelected = isSelected,
+            contentColor = contentColor,
+            areAnimationsDisabled = areAnimationsDisabled
+        )
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Text(
             text = destination.label,
-            color = labelColor,
+            color = contentColor,
             fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1

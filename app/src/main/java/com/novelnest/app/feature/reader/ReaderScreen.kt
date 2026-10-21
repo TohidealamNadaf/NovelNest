@@ -327,8 +327,12 @@ fun ReaderScreen(
             textColor = textColor,
             secondaryColor = secondaryColor,
             isVisible = uiState.isChromeVisible,
+            isBookmarked = uiState.isBookmarked,
+            isSyncing = uiState.isChapterLoading,
             onBack = onBack,
             onOpenSettings = { viewModel.showQuickSettings(true) },
+            onToggleBookmark = { viewModel.toggleBookmark() },
+            onResyncChapter = { viewModel.resyncChapter() },
             modifier = Modifier.align(Alignment.TopCenter)
         )
 

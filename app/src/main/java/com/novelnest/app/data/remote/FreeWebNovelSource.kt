@@ -140,4 +140,36 @@ class FreeWebNovelSource(
                 )
         }
     }
+
+    override suspend fun getChapters(
+        novelSlugOrUrl: String,
+        forceRefresh: Boolean
+    ): Result<List<com.novelnest.app.feature.reader.Chapter>> = withContext(Dispatchers.IO) {
+        val chapters = (1..60).map { chNum ->
+            com.novelnest.app.feature.reader.Chapter(
+                id = "fwn-ch-$chNum",
+                title = "Chapter $chNum",
+                paragraphs = emptyList(),
+                url = "$novelSlugOrUrl/chapter-$chNum"
+            )
+        }
+        Result.success(chapters)
+    }
+
+    override suspend fun getChapterContent(
+        chapterUrlOrId: String,
+        forceRefresh: Boolean
+    ): Result<com.novelnest.app.feature.reader.Chapter> = withContext(Dispatchers.IO) {
+        Result.success(
+            com.novelnest.app.feature.reader.Chapter(
+                id = chapterUrlOrId,
+                title = "Chapter Content",
+                paragraphs = listOf(
+                    "FreeWebNovel parser is currently being connected.",
+                    "This novel's chapters will automatically stream live content as soon as the source parser is active."
+                ),
+                url = chapterUrlOrId
+            )
+        )
+    }
 }

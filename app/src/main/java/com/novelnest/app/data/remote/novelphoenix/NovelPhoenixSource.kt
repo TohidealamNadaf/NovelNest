@@ -48,6 +48,7 @@ class NovelPhoenixSource(
             val listingItems = NovelPhoenixParser.parseListingHtml(html)
 
             val parsedNovels = listingItems.mapIndexed { idx, item ->
+                val rankInt = item.rankBadge?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: (idx + 1)
                 Novel(
                     id = "np-${item.slug}",
                     title = item.title,
@@ -56,7 +57,8 @@ class NovelPhoenixSource(
                     sourceUrl = "${sourceType.baseUrl}/novel/${item.slug}",
                     latestChapter = item.latestChapter,
                     rating = item.rating,
-                    status = "Ongoing"
+                    status = "Ongoing",
+                    rank = rankInt
                 )
             }
 
@@ -176,6 +178,46 @@ class NovelPhoenixSource(
         val detail = NovelPhoenixParser.parseNovelDetail(html, novelUrl)
         detailCache[novelUrl] = Pair(now, detail)
         return detail
+    }
+
+    override suspend fun getChapters(
+        novelSlugOrUrl: String,
+        forceRefresh: Boolean
+    ): Result<List<com.novelnest.app.feature.reader.Chapter>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val slug = novelSlugOrUrl.removePrefix("np-").trimEnd('/').substringAfterLast('/')
+            val items = getChapters(slug, fetchAll = false, forceRefresh = forceRefresh)
+            items.map { item ->
+                com.novelnest.app.feature.reader.Chapter(
+                    id = item.id,
+                    title = item.title,
+                    paragraphs = emptyList(),
+                    url = item.urlPath
+                )
+            }
+        }
+    }
+
+    override suspend fun getChapterContent(
+        chapterUrlOrId: String,
+        forceRefresh: Boolean
+    ): Result<com.novelnest.app.feature.reader.Chapter> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolvedUrl = if (chapterUrlOrId.startsWith("http")) {
+                chapterUrlOrId
+            } else {
+                "${sourceType.baseUrl}/chapter/$chapterUrlOrId"
+            }
+            val content = getChapterContent(resolvedUrl)
+            com.novelnest.app.feature.reader.Chapter(
+                id = chapterUrlOrId,
+                title = content.title,
+                paragraphs = content.paragraphs,
+                url = resolvedUrl,
+                prevUrl = content.prevChapterUrl,
+                nextUrl = content.nextChapterUrl
+            )
+        }
     }
 
     /**

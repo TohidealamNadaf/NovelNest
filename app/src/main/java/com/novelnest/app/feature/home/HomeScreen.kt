@@ -32,13 +32,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.novelnest.app.core.ui.NovelCard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -86,6 +91,8 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
+    val coroutineScope = rememberCoroutineScope()
+
     // Independent scroll position per source so state is preserved when switching back
     val listStates = remember {
         NovelSourceType.entries.associateWith { LazyListState() }
@@ -118,7 +125,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(NovelBackground)
     ) {
-        // App Header: Title + Collapsed Search Icon + Notification Icon + Profile Icon
+        // App Header: Title + Collapsed Search Icon + Bookmarks Icon + Notification Icon + Profile Icon
         NovelNestHeader(
             title = "NovelNest",
             icon = Icons.Rounded.AutoStories,
@@ -133,6 +140,20 @@ fun HomeScreen(
                         icon = Icons.Rounded.Search,
                         contentDescription = "Search Novels",
                         onClick = { onNavigateToSearch(uiState.selectedSource) }
+                    )
+                }
+
+                // Bookmarks Icon -> scrolls to bookmarks section at top
+                if (uiState.bookmarkedNovels.isNotEmpty()) {
+                    NovelNestIconButton(
+                        icon = Icons.Rounded.Bookmark,
+                        contentDescription = "My Bookmarks (${uiState.bookmarkedNovels.size})",
+                        tint = NovelPrimary,
+                        onClick = {
+                            coroutineScope.launch {
+                                currentListState.animateScrollToItem(0)
+                            }
+                        }
                     )
                 }
 
@@ -251,6 +272,16 @@ fun HomeScreen(
                             contentPadding = PaddingValues(bottom = rememberFooterBottomPadding()),
                             verticalArrangement = Arrangement.spacedBy(20.dp)
                         ) {
+                            // Dedicated Bookmarked Novels section on Home page
+                            if (uiState.bookmarkedNovels.isNotEmpty()) {
+                                item(key = "bookmarked_sanctuary_section") {
+                                    BookmarkedNovelsSection(
+                                        bookmarks = uiState.bookmarkedNovels,
+                                        onNovelClick = onNovelClick
+                                    )
+                                }
+                            }
+
                             items(sourceSections, key = { it.id }) { section ->
                                 if (section.type == SectionType.HERO_SLIDER) {
                                     HeroCarousel(
@@ -320,6 +351,76 @@ private fun HomeShimmerFeed(sourceName: String) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookmarkedNovelsSection(
+    bookmarks: List<Novel>,
+    onNovelClick: (Novel) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        // Section header with title and bookmark counter pill
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Bookmark,
+                    contentDescription = null,
+                    tint = NovelPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "My Bookmarks",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = NovelTextPrimary
+                )
+            }
+
+            // Counter pill badge
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = NovelPrimary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "${bookmarks.size} saved",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NovelPrimary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Horizontal novel list
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(bookmarks, key = { it.id }) { novel ->
+                NovelCard(
+                    novel = novel,
+                    onClick = { onNovelClick(novel) }
+                )
             }
         }
     }

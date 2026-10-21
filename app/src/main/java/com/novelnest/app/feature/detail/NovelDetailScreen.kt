@@ -2,8 +2,11 @@ package com.novelnest.app.feature.detail
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -114,6 +117,9 @@ fun NovelDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val showScrollToTop by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 2 }
+    }
+    val isScrolled by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 250 }
     }
 
     Box(
@@ -250,30 +256,31 @@ fun NovelDetailScreen(
                 }
             }
 
-            // Floating Top Back Button Bar (Overlaid on Top of Parallax Backdrop)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // 1. Initial Start State: Floating Circle Back & Bookmark Buttons Overlaid on Parallax Hero
+            AnimatedVisibility(
+                visible = !isScrolled,
+                enter = fadeIn(animationSpec = tween(220)),
+                exit = fadeOut(animationSpec = tween(180))
             ) {
-                NovelNestIconButton(
-                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    onClick = onBack,
-                    tint = NovelTextPrimary,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xCC0F1216))
-                )
-
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    NovelNestIconButton(
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        onClick = onBack,
+                        tint = NovelTextPrimary,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xCC0F1216))
+                    )
+
                     AnimatedBookmarkButton(
                         isBookmarked = uiState.isBookmarked,
                         onToggle = { viewModel.toggleBookmark() },
@@ -282,6 +289,106 @@ fun NovelDetailScreen(
                             .clip(CircleShape)
                             .background(Color(0xCC0F1216))
                     )
+                }
+            }
+
+            // 2. Scrolled Down State: Sticky Slide-in Top Header with Novel Title & Attached Search Field
+            AnimatedVisibility(
+                visible = isScrolled,
+                enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(280)) + fadeIn(animationSpec = tween(200)),
+                exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(220)) + fadeOut(animationSpec = tween(180))
+            ) {
+                androidx.compose.material3.Surface(
+                    color = com.novelnest.app.core.designsystem.NovelSurface,
+                    shadowElevation = 8.dp,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, com.novelnest.app.core.designsystem.NovelSurfaceBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        NovelNestIconButton(
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            tint = NovelTextPrimary,
+                            onClick = onBack
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        // Attached Search Field with Novel Title context
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(com.novelnest.app.core.designsystem.NovelSurfaceVariant)
+                                .border(1.dp, com.novelnest.app.core.designsystem.NovelSurfaceBorder, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = null,
+                                    tint = NovelPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                BasicTextField(
+                                    value = uiState.chapterQuery,
+                                    onValueChange = { viewModel.onChapterSearch(it) },
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = NovelTextPrimary,
+                                        fontSize = 12.sp
+                                    ),
+                                    singleLine = true,
+                                    cursorBrush = SolidColor(NovelPrimary),
+                                    modifier = Modifier.weight(1f),
+                                    decorationBox = { innerTextField ->
+                                        if (uiState.chapterQuery.isEmpty()) {
+                                            Text(
+                                                text = "${novel.title}...",
+                                                color = com.novelnest.app.core.designsystem.NovelTextSecondary,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+                                if (uiState.chapterQuery.isNotEmpty()) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear chapter search",
+                                        tint = com.novelnest.app.core.designsystem.NovelTextSecondary,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { viewModel.onChapterSearch("") }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        AnimatedBookmarkButton(
+                            isBookmarked = uiState.isBookmarked,
+                            onToggle = { viewModel.toggleBookmark() },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x99161B22))
+                        )
+                    }
                 }
             }
 
