@@ -1,21 +1,20 @@
 package com.novelnest.app.navigation
 
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.repository.NovelRepository
@@ -23,8 +22,12 @@ import com.novelnest.app.feature.discover.DiscoverScreen
 import com.novelnest.app.feature.discover.DiscoverViewModel
 import com.novelnest.app.feature.home.HomeScreen
 import com.novelnest.app.feature.home.HomeViewModel
+import com.novelnest.app.feature.reader.ReaderScreen
+import com.novelnest.app.feature.reader.ReaderViewModel
 import com.novelnest.app.feature.search.SearchScreen
 import com.novelnest.app.feature.search.SearchViewModel
+import com.novelnest.app.feature.settings.SettingsScreen
+import com.novelnest.app.feature.settings.SettingsViewModel
 
 @Composable
 fun NovelNestNavHost(
@@ -33,6 +36,9 @@ fun NovelNestNavHost(
     onNovelClick: (Novel) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as NovelNestApplication
+
     val homeViewModel = remember { HomeViewModel(repository) }
     val discoverViewModel = remember { DiscoverViewModel(repository) }
 
@@ -71,6 +77,18 @@ fun NovelNestNavHost(
             )
         }
 
+        // SETTINGS SCREEN
+        composable(
+            route = NovelNestDestination.Settings.route,
+            enterTransition = { fadeIn(animationSpec = tween(300)) },
+            exitTransition = { fadeOut(animationSpec = tween(300)) }
+        ) {
+            val settingsViewModel = remember {
+                SettingsViewModel(app.preferencesManager, context)
+            }
+            SettingsScreen(viewModel = settingsViewModel)
+        }
+
         // SEARCH SCREEN (Fluid animated entry)
         composable(
             route = NovelNestDestination.Search.route,
@@ -103,6 +121,38 @@ fun NovelNestNavHost(
                 viewModel = searchViewModel,
                 onBack = { navController.popBackStack() },
                 onNovelClick = onNovelClick
+            )
+        }
+
+        // READER SCREEN (Immersive reading canvas)
+        composable(
+            route = NovelNestDestination.Reader.route,
+            arguments = listOf(
+                navArgument("novelId") {
+                    type = NavType.StringType
+                }
+            ),
+            enterTransition = {
+                slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight / 3 },
+                    animationSpec = tween(300)
+                ) + fadeIn(animationSpec = tween(300))
+            },
+            exitTransition = {
+                slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight / 3 },
+                    animationSpec = tween(250)
+                ) + fadeOut(animationSpec = tween(250))
+            }
+        ) { backStackEntry ->
+            val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
+            val readerViewModel = remember(novelId) {
+                ReaderViewModel(novelId, repository, app.preferencesManager)
+            }
+
+            ReaderScreen(
+                viewModel = readerViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
     }

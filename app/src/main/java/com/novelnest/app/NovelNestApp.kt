@@ -68,6 +68,9 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.Settings
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.footer.FooterDestination
 import com.novelnest.app.core.ui.footer.NovelNestFooter
@@ -89,7 +92,8 @@ fun NovelNestApp(
 
     val showBottomBar = currentRoute in listOf(
         NovelNestDestination.Home.route,
-        NovelNestDestination.Discover.route
+        NovelNestDestination.Discover.route,
+        NovelNestDestination.Settings.route
     )
 
     val footerDestinations = remember {
@@ -103,6 +107,11 @@ fun NovelNestApp(
                 route = NovelNestDestination.Discover.route,
                 label = "Discover",
                 icon = Icons.Rounded.Explore
+            ),
+            FooterDestination(
+                route = NovelNestDestination.Settings.route,
+                label = "Settings",
+                icon = Icons.Rounded.Settings
             )
         )
     }
@@ -160,7 +169,12 @@ fun NovelNestApp(
             ) {
                 NovelPreviewSheetContent(
                     novel = novel,
-                    onDismiss = { selectedNovelForPreview = null }
+                    onDismiss = { selectedNovelForPreview = null },
+                    onStartReading = {
+                        val novelId = novel.id
+                        selectedNovelForPreview = null
+                        navController.navigate(NovelNestDestination.Reader.createRoute(novelId))
+                    }
                 )
             }
         }
@@ -170,12 +184,17 @@ fun NovelNestApp(
 @Composable
 private fun NovelPreviewSheetContent(
     novel: Novel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onStartReading: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(20.dp)
+            .navigationBarsPadding()
+            .verticalScroll(scrollState)
+            .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -306,15 +325,14 @@ private fun NovelPreviewSheetContent(
             text = novel.synopsis.ifBlank { "An extraordinary story waiting to be read." },
             style = MaterialTheme.typography.bodyMedium,
             color = NovelTextSecondary,
-            lineHeight = 20.sp,
-            maxLines = 4
+            lineHeight = 20.sp
         )
 
         Spacer(modifier = Modifier.height(20.dp))
 
         // Read Now Action
         Button(
-            onClick = onDismiss,
+            onClick = onStartReading,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),

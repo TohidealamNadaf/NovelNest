@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -123,6 +124,7 @@ fun DiscoverScreen(
                 val isSelected = genre == uiState.selectedGenre
                 Box(
                     modifier = Modifier
+                        .heightIn(min = 36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) NovelPrimary else NovelSurfaceVariant)
                         .border(
@@ -135,7 +137,8 @@ fun DiscoverScreen(
                             onClickLabel = "Filter by $genre",
                             role = Role.Tab
                         ) { viewModel.selectGenre(genre) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = genre,

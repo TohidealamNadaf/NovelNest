@@ -20,6 +20,10 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         NovelRepositoryImpl(database = database)
     }
 
+    val preferencesManager: com.novelnest.app.data.preferences.ReaderPreferencesManager by lazy {
+        com.novelnest.app.data.preferences.ReaderPreferencesManager(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         HttpFactory.initialize(cacheDir)

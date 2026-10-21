@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -299,6 +300,7 @@ fun SearchScreen(
                             uiState.recentSearches.forEach { keyword ->
                                 Box(
                                     modifier = Modifier
+                                        .heightIn(min = 36.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(NovelSurfaceVariant)
                                         .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
@@ -311,7 +313,8 @@ fun SearchScreen(
                                             viewModel.onQueryChange(keyword)
                                             viewModel.performSearch(keyword)
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = keyword,

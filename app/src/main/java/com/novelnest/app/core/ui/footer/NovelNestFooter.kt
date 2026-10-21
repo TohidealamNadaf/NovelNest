@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -273,7 +274,8 @@ private fun FooterNavItem(
 private fun NovelNestFooterHomeSelectedPreview() {
     val sampleDestinations = listOf(
         FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
+        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
     )
     NovelNestFooter(
         destinations = sampleDestinations,
@@ -287,11 +289,27 @@ private fun NovelNestFooterHomeSelectedPreview() {
 private fun NovelNestFooterDiscoverSelectedPreview() {
     val sampleDestinations = listOf(
         FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
+        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
     )
     NovelNestFooter(
         destinations = sampleDestinations,
         selectedRoute = "discover",
+        onNavigate = {}
+    )
+}
+
+@Preview(name = "Footer - Settings Selected", showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestFooterSettingsSelectedPreview() {
+    val sampleDestinations = listOf(
+        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
+        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
+    )
+    NovelNestFooter(
+        destinations = sampleDestinations,
+        selectedRoute = "settings",
         onNavigate = {}
     )
 }
@@ -301,7 +319,8 @@ private fun NovelNestFooterDiscoverSelectedPreview() {
 private fun NovelNestFooterLargeFontPreview() {
     val sampleDestinations = listOf(
         FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
-        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore),
+        FooterDestination(route = "settings", label = "Settings", icon = Icons.Rounded.Settings)
     )
     NovelNestFooter(
         destinations = sampleDestinations,
