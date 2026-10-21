@@ -34,14 +34,17 @@ data class ReaderUiState(
     val errorMessage: String? = null,
     val isChromeVisible: Boolean = true,
     val showQuickSettingsSheet: Boolean = false,
-    val isBookmarked: Boolean = false
+    val isBookmarked: Boolean = false,
+    val readChapterIds: Set<String> = emptySet()
 )
 
 class ReaderViewModel(
     private val novelId: String,
     private val repository: NovelRepository,
     private val preferencesManager: ReaderPreferencesManager,
-    private val bookmarkManager: BookmarkManager? = null
+    private val bookmarkManager: BookmarkManager? = null,
+    private val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager? = null,
+    private val initialChapterIndex: Int = 0
 ) : ViewModel() {
 
     val readerSettings: StateFlow<ReaderSettings> = preferencesManager.readerSettings
@@ -49,13 +52,28 @@ class ReaderViewModel(
     private val _uiState = MutableStateFlow(
         ReaderUiState(
             isLoading = true,
-            isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false
+            isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false,
+            readChapterIds = readingProgressManager?.getProgress(novelId)?.readChapterIds ?: emptySet()
         )
     )
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     init {
         loadNovelAndChapters()
+        observeReadingProgress()
+    }
+
+    private fun observeReadingProgress() {
+        readingProgressManager?.let { pm ->
+            viewModelScope.launch {
+                pm.progressMap.collect { map ->
+                    val progress = map[novelId]
+                    _uiState.update { current ->
+                        current.copy(readChapterIds = progress?.readChapterIds ?: emptySet())
+                    }
+                }
+            }
+        }
     }
 
     fun toggleChrome() {
@@ -167,20 +185,24 @@ class ReaderViewModel(
             val loadedChapters = chaptersResult.getOrNull()?.ifEmpty { null }
                 ?: generateSampleChapters(resolvedNovel.title)
 
+            val targetIndex = if (initialChapterIndex >= 0) {
+                initialChapterIndex.coerceIn(0, (loadedChapters.size - 1).coerceAtLeast(0))
+            } else {
+                readingProgressManager?.getProgress(novelId)?.lastReadChapterIndex?.coerceIn(0, (loadedChapters.size - 1).coerceAtLeast(0)) ?: 0
+            }
+
             _uiState.update {
                 it.copy(
                     chapters = loadedChapters,
                     isLoading = false,
-                    currentChapterIndex = 0
+                    currentChapterIndex = targetIndex
                 )
             }
 
             // 3. Load initial chapter content
             if (loadedChapters.isNotEmpty()) {
-                val firstChapter = loadedChapters[0]
-                if (firstChapter.paragraphs.isEmpty()) {
-                    loadChapterContent(0, firstChapter, forceRefresh = false)
-                }
+                val targetChapter = loadedChapters[targetIndex]
+                loadChapterContent(targetIndex, targetChapter, forceRefresh = false)
             }
         }
     }
@@ -198,12 +220,13 @@ class ReaderViewModel(
 
             contentResult.fold(
                 onSuccess = { liveChapter ->
+                    val resolvedTitle = liveChapter.title.ifBlank { chapter.title }
                     _uiState.update { state ->
                         val updatedList = state.chapters.toMutableList()
                         if (chapterIndex in updatedList.indices) {
                             updatedList[chapterIndex] = liveChapter.copy(
                                 id = chapter.id,
-                                title = liveChapter.title.ifBlank { chapter.title }
+                                title = resolvedTitle
                             )
                         }
                         state.copy(
@@ -212,6 +235,14 @@ class ReaderViewModel(
                             errorMessage = null
                         )
                     }
+
+                    // Record reading progress and mark chapter as read
+                    readingProgressManager?.markChapterRead(
+                        novelId = novelId,
+                        chapterId = chapter.id,
+                        chapterIndex = chapterIndex,
+                        chapterTitle = resolvedTitle
+                    )
                 },
                 onFailure = { err ->
                     _uiState.update { state ->
@@ -230,6 +261,14 @@ class ReaderViewModel(
                             errorMessage = "Failed to fetch live chapter (${err.message ?: "Network error"}). Showing offline fallback."
                         )
                     }
+
+                    // Mark as read even on fallback so reader progression is kept
+                    readingProgressManager?.markChapterRead(
+                        novelId = novelId,
+                        chapterId = chapter.id,
+                        chapterIndex = chapterIndex,
+                        chapterTitle = chapter.title
+                    )
                 }
             )
         }

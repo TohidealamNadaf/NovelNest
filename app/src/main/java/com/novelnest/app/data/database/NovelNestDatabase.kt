@@ -16,9 +16,10 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
     entities = [
         NovelEntity::class,
         SectionEntity::class,
-        SectionNovelCrossRef::class
+        SectionNovelCrossRef::class,
+        com.novelnest.app.data.database.entity.ReadingProgressEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -26,6 +27,7 @@ abstract class NovelNestDatabase : RoomDatabase() {
 
     abstract fun novelDao(): NovelDao
     abstract fun sectionDao(): SectionDao
+    abstract fun readingProgressDao(): com.novelnest.app.data.database.dao.ReadingProgressDao
 
     companion object {
         @Volatile
@@ -39,6 +41,7 @@ abstract class NovelNestDatabase : RoomDatabase() {
                     "novelnest_cache.db"
                 )
                     .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+                    .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance
                 instance

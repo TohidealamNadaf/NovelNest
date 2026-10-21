@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +58,7 @@ fun ReaderTopBar(
     isSyncing: Boolean = false,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenChapterList: () -> Unit = {},
     onToggleBookmark: () -> Unit = {},
     onResyncChapter: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -147,6 +149,13 @@ fun ReaderTopBar(
                         AnimatedBookmarkButton(
                             isBookmarked = isBookmarked,
                             onToggle = { onToggleBookmark() }
+                        )
+
+                        NovelNestIconButton(
+                            icon = Icons.AutoMirrored.Rounded.MenuBook,
+                            contentDescription = "Open chapters sidebar",
+                            tint = secondaryColor,
+                            onClick = onOpenChapterList
                         )
 
                         NovelNestIconButton(

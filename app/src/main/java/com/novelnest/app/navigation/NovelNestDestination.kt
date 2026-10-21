@@ -7,8 +7,8 @@ sealed class NovelNestDestination(val route: String) {
     data object Search : NovelNestDestination("search/{sourceOrdinal}") {
         fun createRoute(sourceOrdinal: Int) = "search/$sourceOrdinal"
     }
-    data object Reader : NovelNestDestination("reader/{novelId}") {
-        fun createRoute(novelId: String) = "reader/$novelId"
+    data object Reader : NovelNestDestination("reader/{novelId}?chapterIndex={chapterIndex}") {
+        fun createRoute(novelId: String, chapterIndex: Int = -1) = "reader/$novelId?chapterIndex=$chapterIndex"
     }
     data object Detail : NovelNestDestination("detail/{novelId}") {
         fun createRoute(novelId: String) = "detail/$novelId"

@@ -33,6 +33,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
 
 /**
  * Reusable, modular Top Header component for NovelNest screens.
@@ -50,7 +51,8 @@ fun NovelNestHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 60.dp)
+            .statusBarsPadding()
+            .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically

@@ -156,14 +156,19 @@ fun NovelNestNavHost(
         ) { backStackEntry ->
             val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
             val detailViewModel = remember(novelId) {
-                NovelDetailViewModel(novelId, repository, app.bookmarkManager)
+                NovelDetailViewModel(
+                    novelId = novelId,
+                    repository = repository,
+                    bookmarkManager = app.bookmarkManager,
+                    readingProgressManager = app.readingProgressManager
+                )
             }
 
             NovelDetailScreen(
                 viewModel = detailViewModel,
                 onBack = { navController.popBackStack() },
-                onStartReading = { id, _ ->
-                    navController.navigate(NovelNestDestination.Reader.createRoute(id))
+                onStartReading = { id, chapterIndex ->
+                    navController.navigate(NovelNestDestination.Reader.createRoute(id, chapterIndex))
                 }
             )
         }
@@ -198,6 +203,10 @@ fun NovelNestNavHost(
             arguments = listOf(
                 navArgument("novelId") {
                     type = NavType.StringType
+                },
+                navArgument("chapterIndex") {
+                    type = NavType.IntType
+                    defaultValue = -1
                 }
             ),
             enterTransition = {
@@ -214,8 +223,16 @@ fun NovelNestNavHost(
             }
         ) { backStackEntry ->
             val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
-            val readerViewModel = remember(novelId) {
-                ReaderViewModel(novelId, repository, app.preferencesManager, app.bookmarkManager)
+            val chapterIndex = backStackEntry.arguments?.getInt("chapterIndex") ?: -1
+            val readerViewModel = remember(novelId, chapterIndex) {
+                ReaderViewModel(
+                    novelId = novelId,
+                    repository = repository,
+                    preferencesManager = app.preferencesManager,
+                    bookmarkManager = app.bookmarkManager,
+                    readingProgressManager = app.readingProgressManager,
+                    initialChapterIndex = chapterIndex
+                )
             }
 
             ReaderScreen(

@@ -3,6 +3,7 @@ package com.novelnest.app
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -67,50 +68,43 @@ fun NovelNestApp(
         )
     }
 
-    val isImmersiveScreen = currentRoute?.startsWith("detail") == true || currentRoute?.startsWith("reader") == true
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NovelBackground)
+    ) {
+        NovelNestNavHost(
+            navController = navController,
+            repository = repository,
+            onNovelClick = { novel ->
+                // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
+                navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = NovelBackground
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = if (isImmersiveScreen) 0.dp else innerPadding.calculateTopPadding())
+        // Floating Capsule Footer Dock (shown on Home, Discover, Settings)
+        AnimatedVisibility(
+            visible = showBottomBar,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            NovelNestNavHost(
-                navController = navController,
-                repository = repository,
-                onNovelClick = { novel ->
-                    // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
-                    navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Floating Capsule Footer Dock (shown on Home, Discover, Settings)
-            AnimatedVisibility(
-                visible = showBottomBar,
-                enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it }),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                NovelNestFooter(
-                    destinations = footerDestinations,
-                    selectedRoute = currentRoute,
-                    onNavigate = { route ->
-                        if (currentRoute != route) {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+            NovelNestFooter(
+                destinations = footerDestinations,
+                selectedRoute = currentRoute,
+                onNavigate = { route ->
+                    if (currentRoute != route) {
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
                             }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
-                )
-            }
+                }
+            )
         }
     }
 }

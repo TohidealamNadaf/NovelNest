@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -150,7 +151,7 @@ fun NovelDetailScreen(
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
                             viewModel.toggleBookmark()
                         },
-                        onStartReading = { onStartReading(novel.id, 0) }
+                        onStartReading = { targetIndex -> onStartReading(novel.id, targetIndex) }
                     )
                 }
 
@@ -244,9 +245,11 @@ fun NovelDetailScreen(
                     items = uiState.filteredChapters,
                     key = { _, ch -> ch.id }
                 ) { index, chapter ->
+                    val isRead = uiState.readChapterIds.contains(chapter.id)
                     ChapterListItem(
                         chapterTitle = chapter.title,
                         chapterNumber = index + 1,
+                        isRead = isRead,
                         onClick = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
                             val actualIndex = uiState.chapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
@@ -380,6 +383,36 @@ fun NovelDetailScreen(
 
                         Spacer(modifier = Modifier.width(6.dp))
 
+                        // Continue / Read Button (Synced with scrolled header)
+                        val lastReadIdx = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
+                        Button(
+                            onClick = {
+                                playHaptic(NovelNestHapticType.LIGHT_TICK)
+                                onStartReading(novel.id, lastReadIdx)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NovelPrimary,
+                                contentColor = NovelOnPrimary
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoStories,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (uiState.readingProgress != null) "Continue" else "Read",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
                         AnimatedBookmarkButton(
                             isBookmarked = uiState.isBookmarked,
                             onToggle = { viewModel.toggleBookmark() },
@@ -431,7 +464,7 @@ private fun NovelDetailHeroHeader(
     uiState: NovelDetailUiState,
     onBack: () -> Unit,
     onToggleBookmark: () -> Unit,
-    onStartReading: () -> Unit
+    onStartReading: (Int) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -693,9 +726,18 @@ private fun NovelDetailHeroHeader(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Primary Read Action Button
+            // Primary Read Action Button (Start Reading vs Continue Reading)
+            val lastReadIndex = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
+            val hasStartedReading = uiState.readingProgress != null
+            val continueLabel = if (hasStartedReading) {
+                val chTitle = uiState.readingProgress?.lastReadChapterTitle.orEmpty()
+                if (chTitle.isNotBlank()) "Continue: $chTitle" else "Continue Chapter ${lastReadIndex + 1}"
+            } else {
+                "Start Reading"
+            }
+
             Button(
-                onClick = onStartReading,
+                onClick = { onStartReading(lastReadIndex) },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NovelPrimary,
                     contentColor = NovelOnPrimary
@@ -704,7 +746,7 @@ private fun NovelDetailHeroHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .bounceClick(scaleDown = BounceScale.Medium, onClick = onStartReading)
+                    .bounceClick(scaleDown = BounceScale.Medium, onClick = { onStartReading(lastReadIndex) })
             ) {
                 Icon(
                     imageVector = Icons.Rounded.AutoStories,
@@ -713,9 +755,11 @@ private fun NovelDetailHeroHeader(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Start Reading",
+                    text = continueLabel,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -951,17 +995,25 @@ private fun ChapterListHeader(
 
 /**
  * Individual Chapter List Item row.
+ * - Wraps long chapter titles naturally across lines without truncation.
+ * - Dims read chapter titles to indicate read progression.
  */
 @Composable
 private fun ChapterListItem(
     chapterTitle: String,
     chapterNumber: Int,
+    isRead: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = NovelSurface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isRead) NovelSurface.copy(alpha = 0.55f) else NovelSurface
+        ),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder.copy(alpha = 0.7f)),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isRead) NovelSurfaceBorder.copy(alpha = 0.4f) else NovelSurfaceBorder.copy(alpha = 0.7f)
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -978,32 +1030,45 @@ private fun ChapterListItem(
                 Text(
                     text = chapterTitle,
                     style = MaterialTheme.typography.titleMedium,
-                    color = NovelTextPrimary,
+                    color = if (isRead) NovelTextTertiary.copy(alpha = 0.65f) else NovelTextPrimary,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = if (isRead) FontWeight.Normal else FontWeight.Medium
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Ready to read",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NovelTextSecondary,
-                    fontSize = 11.sp
-                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isRead) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF22C55E),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = if (isRead) "Read" else "Ready to read",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isRead) Color(0xFF22C55E).copy(alpha = 0.8f) else NovelTextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.width(10.dp))
 
             Box(
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(NovelPrimary.copy(alpha = 0.12f)),
+                    .background(
+                        if (isRead) Color(0x1F22C55E) else NovelPrimary.copy(alpha = 0.12f)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.MenuBook,
+                    imageVector = if (isRead) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.MenuBook,
                     contentDescription = null,
-                    tint = NovelPrimary,
+                    tint = if (isRead) Color(0xFF22C55E) else NovelPrimary,
                     modifier = Modifier.size(14.dp)
                 )
             }

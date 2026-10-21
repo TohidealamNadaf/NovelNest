@@ -99,11 +99,32 @@ fun ReaderScreen(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(currentTheme.backgroundColor)
+    val drawerState = androidx.compose.material3.rememberDrawerState(
+        initialValue = androidx.compose.material3.DrawerValue.Closed
+    )
+
+    androidx.compose.material3.ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            com.novelnest.app.feature.reader.components.ReaderChaptersDrawer(
+                chapters = uiState.chapters,
+                currentChapterIndex = uiState.currentChapterIndex,
+                readChapterIds = uiState.readChapterIds,
+                onSelectChapter = { index ->
+                    viewModel.selectChapter(index)
+                },
+                onCloseDrawer = {
+                    coroutineScope.launch { drawerState.close() }
+                }
+            )
+        }
     ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(currentTheme.backgroundColor)
+        ) {
         if (uiState.isLoading) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -331,6 +352,7 @@ fun ReaderScreen(
             isSyncing = uiState.isChapterLoading,
             onBack = onBack,
             onOpenSettings = { viewModel.showQuickSettings(true) },
+            onOpenChapterList = { coroutineScope.launch { drawerState.open() } },
             onToggleBookmark = { viewModel.toggleBookmark() },
             onResyncChapter = { viewModel.resyncChapter() },
             modifier = Modifier.align(Alignment.TopCenter)
@@ -349,4 +371,5 @@ fun ReaderScreen(
             )
         }
     }
+}
 }

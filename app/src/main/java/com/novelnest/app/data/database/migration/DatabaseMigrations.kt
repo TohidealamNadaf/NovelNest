@@ -9,15 +9,23 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 object DatabaseMigrations {
 
-    val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-        // Future schema migrations will be registered here, e.g.:
-        // MIGRATION_1_2
-    )
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `reading_progress` (" +
+                    "`novelId` TEXT NOT NULL, " +
+                    "`lastReadChapterId` TEXT NOT NULL, " +
+                    "`lastReadChapterIndex` INTEGER NOT NULL, " +
+                    "`lastReadChapterTitle` TEXT NOT NULL, " +
+                    "`lastReadTimestamp` INTEGER NOT NULL, " +
+                    "`readChapterIds` TEXT NOT NULL, " +
+                    "PRIMARY KEY(`novelId`)" +
+                ")"
+            )
+        }
+    }
 
-    // Example migration template for future release:
-    // val MIGRATION_1_2 = object : Migration(1, 2) {
-    //     override fun migrate(db: SupportSQLiteDatabase) {
-    //         db.execSQL("ALTER TABLE novels ADD COLUMN bookmarkTimestamp INTEGER DEFAULT 0 NOT NULL")
-    //     }
-    // }
+    val ALL_MIGRATIONS: Array<Migration> = arrayOf(
+        MIGRATION_1_2
+    )
 }

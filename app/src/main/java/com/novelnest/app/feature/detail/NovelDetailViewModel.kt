@@ -20,6 +20,8 @@ data class NovelDetailUiState(
     val isAscending: Boolean = true,
     val chapterQuery: String = "",
     val isBookmarked: Boolean = false,
+    val readingProgress: com.novelnest.app.data.progress.NovelProgress? = null,
+    val readChapterIds: Set<String> = emptySet(),
     val isLoading: Boolean = true,
     val isChaptersLoading: Boolean = false,
     val isSynopsisExpanded: Boolean = false,
@@ -30,14 +32,38 @@ data class NovelDetailUiState(
 class NovelDetailViewModel(
     private val novelId: String,
     private val repository: NovelRepository,
-    private val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager? = null
+    private val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager? = null,
+    private val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NovelDetailUiState(isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false))
+    private val _uiState = MutableStateFlow(
+        NovelDetailUiState(
+            isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false,
+            readingProgress = readingProgressManager?.getProgress(novelId),
+            readChapterIds = readingProgressManager?.getProgress(novelId)?.readChapterIds ?: emptySet()
+        )
+    )
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
 
     init {
         loadNovelDetails()
+        observeReadingProgress()
+    }
+
+    private fun observeReadingProgress() {
+        readingProgressManager?.let { pm ->
+            viewModelScope.launch {
+                pm.progressMap.collect { map ->
+                    val progress = map[novelId]
+                    _uiState.update { current ->
+                        current.copy(
+                            readingProgress = progress,
+                            readChapterIds = progress?.readChapterIds ?: emptySet()
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun toggleBookmark() {

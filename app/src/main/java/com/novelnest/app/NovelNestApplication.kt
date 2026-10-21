@@ -28,6 +28,10 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.bookmark.BookmarkManager(this)
     }
 
+    val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager by lazy {
+        com.novelnest.app.data.progress.ReadingProgressManager(database.readingProgressDao())
+    }
+
     override fun onCreate() {
         super.onCreate()
         HttpFactory.initialize(cacheDir)
