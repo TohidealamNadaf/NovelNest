@@ -4,18 +4,15 @@ import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
+import com.novelnest.app.data.remote.network.HttpFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
-import java.util.concurrent.TimeUnit
 
 class FreeWebNovelSource(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = HttpFactory.getClient()
 ) : NovelSource {
 
     override val sourceType: NovelSourceType = NovelSourceType.FREE_WEB_NOVEL
