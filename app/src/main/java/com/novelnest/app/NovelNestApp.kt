@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -66,6 +67,8 @@ fun NovelNestApp(
         )
     }
 
+    val isImmersiveScreen = currentRoute?.startsWith("detail") == true || currentRoute?.startsWith("reader") == true
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = NovelBackground
@@ -73,7 +76,7 @@ fun NovelNestApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding())
+                .padding(top = if (isImmersiveScreen) 0.dp else innerPadding.calculateTopPadding())
         ) {
             NovelNestNavHost(
                 navController = navController,

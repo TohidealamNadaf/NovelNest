@@ -21,8 +21,10 @@ data class NovelDetailUiState(
     val chapterQuery: String = "",
     val isBookmarked: Boolean = false,
     val isLoading: Boolean = true,
+    val isChaptersLoading: Boolean = false,
     val isSynopsisExpanded: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val chaptersErrorMessage: String? = null
 )
 
 class NovelDetailViewModel(
@@ -70,6 +72,10 @@ class NovelDetailViewModel(
         }
     }
 
+    fun resyncChapters() {
+        loadChapters(forceRefresh = true)
+    }
+
     private fun filterChapters(chapters: List<Chapter>, query: String): List<Chapter> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return chapters
@@ -78,70 +84,125 @@ class NovelDetailViewModel(
 
     private fun loadNovelDetails() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            // 1. Find from seed data / repository
-            val foundNovel = SeedData.findNovelById(novelId) ?: run {
+            // 1. Initial fast resolution from SeedData
+            val initialNovel = SeedData.findNovelById(novelId) ?: run {
                 val formattedTitle = if (novelId.isNotBlank() && novelId != "sample") {
-                    novelId.replace("-", " ")
+                    novelId.removePrefix("np-")
+                        .replace("-", " ")
                         .split(" ")
                         .filter { it.isNotBlank() }
                         .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
                 } else {
                     "The Whispering Sanctuary"
                 }
+                val slug = novelId.removePrefix("np-")
                 Novel(
                     id = novelId,
                     title = formattedTitle,
-                    coverUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80",
-                    author = "Gu Zhen Ren",
-                    source = NovelSourceType.NOVEL_PHOENIX,
-                    sourceUrl = "",
+                    coverUrl = "https://novelphoenix.com/server-1/$slug.jpg",
+                    author = "Author",
+                    source = if (novelId.startsWith("asura-")) NovelSourceType.ASURA_SCANS else NovelSourceType.NOVEL_PHOENIX,
+                    sourceUrl = "https://novelphoenix.com/novel/$slug",
                     rating = 4.8f,
-                    latestChapter = "Chapter 250",
-                    views = "1.8M",
+                    latestChapter = "Loading...",
+                    views = "",
                     status = "Ongoing",
-                    genres = listOf("Action", "Cultivation", "Fantasy", "Mystery"),
-                    synopsis = "A journey of cultivation, mysteries, and perseverance. In a realm where destiny is carved in blood and ancient runes, a solitary wanderer discovers a dormant artifact that can invert the laws of the mortal cosmos."
-                )
-            }
-
-            // Generate representative chapter list (e.g. 100 chapters)
-            val generatedChapters = (1..60).map { chNum ->
-                Chapter(
-                    id = "ch-$chNum",
-                    title = "Chapter $chNum: ${getChapterName(chNum, foundNovel.title)}",
-                    paragraphs = listOf(
-                        "The celestial runes hummed with silent authority as Chapter $chNum commenced.",
-                        "Paths diverged across the mortal wilderness, each step leading deeper into the sanctuary of the heavens."
-                    )
+                    genres = listOf("Fantasy", "Action"),
+                    synopsis = ""
                 )
             }
 
             _uiState.update {
                 it.copy(
-                    novel = foundNovel,
-                    chapters = generatedChapters,
-                    filteredChapters = generatedChapters,
+                    novel = initialNovel,
                     isLoading = false
                 )
             }
+
+            // 2. Fetch live novel details in background
+            val source = initialNovel.source
+            val novelUrl = initialNovel.sourceUrl.ifBlank {
+                val slug = novelId.removePrefix("np-")
+                "${source.baseUrl}/novel/$slug"
+            }
+
+            val detailResult = runCatching { repository.getNovelDetails(source, novelUrl) }.getOrNull()
+            if (detailResult != null && detailResult.isSuccess) {
+                val liveNovel = detailResult.getOrThrow()
+                _uiState.update { it.copy(novel = liveNovel) }
+            }
+
+            // 3. Load chapter list
+            loadChapters(forceRefresh = false)
+        }
+    }
+
+    private fun loadChapters(forceRefresh: Boolean) {
+        viewModelScope.launch {
+            val currentNovel = _uiState.value.novel ?: return@launch
+            val source = currentNovel.source
+            val slugOrUrl = currentNovel.sourceUrl.ifBlank { novelId }
+
+            _uiState.update { it.copy(isChaptersLoading = true, chaptersErrorMessage = null) }
+
+            val result = repository.getChapters(source, slugOrUrl, forceRefresh = forceRefresh)
+            result.onSuccess { liveChapters ->
+                if (liveChapters.isNotEmpty()) {
+                    _uiState.update { current ->
+                        val sorted = if (current.isAscending) liveChapters else liveChapters.reversed()
+                        current.copy(
+                            chapters = sorted,
+                            filteredChapters = filterChapters(sorted, current.chapterQuery),
+                            isChaptersLoading = false,
+                            chaptersErrorMessage = null
+                        )
+                    }
+                } else {
+                    // Empty live chapters: fallback to default chapters
+                    fallbackToDefaultChapters("No chapters available from source.")
+                }
+            }.onFailure { err ->
+                // Handled fallback: Keep or provide fallback chapters, but show retry error banner
+                fallbackToDefaultChapters("Failed to fetch live chapters (${err.message ?: "Network error"}).")
+            }
+        }
+    }
+
+    private fun fallbackToDefaultChapters(reason: String) {
+        val currentChapters = _uiState.value.chapters
+        val chaptersToUse = if (currentChapters.isNotEmpty()) {
+            currentChapters
+        } else {
+            val title = _uiState.value.novel?.title ?: "Novel"
+            (1..40).map { chNum ->
+                Chapter(
+                    id = "ch-$chNum",
+                    title = "Chapter $chNum: ${getChapterName(chNum, title)}",
+                    paragraphs = emptyList()
+                )
+            }
+        }
+
+        _uiState.update { current ->
+            current.copy(
+                chapters = chaptersToUse,
+                filteredChapters = filterChapters(chaptersToUse, current.chapterQuery),
+                isChaptersLoading = false,
+                chaptersErrorMessage = reason
+            )
         }
     }
 
     private fun getChapterName(chNum: Int, novelTitle: String): String {
         return when (chNum) {
-            1 -> "The Awakening of Ancient Starlight"
-            2 -> "A Glimpse Beyond the Mortal Veil"
-            3 -> "The Trial of Obsidian Shadows"
-            4 -> "Riddle of the Celestial Archive"
-            5 -> "Echoes of the Forgotten Emperor"
-            6 -> "Runes of the Golden Phoenix"
-            7 -> "Whispers in the Astral Wind"
-            8 -> "The Sovereign’s Bloodline"
-            9 -> "Shattered Horizons"
-            10 -> "Dawn of the Ascendant Monarch"
-            else -> "Path of Destiny Part $chNum"
+            1 -> "The Awakening"
+            2 -> "Beyond the Mortal Veil"
+            3 -> "Trial of Obsidian Shadows"
+            4 -> "Celestial Archive"
+            5 -> "Echoes of the Forgotten"
+            else -> "Chapter $chNum"
         }
     }
 }

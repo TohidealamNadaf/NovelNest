@@ -121,6 +121,30 @@ fun NovelCard(
                     )
             )
 
+            // Top rank badge
+            if (novel.rank > 0) {
+                Box(
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xD90F1216))
+                        .border(
+                            0.5.dp,
+                            if (novel.rank <= 3) NovelGold.copy(alpha = 0.8f) else NovelSurfaceBorder,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "#${novel.rank}",
+                        color = if (novel.rank <= 3) NovelGold else NovelTextPrimary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             // Top rating badge
             Box(
                 modifier = Modifier

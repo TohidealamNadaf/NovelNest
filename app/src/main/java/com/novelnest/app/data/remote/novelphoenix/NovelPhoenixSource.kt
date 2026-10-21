@@ -120,6 +120,7 @@ class NovelPhoenixSource(
             }
 
             val mapped = items.map { item ->
+                val rankInt = item.rankBadge?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
                 Novel(
                     id = "np-${item.slug}",
                     title = item.title,
@@ -128,7 +129,8 @@ class NovelPhoenixSource(
                     sourceUrl = "${sourceType.baseUrl}/novel/${item.slug}",
                     latestChapter = item.latestChapter,
                     rating = item.rating,
-                    status = "Ongoing"
+                    status = "Ongoing",
+                    rank = rankInt
                 )
             }
             if (mapped.isEmpty()) SeedData.search(sourceType, query) else mapped
@@ -177,36 +179,59 @@ class NovelPhoenixSource(
     }
 
     /**
-     * Fetches all chapters of a novel by paging through /novel/{slug}/chapters?page=N starting at 1
-     * until an empty page returns.
+     * Optimized chapter fetching:
+     * - When [fetchAll] is false, fetches page 1 immediately (100 chapters in <1s)
+     *   allowing instant reading.
+     * - When [fetchAll] is true (or when resync is triggered), safely pages through remaining
+     *   batches, preserving all accumulated chapters even if later pages fail.
      */
-    suspend fun getAllChapters(novelSlug: String, forceRefresh: Boolean = false): List<PhoenixChapterItem> {
+    suspend fun getChapters(
+        novelSlug: String,
+        fetchAll: Boolean = false,
+        forceRefresh: Boolean = false
+    ): List<PhoenixChapterItem> {
         val cacheKey = "slug:$novelSlug"
         val now = System.currentTimeMillis()
         if (!forceRefresh) {
             val cached = chapterListCache[cacheKey]
             if (cached != null && (now - cached.first) < cacheTtlMillis) {
-                return cached.second
+                if (!fetchAll || cached.second.size > 100) {
+                    return cached.second
+                }
             }
         }
 
         val allChapters = mutableListOf<PhoenixChapterItem>()
         var page = 1
-        val maxPagesSafetyLimit = 100 // up to 10,000 chapters
+        val maxPages = if (fetchAll) 100 else 1
 
-        while (page <= maxPagesSafetyLimit) {
+        while (page <= maxPages) {
             val pageUrl = "${sourceType.baseUrl}/novel/$novelSlug/chapters?page=$page"
-            val html = executePoliteGet(pageUrl)
-            val batch = NovelPhoenixParser.parseChapterList(html)
-            if (batch.isEmpty()) {
-                break
+            try {
+                val html = executePoliteGet(pageUrl)
+                val batch = NovelPhoenixParser.parseChapterList(html)
+                if (batch.isEmpty()) break
+                allChapters.addAll(batch)
+                page++
+            } catch (e: Exception) {
+                // If we already collected chapters from previous pages, gracefully return them
+                if (allChapters.isNotEmpty()) break
+                throw e
             }
-            allChapters.addAll(batch)
-            page++
         }
 
-        chapterListCache[cacheKey] = Pair(now, allChapters)
+        if (allChapters.isNotEmpty()) {
+            chapterListCache[cacheKey] = Pair(now, allChapters)
+        }
         return allChapters
+    }
+
+    /**
+     * Fetches all chapters of a novel by paging through /novel/{slug}/chapters?page=N starting at 1
+     * until an empty page returns.
+     */
+    suspend fun getAllChapters(novelSlug: String, forceRefresh: Boolean = false): List<PhoenixChapterItem> {
+        return getChapters(novelSlug, fetchAll = true, forceRefresh = forceRefresh)
     }
 
     /**

@@ -11,4 +11,7 @@ interface NovelRepository {
     suspend fun searchNovels(source: NovelSourceType, query: String): Result<List<Novel>>
 
     suspend fun getNovelDetails(source: NovelSourceType, novelUrl: String): Result<Novel>
+
+    suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.feature.reader.Chapter>>
 }
+

@@ -17,16 +17,20 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -36,11 +40,14 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,11 +60,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -99,6 +110,11 @@ fun NovelDetailScreen(
     val novel = uiState.novel
     val playHaptic = rememberNovelNestHaptic()
     val context = LocalContext.current
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val showScrollToTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 2 }
+    }
 
     Box(
         modifier = modifier
@@ -114,8 +130,9 @@ fun NovelDetailScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 40.dp)
+                contentPadding = PaddingValues(bottom = 60.dp)
             ) {
                 // 1. HERO POSTER & METADATA SECTION
                 item {
@@ -147,12 +164,73 @@ fun NovelDetailScreen(
                         filteredCount = uiState.filteredChapters.size,
                         searchQuery = uiState.chapterQuery,
                         isAscending = uiState.isAscending,
+                        isSyncing = uiState.isChaptersLoading,
                         onSearchChange = { viewModel.onChapterSearch(it) },
                         onToggleSort = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
                             viewModel.toggleSortOrder()
+                        },
+                        onResync = {
+                            playHaptic(NovelNestHapticType.LIGHT_TICK)
+                            viewModel.resyncChapters()
                         }
                     )
+                }
+
+                // 3b. FALLBACK / ERROR NOTIFICATION BANNER
+                if (uiState.chaptersErrorMessage != null) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = NovelSurfaceVariant),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Offline / Cached Chapters",
+                                        color = NovelTextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = uiState.chaptersErrorMessage.orEmpty(),
+                                        color = NovelTextSecondary,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = { viewModel.resyncChapters() },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NovelPrimary,
+                                        contentColor = NovelOnPrimary
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(text = "Retry", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // 4. CHAPTER LIST ITEMS
@@ -206,6 +284,33 @@ fun NovelDetailScreen(
                     )
                 }
             }
+
+            // Floating Instant Scroll-to-Top Button (Appears when scrolled down)
+            AnimatedVisibility(
+                visible = showScrollToTop,
+                enter = fadeIn() + androidx.compose.animation.scaleIn(),
+                exit = fadeOut() + androidx.compose.animation.scaleOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 20.dp, bottom = 24.dp)
+            ) {
+                NovelNestIconButton(
+                    icon = Icons.Rounded.KeyboardArrowUp,
+                    contentDescription = "Scroll to top instantly",
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(0)
+                        }
+                    },
+                    tint = NovelOnPrimary,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(NovelPrimary)
+                )
+            }
         }
     }
 }
@@ -228,7 +333,9 @@ private fun NovelDetailHeroHeader(
             .fillMaxWidth()
             .background(NovelBackground)
     ) {
-        // Backdrop cover with deep dark gradient overlay
+        val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+        // Backdrop cover with deep dark gradient overlay covering status bar
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(novel.coverUrl.ifBlank { "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80" })
@@ -238,36 +345,36 @@ private fun NovelDetailHeroHeader(
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(310.dp)
+                .height(350.dp)
         )
 
         // Gradient fading smoothly into NovelBackground
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(310.dp)
+                .height(350.dp)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x770F1216),
-                            Color(0xCC0F1216),
+                            Color(0x550F1216),
+                            Color(0x990F1216),
                             NovelBackground
                         )
                     )
                 )
         )
 
-        // Main Novel Info Layout
+        // Main Novel Info Layout (properly positioned below status bar & top back bar)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 90.dp, start = 16.dp, end = 16.dp)
+                .padding(top = statusBarHeight + 58.dp, start = 16.dp, end = 16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom
             ) {
-                // High-resolution Poster Card
+                // High-resolution Poster Card with Rank Badge
                 Card(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = NovelSurface),
@@ -277,15 +384,37 @@ private fun NovelDetailHeroHeader(
                         .width(115.dp)
                         .aspectRatio(2f / 3f)
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(novel.coverUrl.ifBlank { "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80" })
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = novel.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(novel.coverUrl.ifBlank { "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80" })
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = novel.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        // Rank Badge on Poster
+                        if (novel.rank > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xE60F1216))
+                                    .border(1.dp, NovelGold.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "#${novel.rank}",
+                                    color = NovelGold,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(16.dp))
@@ -340,11 +469,29 @@ private fun NovelDetailHeroHeader(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Rating, Status, and Views Badges
+                    // Ranking, Rating, Status, and Views Badges
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        // Rank Badge in details
+                        if (novel.rank > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(NovelGold.copy(alpha = 0.15f))
+                                    .border(0.5.dp, NovelGold.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Rank #${novel.rank}",
+                                    color = NovelGold,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // Rating Badge
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -534,8 +681,10 @@ private fun ChapterListHeader(
     filteredCount: Int,
     searchQuery: String,
     isAscending: Boolean,
+    isSyncing: Boolean = false,
     onSearchChange: (String) -> Unit,
-    onToggleSort: () -> Unit
+    onToggleSort: () -> Unit,
+    onResync: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -570,29 +719,68 @@ private fun ChapterListHeader(
                 }
             }
 
-            // Ascending / Descending order toggle button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(NovelSurfaceVariant)
-                    .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
-                    .clickable(role = Role.Button, onClick = onToggleSort)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.SwapVert,
-                    contentDescription = "Sort order",
-                    tint = NovelPrimary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (isAscending) "1 - $totalChapters" else "$totalChapters - 1",
-                    color = NovelTextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                // Resync / Refresh button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NovelSurfaceVariant)
+                        .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
+                        .clickable(role = Role.Button, onClick = onResync)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            color = NovelPrimary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = "Resync Chapters",
+                                tint = NovelPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Sync",
+                                color = NovelTextPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // Ascending / Descending order toggle button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NovelSurfaceVariant)
+                        .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
+                        .clickable(role = Role.Button, onClick = onToggleSort)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SwapVert,
+                        contentDescription = "Sort order",
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isAscending) "1 - $totalChapters" else "$totalChapters - 1",
+                        color = NovelTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
 

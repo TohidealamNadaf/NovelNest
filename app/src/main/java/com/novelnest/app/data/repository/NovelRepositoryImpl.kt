@@ -164,6 +164,37 @@ class NovelRepositoryImpl(
         return remoteSource.getNovelDetails(novelUrl)
     }
 
+    override suspend fun getChapters(
+        source: NovelSourceType,
+        novelSlugOrUrl: String,
+        forceRefresh: Boolean
+    ): Result<List<com.novelnest.app.feature.reader.Chapter>> {
+        val remoteSource = sources[source]
+        if (source == NovelSourceType.NOVEL_PHOENIX && remoteSource is NovelPhoenixSource) {
+            val slug = novelSlugOrUrl.removePrefix("np-").trimEnd('/').substringAfterLast('/')
+            return runCatching {
+                val phoenixChapters = remoteSource.getChapters(slug, fetchAll = false, forceRefresh = forceRefresh)
+                phoenixChapters.map { ch ->
+                    com.novelnest.app.feature.reader.Chapter(
+                        id = ch.id,
+                        title = ch.title,
+                        paragraphs = emptyList()
+                    )
+                }
+            }
+        }
+
+        // Default / fallback chapters
+        val fallbackChapters = (1..60).map { chNum ->
+            com.novelnest.app.feature.reader.Chapter(
+                id = "ch-$chNum",
+                title = "Chapter $chNum: Part $chNum",
+                paragraphs = emptyList()
+            )
+        }
+        return Result.success(fallbackChapters)
+    }
+
     private suspend fun readSectionsFromDatabase(source: NovelSourceType): List<NovelSection> {
         if (database == null) return emptyList()
 
