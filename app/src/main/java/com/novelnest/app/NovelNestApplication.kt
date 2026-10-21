@@ -5,9 +5,20 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.novelnest.app.data.database.NovelNestDatabase
 import com.novelnest.app.data.remote.network.HttpFactory
+import com.novelnest.app.data.repository.NovelRepository
+import com.novelnest.app.data.repository.NovelRepositoryImpl
 
 class NovelNestApplication : Application(), ImageLoaderFactory {
+
+    val database: NovelNestDatabase by lazy {
+        NovelNestDatabase.getInstance(this)
+    }
+
+    val novelRepository: NovelRepository by lazy {
+        NovelRepositoryImpl(database = database)
+    }
 
     override fun onCreate() {
         super.onCreate()

@@ -4,6 +4,8 @@ import com.novelnest.app.data.cache.MemoryLruCache
 import com.novelnest.app.data.database.NovelNestDatabase
 import com.novelnest.app.data.database.entity.NovelEntity
 import com.novelnest.app.data.database.entity.SectionEntity
+import com.novelnest.app.data.database.mapper.toDomain
+import com.novelnest.app.data.database.mapper.toEntity
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
@@ -128,7 +130,7 @@ class NovelRepositoryImpl(
         if (database != null) {
             val localMatches = database.novelDao().searchNovels(source.name, q).firstOrNull().orEmpty()
             if (localMatches.isNotEmpty()) {
-                return Result.success(localMatches.map { it.toDomainModel() })
+                return Result.success(localMatches.map { it.toDomain() })
             }
         }
 
@@ -146,7 +148,7 @@ class NovelRepositoryImpl(
             // Cache found novels in DB for future queries
             database?.let { db ->
                 repositoryScope.launch {
-                    val entities = novels.map { NovelEntity.fromDomainModel(it) }
+                    val entities = novels.map { it.toEntity() }
                     db.novelDao().upsertNovels(entities)
                 }
             }
@@ -172,16 +174,9 @@ class NovelRepositoryImpl(
             val novels = database.sectionDao().getNovelsForSection(sectionEntity.sectionId)
                 .firstOrNull()
                 .orEmpty()
-                .map { it.toDomainModel() }
+                .map { it.toDomain() }
 
-            NovelSection(
-                id = sectionEntity.sectionId,
-                title = sectionEntity.title,
-                iconEmoji = sectionEntity.iconEmoji,
-                subtitle = sectionEntity.subtitle,
-                type = runCatching { SectionType.valueOf(sectionEntity.sectionType) }.getOrDefault(SectionType.HORIZONTAL_LIST),
-                novels = novels
-            )
+            sectionEntity.toDomain(novels)
         }.filter { it.novels.isNotEmpty() }
     }
 
@@ -190,18 +185,8 @@ class NovelRepositoryImpl(
 
         repositoryScope.launch {
             sections.forEachIndexed { index, section ->
-                val sectionEntity = SectionEntity(
-                    sectionId = section.id,
-                    source = source.name,
-                    title = section.title,
-                    iconEmoji = section.iconEmoji,
-                    subtitle = section.subtitle,
-                    sectionType = section.type.name,
-                    displayOrder = index,
-                    lastFetchedTimestamp = System.currentTimeMillis()
-                )
-
-                val novelEntities = section.novels.map { NovelEntity.fromDomainModel(it) }
+                val sectionEntity = section.toEntity(source = source, displayOrder = index)
+                val novelEntities = section.novels.map { it.toEntity() }
 
                 // Upsert novels into master table
                 database.novelDao().upsertNovels(novelEntities)

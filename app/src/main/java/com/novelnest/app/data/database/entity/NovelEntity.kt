@@ -3,8 +3,6 @@ package com.novelnest.app.data.database.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import com.novelnest.app.data.model.Novel
-import com.novelnest.app.data.model.NovelSourceType
 
 @Entity(
     tableName = "novels",
@@ -29,43 +27,4 @@ data class NovelEntity(
     val views: String = "",
     val rank: Int = 0,
     val lastUpdatedTimestamp: Long = System.currentTimeMillis()
-) {
-    fun toDomainModel(): Novel {
-        return Novel(
-            id = id,
-            title = title,
-            coverUrl = coverUrl,
-            source = NovelSourceType.entries.firstOrNull { it.name == source } ?: NovelSourceType.NOVEL_PHOENIX,
-            sourceUrl = sourceUrl,
-            synopsis = synopsis,
-            author = author,
-            rating = rating,
-            latestChapter = latestChapter,
-            genres = genres,
-            status = status,
-            views = views,
-            rank = rank
-        )
-    }
-
-    companion object {
-        fun fromDomainModel(novel: Novel): NovelEntity {
-            return NovelEntity(
-                id = novel.id,
-                title = novel.title,
-                coverUrl = novel.coverUrl,
-                source = novel.source.name,
-                sourceUrl = novel.sourceUrl,
-                synopsis = novel.synopsis,
-                author = novel.author,
-                rating = novel.rating,
-                latestChapter = novel.latestChapter,
-                genres = novel.genres,
-                status = novel.status,
-                views = novel.views,
-                rank = novel.rank,
-                lastUpdatedTimestamp = System.currentTimeMillis()
-            )
-        }
-    }
-}
+)
