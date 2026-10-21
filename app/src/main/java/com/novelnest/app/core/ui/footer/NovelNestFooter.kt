@@ -282,7 +282,7 @@ private fun NovelNestFooterHomeSelectedPreview() {
     )
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0F1216)
+@Preview(name = "Footer - Discover Selected", showBackground = true, backgroundColor = 0xFF0F1216)
 @Composable
 private fun NovelNestFooterDiscoverSelectedPreview() {
     val sampleDestinations = listOf(
@@ -292,6 +292,20 @@ private fun NovelNestFooterDiscoverSelectedPreview() {
     NovelNestFooter(
         destinations = sampleDestinations,
         selectedRoute = "discover",
+        onNavigate = {}
+    )
+}
+
+@Preview(name = "Footer - Font Scale 1.5x", fontScale = 1.5f, showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestFooterLargeFontPreview() {
+    val sampleDestinations = listOf(
+        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+    )
+    NovelNestFooter(
+        destinations = sampleDestinations,
+        selectedRoute = "home",
         onNavigate = {}
     )
 }

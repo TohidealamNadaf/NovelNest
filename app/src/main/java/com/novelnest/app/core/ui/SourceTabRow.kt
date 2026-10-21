@@ -194,3 +194,39 @@ fun SourceTabRow(
         }
     }
 }
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Tab - NovelPhoenix", showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun SourceTabRowNovelPhoenixPreview() {
+    SourceTabRow(
+        selectedSource = NovelSourceType.NOVEL_PHOENIX,
+        onSourceSelected = {}
+    )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Tab - FWN", showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun SourceTabRowFreeWebNovelPreview() {
+    SourceTabRow(
+        selectedSource = NovelSourceType.FREE_WEB_NOVEL,
+        onSourceSelected = {}
+    )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Tab - Asura Scans", showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun SourceTabRowAsuraScansPreview() {
+    SourceTabRow(
+        selectedSource = NovelSourceType.ASURA_SCANS,
+        onSourceSelected = {}
+    )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Tab - Font Scale 1.5x", fontScale = 1.5f, showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun SourceTabRowLargeFontPreview() {
+    SourceTabRow(
+        selectedSource = NovelSourceType.NOVEL_PHOENIX,
+        onSourceSelected = {}
+    )
+}

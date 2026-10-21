@@ -216,7 +216,7 @@ fun HomeScreen(
                         LazyColumn(
                             state = sourceListState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 80.dp),
+                            contentPadding = PaddingValues(bottom = com.novelnest.app.core.ui.footer.rememberFooterBottomPadding()),
                             verticalArrangement = Arrangement.spacedBy(20.dp)
                         ) {
                             items(sourceSections, key = { it.id }) { section ->

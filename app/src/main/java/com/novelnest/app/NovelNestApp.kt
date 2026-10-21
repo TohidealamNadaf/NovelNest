@@ -109,12 +109,28 @@ fun NovelNestApp(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = NovelBackground,
-        bottomBar = {
+        containerColor = NovelBackground
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding())
+        ) {
+            NovelNestNavHost(
+                navController = navController,
+                repository = repository,
+                onNovelClick = { novel ->
+                    selectedNovelForPreview = novel
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Floating Capsule Footer Dock
             AnimatedVisibility(
                 visible = showBottomBar,
                 enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it })
+                exit = slideOutVertically(targetOffsetY = { it }),
+                modifier = Modifier.align(Alignment.BottomCenter)
             ) {
                 NovelNestFooter(
                     destinations = footerDestinations,
@@ -133,15 +149,6 @@ fun NovelNestApp(
                 )
             }
         }
-    ) { innerPadding ->
-        NovelNestNavHost(
-            navController = navController,
-            repository = repository,
-            onNovelClick = { novel ->
-                selectedNovelForPreview = novel
-            },
-            modifier = Modifier.padding(innerPadding)
-        )
 
         // Novel Quick Preview Bottom Sheet
         selectedNovelForPreview?.let { novel ->
