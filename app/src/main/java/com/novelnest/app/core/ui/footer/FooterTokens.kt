@@ -8,21 +8,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Shared layout dimension tokens for the docked navigation footer.
+ * Shared layout dimension tokens for the pill-shaped navigation footer.
  */
 object FooterTokens {
-    val BarHeight: Dp = 64.dp
-    val TotalFooterHeight: Dp = BarHeight
+    val PillHeight: Dp = 64.dp
+    val VerticalMargin: Dp = 10.dp
+    val TotalFooterHeight: Dp = PillHeight + (VerticalMargin * 2) // 84.dp
 }
 
 /**
- * Returns bottom contentPadding for scrollable containers displayed above the footer bar.
- * Calculates footer bar height + system navigation bar insets + safety margin.
+ * Returns bottom contentPadding for scrollable containers displayed above the pill footer.
+ * Calculates footer pill height + outer vertical margins + system navigation bar insets + safety margin.
  * Guarantees that the last item will never be hidden behind the footer on either
  * gesture navigation or 3-button navigation.
  */
 @Composable
 fun rememberFooterBottomPadding(extraMargin: Dp = 16.dp): Dp {
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    return FooterTokens.BarHeight + navBarInset + extraMargin
+    return FooterTokens.TotalFooterHeight + navBarInset + extraMargin
 }
