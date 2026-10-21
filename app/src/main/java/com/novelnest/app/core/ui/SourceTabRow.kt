@@ -75,7 +75,7 @@ fun SourceTabRow(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = when (source) {
-                            NovelSourceType.NOVEL_FIRE -> "NovelFire"
+                            NovelSourceType.NOVEL_PHOENIX -> "NovelPhoenix"
                             NovelSourceType.FREE_WEB_NOVEL -> "FWN"
                             NovelSourceType.ASURA_SCANS -> "Asura Scans"
                         },

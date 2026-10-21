@@ -7,140 +7,140 @@ import com.novelnest.app.data.model.SectionType
 
 object SeedData {
 
-    // --- NOVEL FIRE SEED DATA ---
-    val novelFireHeroSlides = listOf(
+    // --- NOVEL PHOENIX SEED DATA ---
+    val novelPhoenixHeroSlides = listOf(
         Novel(
-            id = "nf-1",
+            id = "np-1",
             title = "Shadow Slave",
-            coverUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/shadow-slave",
+            coverUrl = "https://novelphoenix.com/server-1/shadow-slave.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/shadow-slave",
             synopsis = "Growing up in poverty, Sunny was not entirely oblivious to the things in store for him. But when the Nightmare Spell fell upon the world, he awoke to an enigmatic destiny.",
             author = "Guiltythree",
             rating = 4.9f,
             latestChapter = "Chapter 1845",
             genres = listOf("Fantasy", "Action", "Mystery", "System"),
             status = "Ongoing",
-            views = "4.2M"
+            views = "5.2M"
         ),
         Novel(
-            id = "nf-2",
+            id = "np-2",
+            title = "Full-Star Player Returns as a Godslayer",
+            coverUrl = "https://novelphoenix.com/server-1/full-star-player-returns-as-a-godslayer.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/full-star-player-returns-as-a-godslayer",
+            synopsis = "The legendary apex player returns after slaying the deities of the outer realm, armed with god-tier techniques to conquer modern catastrophe.",
+            author = "Star Abyss",
+            rating = 4.85f,
+            latestChapter = "Chapter 310",
+            genres = listOf("Action", "System", "Overpowered"),
+            status = "Ongoing",
+            views = "3.1M"
+        ),
+        Novel(
+            id = "np-3",
+            title = "Genius Martial Arts Trainer",
+            coverUrl = "https://novelphoenix.com/server-1/genius-martial-arts-trainer.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/genius-martial-arts-trainer",
+            synopsis = "Blessed with the eyes of supreme enlightenment, Kang can deduce any martial art flaws with a single glance and forge unparalleled masters.",
+            author = "Iron Fist",
+            rating = 4.78f,
+            latestChapter = "Chapter 454",
+            genres = listOf("Martial Arts", "Cultivation", "Progression"),
+            status = "Ongoing",
+            views = "2.9M"
+        )
+    )
+
+    val novelPhoenixTrending = listOf(
+        Novel(
+            id = "np-4",
+            title = "The Mine Lord: A Dwarven Survival Base-Builder",
+            coverUrl = "https://novelphoenix.com/server-1/the-mine-lord-a-dwarven-survival-base-builder.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/the-mine-lord-a-dwarven-survival-base-builder",
+            synopsis = "Reincarnated underground in a subterranean fantasy world with a dwarven citadel system, building impenetrable subterranean bastions.",
+            author = "DeepDelver",
+            rating = 4.8f,
+            latestChapter = "Chapter 132",
+            genres = listOf("Kingdom Building", "LitRPG", "Survival"),
+            status = "Ongoing"
+        ),
+        Novel(
+            id = "np-5",
             title = "Lord of the Mysteries",
             coverUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/lord-of-the-mysteries",
-            synopsis = "With the rising tide of steam power and machinery, who can come close to being a Beyonder? Shrouded in the fog of history and darkness, who or what is the whispering secret?",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/lord-of-the-mysteries",
+            synopsis = "With the rising tide of steam power and machinery, who can come close to being a Beyonder? Shrouded in the fog of history and darkness.",
             author = "Cuttlefish That Loves Diving",
             rating = 4.95f,
             latestChapter = "Chapter 1432 (Completed)",
             genres = listOf("Steampunk", "Supernatural", "Mystery"),
-            status = "Completed",
-            views = "6.8M"
+            status = "Completed"
         ),
         Novel(
-            id = "nf-3",
-            title = "The Beginning After the End",
-            coverUrl = "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/the-beginning-after-the-end",
-            synopsis = "King Grey has unrivaled strength, wealth, and prestige in a world governed by martial ability. However, solitude lingers closely behind those with great power.",
-            author = "TurtleMe",
-            rating = 4.8f,
-            latestChapter = "Chapter 480",
-            genres = listOf("Action", "Adventure", "Reincarnation"),
-            status = "Ongoing",
-            views = "3.9M"
-        )
-    )
-
-    val novelFireTrending = listOf(
-        Novel(
-            id = "nf-4",
+            id = "np-6",
             title = "Reverend Insanity",
             coverUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/reverend-insanity",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/reverend-insanity",
             synopsis = "A scheming ancient demon travels five hundred years back in time with the Spring Autumn Cicada to conquer the Gu world.",
             author = "Gu Zhen Ren",
-            rating = 4.9f,
+            rating = 4.92f,
             latestChapter = "Chapter 2334",
             genres = listOf("Xianxia", "Villain MC", "Dark Fantasy"),
             status = "Ongoing"
         ),
         Novel(
-            id = "nf-5",
-            title = "Circle of Inevitability",
-            coverUrl = "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/circle-of-inevitability",
-            synopsis = "The official sequel to Lord of the Mysteries following Lumian Lee in the mystical province of Intis.",
-            author = "Cuttlefish That Loves Diving",
-            rating = 4.85f,
-            latestChapter = "Chapter 920",
-            genres = listOf("Mystery", "Occult", "Action"),
-            status = "Ongoing"
-        ),
-        Novel(
-            id = "nf-6",
-            title = "Omniscient Reader's Viewpoint",
-            coverUrl = "https://images.unsplash.com/photo-1507842229451-7f01be777a26?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/omniscient-readers-viewpoint",
-            synopsis = "Only I know the end of this world. One day our world has become merged with the world of an apocalyptic webnovel.",
-            author = "Sing-Shong",
-            rating = 4.92f,
-            latestChapter = "Epilogue 5",
-            genres = listOf("Action", "Apocalypse", "Psychological"),
-            status = "Completed"
-        ),
-        Novel(
-            id = "nf-7",
-            title = "Deep Sea Embers",
-            coverUrl = "https://images.unsplash.com/photo-1519791883288-dc8bd696e667?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/deep-sea-embers",
-            synopsis = "Duncan transmigrates to a cursed ghost ship sailing across a cosmic boundless ocean haunted by anomalies.",
-            author = "Far Away",
-            rating = 4.75f,
-            latestChapter = "Chapter 780",
-            genres = listOf("Eldritch", "Adventure", "Fantasy"),
+            id = "np-7",
+            title = "Collecting Powerful Girlfriends: My Invincible Harem",
+            coverUrl = "https://novelphoenix.com/server-1/collecting-powerful-girlfriends-my-invincible-harem.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/collecting-powerful-girlfriends-my-invincible-harem",
+            synopsis = "Awakening a supernatural charm enhancement system, Lin Chen forms an invincible syndicate with extraordinary heroines.",
+            author = "Night Breeze",
+            rating = 4.65f,
+            latestChapter = "Chapter 637",
+            genres = listOf("Harem", "Action", "Supernatural"),
             status = "Ongoing"
         )
     )
 
-    val novelFireLatest = listOf(
+    val novelPhoenixLatest = listOf(
         Novel(
-            id = "nf-8",
-            title = "Dimensional Descent",
-            coverUrl = "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/dimensional-descent",
-            synopsis = "The world enters an era of universal evolution. Leonel finds his life flipped upside down.",
-            author = "Awspec",
-            rating = 4.6f,
-            latestChapter = "Chapter 1240",
-            genres = listOf("Sci-Fi", "Cultivation", "Action"),
-            status = "Ongoing"
-        ),
-        Novel(
-            id = "nf-9",
-            title = "Supremacy Games",
-            coverUrl = "https://images.unsplash.com/photo-1463320726281-696a485928c7?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/supremacy-games",
-            synopsis = "Felix Maxwell awakes twenty years in the past before the universal games that decided humanity's fate.",
-            author = "Midgard",
+            id = "np-8",
+            title = "Tyrant? No, I am the Villain",
+            coverUrl = "https://novelphoenix.com/server-1/tyrant-no-i-am-the-villain.jpg",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/tyrant-no-i-am-the-villain",
+            synopsis = "Transmigrating into a web novel as the final boss destined to be slain, he outmaneuvers the protagonist at every turn.",
+            author = "Dark Throne",
             rating = 4.7f,
-            latestChapter = "Chapter 1120",
-            genres = listOf("Sci-Fi", "Bloodline", "Games"),
+            latestChapter = "Chapter 123",
+            genres = listOf("Villain", "Strategy", "Fantasy"),
             status = "Ongoing"
         ),
         Novel(
-            id = "nf-10",
+            id = "np-9",
+            title = "The Beginning After the End",
+            coverUrl = "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/the-beginning-after-the-end",
+            synopsis = "King Grey has unrivaled strength and prestige. Reborn into a new world steeped in magic and monsters, he gets a second chance.",
+            author = "TurtleMe",
+            rating = 4.88f,
+            latestChapter = "Chapter 480",
+            genres = listOf("Action", "Adventure", "Reincarnation"),
+            status = "Ongoing"
+        ),
+        Novel(
+            id = "np-10",
             title = "Mother of Learning",
             coverUrl = "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=600&q=80",
-            source = NovelSourceType.NOVEL_FIRE,
-            sourceUrl = "https://novelfire.net/book/mother-of-learning",
+            source = NovelSourceType.NOVEL_PHOENIX,
+            sourceUrl = "https://novelphoenix.com/novel/mother-of-learning",
             synopsis = "Zorian Kazinski is caught in a magical one-month time loop and must master esoteric magic to survive.",
             author = "nobody103",
             rating = 4.95f,
@@ -343,30 +343,30 @@ object SeedData {
 
     fun getSectionsFor(source: NovelSourceType): List<NovelSection> {
         return when (source) {
-            NovelSourceType.NOVEL_FIRE -> listOf(
+            NovelSourceType.NOVEL_PHOENIX -> listOf(
                 NovelSection(
-                    id = "nf-hero",
-                    title = "Featured Masterpieces",
-                    iconEmoji = "✨",
-                    subtitle = "Handpicked epic web novels",
-                    type = SectionType.HERO_SLIDER,
-                    novels = novelFireHeroSlides
-                ),
-                NovelSection(
-                    id = "nf-trending",
-                    title = "Top Trending Novels",
+                    id = "np-hero",
+                    title = "Phoenix Featured",
                     iconEmoji = "🔥",
-                    subtitle = "Most read on NovelFire this week",
-                    type = SectionType.HORIZONTAL_LIST,
-                    novels = novelFireTrending
+                    subtitle = "Handpicked light & web novels",
+                    type = SectionType.HERO_SLIDER,
+                    novels = novelPhoenixHeroSlides
                 ),
                 NovelSection(
-                    id = "nf-latest",
-                    title = "Latest Chapter Releases",
+                    id = "np-trending",
+                    title = "Top Trending Novels",
                     iconEmoji = "⚡",
-                    subtitle = "Freshly translated chapters",
+                    subtitle = "Most read on NovelPhoenix this week",
                     type = SectionType.HORIZONTAL_LIST,
-                    novels = novelFireLatest
+                    novels = novelPhoenixTrending
+                ),
+                NovelSection(
+                    id = "np-latest",
+                    title = "Recently Added & Completed",
+                    iconEmoji = "✨",
+                    subtitle = "Fresh chapters and completed sagas",
+                    type = SectionType.HORIZONTAL_LIST,
+                    novels = novelPhoenixLatest
                 )
             )
 
@@ -421,7 +421,7 @@ object SeedData {
     fun search(source: NovelSourceType, query: String): List<Novel> {
         val q = query.trim().lowercase()
         val allNovels = when (source) {
-            NovelSourceType.NOVEL_FIRE -> (novelFireHeroSlides + novelFireTrending + novelFireLatest).distinctBy { it.id }
+            NovelSourceType.NOVEL_PHOENIX -> (novelPhoenixHeroSlides + novelPhoenixTrending + novelPhoenixLatest).distinctBy { it.id }
             NovelSourceType.FREE_WEB_NOVEL -> (fwnHeroSlides + fwnTrending).distinctBy { it.id }
             NovelSourceType.ASURA_SCANS -> (asuraHeroSlides + asuraTrending + asuraLatest).distinctBy { it.id }
         }

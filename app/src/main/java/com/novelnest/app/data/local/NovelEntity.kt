@@ -35,7 +35,7 @@ data class NovelEntity(
             id = id,
             title = title,
             coverUrl = coverUrl,
-            source = NovelSourceType.entries.firstOrNull { it.name == source } ?: NovelSourceType.NOVEL_FIRE,
+            source = NovelSourceType.entries.firstOrNull { it.name == source } ?: NovelSourceType.NOVEL_PHOENIX,
             sourceUrl = sourceUrl,
             synopsis = synopsis,
             author = author,

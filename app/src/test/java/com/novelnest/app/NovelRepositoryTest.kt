@@ -20,8 +20,8 @@ class NovelRepositoryTest {
     }
 
     @Test
-    fun getHomeSections_emitsSectionsForNovelFire() = runBlocking {
-        val result = repository.getHomeSections(NovelSourceType.NOVEL_FIRE).first()
+    fun getHomeSections_emitsSectionsForNovelPhoenix() = runBlocking {
+        val result = repository.getHomeSections(NovelSourceType.NOVEL_PHOENIX).first()
         assertTrue(result.isSuccess)
         val sections = result.getOrNull()
         assertNotNull(sections)
@@ -39,7 +39,7 @@ class NovelRepositoryTest {
 
     @Test
     fun searchNovels_findsMatchingNovelsByTitle() = runBlocking {
-        val result = repository.searchNovels(NovelSourceType.NOVEL_FIRE, "Shadow Slave")
+        val result = repository.searchNovels(NovelSourceType.NOVEL_PHOENIX, "Shadow Slave")
         assertTrue(result.isSuccess)
         val novels = result.getOrNull()
         assertNotNull(novels)

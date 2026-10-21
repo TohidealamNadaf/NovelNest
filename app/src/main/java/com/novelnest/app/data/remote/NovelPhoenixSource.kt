@@ -11,17 +11,20 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 
-class NovelFireSource(
+class NovelPhoenixSource(
     private val client: OkHttpClient = HttpFactory.getClient()
 ) : NovelSource {
 
-    override val sourceType: NovelSourceType = NovelSourceType.NOVEL_FIRE
+    override val sourceType: NovelSourceType = NovelSourceType.NOVEL_PHOENIX
 
     override suspend fun getHomeSections(): Result<List<NovelSection>> = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
                 .url(sourceType.baseUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                )
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .build()
 
@@ -38,26 +41,37 @@ class NovelFireSource(
             val doc = Jsoup.parse(html, sourceType.baseUrl)
             val parsedNovels = mutableListOf<Novel>()
 
-            // NovelFire card selectors
-            val items = doc.select(".novel-item, .list-item, .post-item, .item-thumb")
-            items.take(15).forEachIndexed { index, element ->
-                val titleEl = element.selectFirst(".novel-title, .title, a[title]")
+            // NovelPhoenix item selectors
+            val items = doc.select("li.novel-item, .novel-item")
+            items.take(20).forEachIndexed { index, element ->
+                val titleEl = element.selectFirst(".novel-title, h4, a[title]")
                 val title = titleEl?.text()?.ifBlank { titleEl.attr("title") } ?: "Novel $index"
-                val link = element.selectFirst("a")?.attr("abs:href").orEmpty()
-                val coverImg = element.selectFirst("img")?.attr("abs:src")
-                    ?: element.selectFirst("img")?.attr("abs:data-src").orEmpty()
-                val latestCh = element.selectFirst(".chapter-title, .chapter, .ch-item")?.text().orEmpty()
+                val link = element.selectFirst("a[href*='/novel/'], a")?.attr("abs:href").orEmpty()
+
+                var coverImg = element.selectFirst("img")?.attr("abs:data-src").orEmpty()
+                if (coverImg.isBlank() || coverImg.contains("data:image")) {
+                    coverImg = element.selectFirst("img")?.attr("abs:src").orEmpty()
+                }
+                if (coverImg.isBlank()) {
+                    coverImg = "https://novelphoenix.com/server-1/shadow-slave.jpg"
+                }
+
+                val statsEl = element.selectFirst(".novel-stats, .chapters")
+                val latestCh = statsEl?.text().orEmpty()
+
+                val ratingEl = element.selectFirst(".badge, .rating, ._br")
+                val rating = ratingEl?.text()?.replace(Regex("[^0-9.]"), "")?.toFloatOrNull() ?: 4.8f
 
                 if (link.isNotBlank() && title.isNotBlank()) {
                     parsedNovels.add(
                         Novel(
-                            id = "nf-$index-${title.hashCode()}",
+                            id = "np-$index-${title.hashCode()}",
                             title = title,
-                            coverUrl = coverImg.ifBlank { "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80" },
+                            coverUrl = coverImg,
                             source = sourceType,
                             sourceUrl = link,
-                            latestChapter = latestCh.ifBlank { "Latest" },
-                            rating = 4.8f,
+                            latestChapter = latestCh.ifBlank { "Latest Chapters" },
+                            rating = rating,
                             status = "Ongoing"
                         )
                     )
@@ -68,33 +82,33 @@ class NovelFireSource(
                 SeedData.getSectionsFor(sourceType)
             } else {
                 val heroList = parsedNovels.take(3)
-                val trendingList = parsedNovels.drop(3).take(6)
-                val latestList = parsedNovels.drop(9)
+                val trendingList = parsedNovels.drop(3).take(7)
+                val latestList = parsedNovels.drop(10)
 
                 listOf(
                     NovelSection(
-                        id = "nf-hero",
-                        title = "Featured Masterpieces",
-                        iconEmoji = "✨",
-                        subtitle = "Handpicked epic web novels",
-                        type = SectionType.HERO_SLIDER,
-                        novels = heroList.ifEmpty { SeedData.novelFireHeroSlides }
-                    ),
-                    NovelSection(
-                        id = "nf-trending",
-                        title = "Top Trending Novels",
+                        id = "np-hero",
+                        title = "Phoenix Featured",
                         iconEmoji = "🔥",
-                        subtitle = "Most read on NovelFire",
-                        type = SectionType.HORIZONTAL_LIST,
-                        novels = trendingList.ifEmpty { SeedData.novelFireTrending }
+                        subtitle = "Top picks on NovelPhoenix",
+                        type = SectionType.HERO_SLIDER,
+                        novels = heroList.ifEmpty { SeedData.novelPhoenixHeroSlides }
                     ),
                     NovelSection(
-                        id = "nf-latest",
-                        title = "Latest Chapter Releases",
+                        id = "np-trending",
+                        title = "Top Trending Novels",
                         iconEmoji = "⚡",
-                        subtitle = "Freshly translated chapters",
+                        subtitle = "Most read on NovelPhoenix this week",
                         type = SectionType.HORIZONTAL_LIST,
-                        novels = latestList.ifEmpty { SeedData.novelFireLatest }
+                        novels = trendingList.ifEmpty { SeedData.novelPhoenixTrending }
+                    ),
+                    NovelSection(
+                        id = "np-latest",
+                        title = "Recently Added & Completed",
+                        iconEmoji = "✨",
+                        subtitle = "Fresh novel updates",
+                        type = SectionType.HORIZONTAL_LIST,
+                        novels = latestList.ifEmpty { SeedData.novelPhoenixLatest }
                     )
                 )
             }
@@ -112,7 +126,10 @@ class NovelFireSource(
             val searchUrl = "${sourceType.baseUrl}/search?keyword=${java.net.URLEncoder.encode(query, "UTF-8")}"
             val request = Request.Builder()
                 .url(searchUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                )
                 .build()
 
             val response = client.newCall(request).execute()
@@ -124,23 +141,33 @@ class NovelFireSource(
             val doc = Jsoup.parse(html, sourceType.baseUrl)
             val results = mutableListOf<Novel>()
 
-            val items = doc.select(".novel-item, .search-item, .list-item")
+            val items = doc.select("li.novel-item, .novel-item")
             items.forEachIndexed { idx, item ->
-                val titleEl = item.selectFirst(".title, a[title]")
+                val titleEl = item.selectFirst(".novel-title, h4, a[title]")
                 val title = titleEl?.text()?.ifBlank { titleEl.attr("title") }.orEmpty()
-                val link = item.selectFirst("a")?.attr("abs:href").orEmpty()
-                val img = item.selectFirst("img")?.attr("abs:src")
-                    ?: item.selectFirst("img")?.attr("abs:data-src").orEmpty()
+                val link = item.selectFirst("a[href*='/novel/'], a")?.attr("abs:href").orEmpty()
+
+                var img = item.selectFirst("img")?.attr("abs:data-src").orEmpty()
+                if (img.isBlank() || img.contains("data:image")) {
+                    img = item.selectFirst("img")?.attr("abs:src").orEmpty()
+                }
+
+                val statsEl = item.selectFirst(".novel-stats")
+                val chapters = statsEl?.text().orEmpty()
+
+                val ratingEl = item.selectFirst(".badge, ._br")
+                val rating = ratingEl?.text()?.replace(Regex("[^0-9.]"), "")?.toFloatOrNull() ?: 4.7f
 
                 if (title.isNotBlank() && link.isNotBlank()) {
                     results.add(
                         Novel(
-                            id = "nf-search-$idx",
+                            id = "np-search-$idx",
                             title = title,
                             coverUrl = img.ifBlank { "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80" },
                             source = sourceType,
                             sourceUrl = link,
-                            rating = 4.7f,
+                            latestChapter = chapters.ifBlank { "Chapter 1" },
+                            rating = rating,
                             status = "Ongoing"
                         )
                     )
@@ -159,9 +186,9 @@ class NovelFireSource(
 
     override suspend fun getNovelDetails(novelUrl: String): Result<Novel> = withContext(Dispatchers.IO) {
         runCatching {
-            val novel = SeedData.novelFireHeroSlides.firstOrNull { it.sourceUrl == novelUrl }
+            val novel = SeedData.novelPhoenixHeroSlides.firstOrNull { it.sourceUrl == novelUrl }
                 ?: Novel(
-                    id = "nf-details-${novelUrl.hashCode()}",
+                    id = "np-details-${novelUrl.hashCode()}",
                     title = "Novel Details",
                     coverUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80",
                     source = sourceType,

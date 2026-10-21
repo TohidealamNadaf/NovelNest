@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 class SearchViewModel(
     private val repository: NovelRepository,
-    initialSource: NovelSourceType = NovelSourceType.NOVEL_FIRE
+    initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState(selectedSource = initialSource))

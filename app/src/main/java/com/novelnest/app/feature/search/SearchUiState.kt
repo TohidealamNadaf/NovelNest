@@ -5,7 +5,7 @@ import com.novelnest.app.data.model.NovelSourceType
 
 data class SearchUiState(
     val query: String = "",
-    val selectedSource: NovelSourceType = NovelSourceType.NOVEL_FIRE,
+    val selectedSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
     val isSearching: Boolean = false,
     val results: List<Novel> = emptyList(),
     val recentSearches: List<String> = listOf(

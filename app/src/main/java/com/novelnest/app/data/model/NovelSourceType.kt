@@ -7,10 +7,10 @@ enum class NovelSourceType(
     val subtitle: String,
     val isManhwa: Boolean = false
 ) {
-    NOVEL_FIRE(
-        displayName = "NovelFire",
-        shortName = "NF",
-        baseUrl = "https://novelfire.net",
+    NOVEL_PHOENIX(
+        displayName = "NovelPhoenix",
+        shortName = "Phoenix",
+        baseUrl = "https://novelphoenix.com",
         subtitle = "Web & Light Novels"
     ),
     FREE_WEB_NOVEL(
@@ -29,7 +29,7 @@ enum class NovelSourceType(
 
     companion object {
         fun fromOrdinal(index: Int): NovelSourceType {
-            return entries.getOrElse(index) { NOVEL_FIRE }
+            return entries.getOrElse(index) { NOVEL_PHOENIX }
         }
     }
 }

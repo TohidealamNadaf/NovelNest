@@ -5,7 +5,7 @@ import com.novelnest.app.data.model.NovelSourceType
 
 data class DiscoverUiState(
     val isLoading: Boolean = false,
-    val selectedSource: NovelSourceType = NovelSourceType.NOVEL_FIRE,
+    val selectedSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
     val selectedGenre: String = "All",
     val genres: List<String> = listOf(
         "All", "Action", "Fantasy", "Xianxia", "Mystery", "Sci-Fi", "Comedy", "Martial Arts", "Reincarnation"

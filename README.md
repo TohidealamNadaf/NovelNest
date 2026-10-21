@@ -7,7 +7,7 @@ A modern, distraction-free native Android novel and manhwa reading application b
 ## ✨ Features Implemented
 
 1. **Multi-Source Architecture**:
-   - **NovelFire (`novelfire.net`)**: Web & Light novels with high-rated progression fantasy, xianxia, and litRPG.
+   - **NovelPhoenix (`novelphoenix.com`)**: Web & Light novels with top trending fantasy, xianxia, progression, and completed sagas.
    - **FreeWebNovel / FWN (`freewebnovel.com`)**: Classic and trending web novels.
    - **Asura Scans (`asuracomic.net`)**: Action, murim, fantasy, and solo hunter manhwa.
 

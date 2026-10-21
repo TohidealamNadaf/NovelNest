@@ -10,7 +10,7 @@ import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
 import com.novelnest.app.data.remote.AsuraSource
 import com.novelnest.app.data.remote.FreeWebNovelSource
-import com.novelnest.app.data.remote.NovelFireSource
+import com.novelnest.app.data.remote.NovelPhoenixSource
 import com.novelnest.app.data.remote.NovelSource
 import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.network.CircuitBreaker
@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 class NovelRepositoryImpl(
     private val database: NovelNestDatabase? = null,
     private val sources: Map<NovelSourceType, NovelSource> = mapOf(
-        NovelSourceType.NOVEL_FIRE to NovelFireSource(),
+        NovelSourceType.NOVEL_PHOENIX to NovelPhoenixSource(),
         NovelSourceType.FREE_WEB_NOVEL to FreeWebNovelSource(),
         NovelSourceType.ASURA_SCANS to AsuraSource()
     ),
