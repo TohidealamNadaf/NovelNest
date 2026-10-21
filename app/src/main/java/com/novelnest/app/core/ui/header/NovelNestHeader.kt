@@ -19,6 +19,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.tooling.preview.Preview
+import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
@@ -85,4 +93,35 @@ fun NovelNestHeader(
             actions()
         }
     }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestHeaderDefaultPreview() {
+    NovelNestHeader(
+        title = "NovelNest",
+        subtitle = "Your Calm Reading Sanctuary",
+        icon = Icons.Rounded.AutoStories,
+        modifier = Modifier.background(NovelBackground)
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestHeaderWithActionPreview() {
+    NovelNestHeader(
+        title = "Discover",
+        subtitle = "Explore novels and manhwas",
+        icon = Icons.Rounded.Search,
+        modifier = Modifier.background(NovelBackground),
+        actions = {
+            IconButton(onClick = {}) {
+                Icon(
+                    imageVector = Icons.Rounded.BookmarkBorder,
+                    contentDescription = "Bookmarks",
+                    tint = NovelTextSecondary
+                )
+            }
+        }
+    )
 }

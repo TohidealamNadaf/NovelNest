@@ -69,6 +69,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.core.ui.footer.FooterDestination
 import com.novelnest.app.core.ui.footer.NovelNestFooter
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.navigation.NovelNestDestination
@@ -91,6 +92,21 @@ fun NovelNestApp(
         NovelNestDestination.Discover.route
     )
 
+    val footerDestinations = remember {
+        listOf(
+            FooterDestination(
+                route = NovelNestDestination.Home.route,
+                label = "Home",
+                icon = Icons.Rounded.Home
+            ),
+            FooterDestination(
+                route = NovelNestDestination.Discover.route,
+                label = "Discover",
+                icon = Icons.Rounded.Explore
+            )
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = NovelBackground,
@@ -101,21 +117,11 @@ fun NovelNestApp(
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
                 NovelNestFooter(
-                    currentRoute = currentRoute,
-                    onNavigateToHome = {
-                        if (currentRoute != NovelNestDestination.Home.route) {
-                            navController.navigate(NovelNestDestination.Home.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    },
-                    onNavigateToDiscover = {
-                        if (currentRoute != NovelNestDestination.Discover.route) {
-                            navController.navigate(NovelNestDestination.Discover.route) {
+                    destinations = footerDestinations,
+                    selectedRoute = currentRoute,
+                    onNavigate = { route ->
+                        if (currentRoute != route) {
+                            navController.navigate(route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
                                 }

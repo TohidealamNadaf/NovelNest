@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,31 +30,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelSurface
 import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.bounceClick
-import com.novelnest.app.navigation.NovelNestDestination
+
+/**
+ * Navigation destination specification for the decoupled footer component.
+ */
+data class FooterDestination(
+    val route: String,
+    val label: String,
+    val icon: ImageVector
+)
 
 /**
  * Modern floating capsule navigation footer.
- * Replaces the awkward top-curved border with an attractive, floating pill dock
- * featuring spring icon bounce, animated glow indicators, and tactile feedback.
+ * Fully decoupled from NavController and screen types.
  */
 @Composable
 fun NovelNestFooter(
-    currentRoute: String?,
-    onNavigateToHome: () -> Unit,
-    onNavigateToDiscover: () -> Unit,
+    destinations: List<FooterDestination>,
+    selectedRoute: String?,
+    onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -87,23 +92,15 @@ fun NovelNestFooter(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Home Item
-            FooterNavItem(
-                icon = Icons.Rounded.Home,
-                label = "Home",
-                isSelected = currentRoute == NovelNestDestination.Home.route,
-                onClick = onNavigateToHome,
-                modifier = Modifier.weight(1f)
-            )
-
-            // Discover Item
-            FooterNavItem(
-                icon = Icons.Rounded.Explore,
-                label = "Discover",
-                isSelected = currentRoute == NovelNestDestination.Discover.route,
-                onClick = onNavigateToDiscover,
-                modifier = Modifier.weight(1f)
-            )
+            destinations.forEach { destination ->
+                FooterNavItem(
+                    icon = destination.icon,
+                    label = destination.label,
+                    isSelected = destination.route == selectedRoute,
+                    onClick = { onNavigate(destination.route) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -179,4 +176,32 @@ private fun FooterNavItem(
             }
         }
     }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestFooterHomeSelectedPreview() {
+    val sampleDestinations = listOf(
+        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+    )
+    NovelNestFooter(
+        destinations = sampleDestinations,
+        selectedRoute = "home",
+        onNavigate = {}
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0F1216)
+@Composable
+private fun NovelNestFooterDiscoverSelectedPreview() {
+    val sampleDestinations = listOf(
+        FooterDestination(route = "home", label = "Home", icon = Icons.Rounded.Home),
+        FooterDestination(route = "discover", label = "Discover", icon = Icons.Rounded.Explore)
+    )
+    NovelNestFooter(
+        destinations = sampleDestinations,
+        selectedRoute = "discover",
+        onNavigate = {}
+    )
 }
