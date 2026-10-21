@@ -7,7 +7,7 @@
    - **UI Layer**: Composable screens (`HomeScreen`, `DiscoverScreen`, `SearchScreen`), custom design system tokens, and theme.
    - **State Layer**: Android ViewModels managing screen-level lifecycle and exposing `StateFlow<UiState>`.
    - **Domain / Repository Layer**: `NovelRepository` abstraction coordinating data retrieval without exposing network/parsing details to UI.
-   - **Remote Data Sources**: Clean source-specific scrapers/clients (`NovelFireSource`, `FreeWebNovelSource`, `AsuraSource`) implementing common `NovelSource` interface.
+   - **Remote Data Sources**: Clean source-specific scrapers/clients (`NovelPhoenixSource`, `FreeWebNovelSource`, `AsuraSource`) implementing common `NovelSource` interface.
 3. **Resilience & Testing**:
    - Network errors, timeouts, and empty responses mapped to explicit sealed UI states.
    - Fallback offline sample data available for deterministic unit testing and previewing when offline.
@@ -37,7 +37,7 @@ app/
 │   │   │   │   └── NovelSection.kt
 │   │   │   ├── remote/
 │   │   │   │   ├── NovelSource.kt
-│   │   │   │   ├── NovelFireSource.kt
+│   │   │   │   ├── NovelPhoenixSource.kt
 │   │   │   │   ├── FreeWebNovelSource.kt
 │   │   │   │   └── AsuraSource.kt
 │   │   │   └── repository/
