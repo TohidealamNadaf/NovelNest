@@ -3,43 +3,87 @@ package com.novelnest.app.core.ui.animation
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Indication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+
+/**
+ * Standard tactile bounce scales across NovelNest UI elements.
+ */
+object BounceScale {
+    const val Small = 0.92f      // Chips, icon buttons, tabs, footer items
+    const val Medium = 0.96f     // Search bar, action buttons
+    const val Large = 0.97f      // Novel poster cards
+    const val ExtraLarge = 0.98f // Hero carousel backdrop card
+}
 
 /**
  * Adds a responsive, tactile bouncy spring effect when clicked or touched.
- * Uses Compose InteractionSource pressed state with Spring physics for smooth micro-interactions.
- * Ideal for novel posters, interactive cards, icons, tabs, and filter chips.
+ * - Press-down uses a fast, nearly critically damped spring (0.8f damping, high stiffness).
+ * - Release uses a bouncy spring (MediumBouncy, Medium stiffness) so only release overshoots.
+ * - Scale is applied via graphicsLayer lambda to avoid recomposing every frame.
+ * - Supports keyboard and accessibility focus feedback.
  */
 fun Modifier.bounceClick(
-    scaleDown: Float = 0.94f,
+    scaleDown: Float = BounceScale.Small,
     enabled: Boolean = true,
+    indication: Indication? = null,
+    onClickLabel: String? = null,
+    role: Role? = null,
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
 
     val scale by animateFloatAsState(
         targetValue = if (isPressed) scaleDown else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = if (isPressed) Spring.StiffnessMedium else Spring.StiffnessLow
-        ),
+        animationSpec = if (isPressed) {
+            spring(
+                dampingRatio = 0.8f,
+                stiffness = Spring.StiffnessHigh
+            )
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            )
+        },
         label = "bounce_scale"
     )
 
+    val focusAlpha by animateFloatAsState(
+        targetValue = if (isFocused) 0.12f else 0f,
+        label = "bounce_focus"
+    )
+
     this
-        .scale(scale)
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .drawWithContent {
+            drawContent()
+            if (focusAlpha > 0f) {
+                drawRect(color = Color.White.copy(alpha = focusAlpha))
+            }
+        }
         .clickable(
             interactionSource = interactionSource,
-            indication = null, // Custom spring bounce replaces harsh default ripple
+            indication = indication,
             enabled = enabled,
+            onClickLabel = onClickLabel,
+            role = role,
             onClick = onClick
         )
 }

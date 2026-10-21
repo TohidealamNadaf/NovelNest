@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,6 +31,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.NovelSourceType
 
@@ -47,7 +49,12 @@ fun SearchBarTrigger(
             .clip(RoundedCornerShape(14.dp))
             .background(NovelSurfaceVariant)
             .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(14.dp))
-            .bounceClick(scaleDown = 0.97f, onClick = onClick)
+            .bounceClick(
+                scaleDown = BounceScale.Medium,
+                onClickLabel = "Search ${currentSource.displayName}",
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.CenterStart
     ) {

@@ -51,6 +51,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import kotlinx.coroutines.delay
@@ -122,7 +123,7 @@ private fun HeroSlideCard(
             .clip(RoundedCornerShape(16.dp))
             .background(NovelSurfaceVariant)
             .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(16.dp))
-            .bounceClick(scaleDown = 0.96f, onClick = onClick)
+            .bounceClick(scaleDown = BounceScale.ExtraLarge, onClick = onClick)
     ) {
         // Backdrop image
         AsyncImage(
@@ -251,7 +252,7 @@ private fun HeroSlideCard(
                         .height(30.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(NovelPrimary)
-                        .bounceClick(scaleDown = 0.90f, onClick = onClick)
+                        .bounceClick(scaleDown = BounceScale.Medium, onClick = onClick)
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {

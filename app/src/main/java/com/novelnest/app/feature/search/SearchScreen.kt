@@ -62,8 +62,10 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
+import androidx.compose.ui.semantics.Role
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.SourceTabRow
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
@@ -100,7 +102,11 @@ fun SearchScreen(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .bounceClick(scaleDown = 0.88f) { onBack() },
+                    .bounceClick(
+                        scaleDown = BounceScale.Small,
+                        onClickLabel = "Back",
+                        role = Role.Button
+                    ) { onBack() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -167,7 +173,11 @@ fun SearchScreen(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.85f) { viewModel.clearQuery() },
+                                .bounceClick(
+                                    scaleDown = BounceScale.Small,
+                                    onClickLabel = "Clear search query",
+                                    role = Role.Button
+                                ) { viewModel.clearQuery() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -308,7 +318,11 @@ fun SearchScreen(
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(NovelSurfaceVariant)
                                         .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
-                                        .bounceClick(scaleDown = 0.94f) {
+                                        .bounceClick(
+                                            scaleDown = BounceScale.Small,
+                                            onClickLabel = "Search $keyword",
+                                            role = Role.Button
+                                        ) {
                                             keyboardController?.hide()
                                             viewModel.onQueryChange(keyword)
                                             viewModel.performSearch(keyword)

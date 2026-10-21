@@ -22,9 +22,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
@@ -73,7 +75,12 @@ fun NovelSectionRow(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.bounceClick(scaleDown = 0.92f, onClick = onSeeAllClick)
+                modifier = Modifier.bounceClick(
+                    scaleDown = BounceScale.Small,
+                    onClickLabel = "See all ${section.title}",
+                    role = Role.Button,
+                    onClick = onSeeAllClick
+                )
             ) {
                 Text(
                     text = "See all",

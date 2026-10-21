@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
 import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
@@ -45,6 +46,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.SearchBarTrigger
 import com.novelnest.app.core.ui.SourceTabRow
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
@@ -106,7 +108,11 @@ fun DiscoverScreen(
                             if (isSelected) NovelPrimary else NovelSurfaceBorder,
                             RoundedCornerShape(8.dp)
                         )
-                        .bounceClick(scaleDown = 0.93f) { viewModel.selectGenre(genre) }
+                        .bounceClick(
+                            scaleDown = BounceScale.Small,
+                            onClickLabel = "Filter by $genre",
+                            role = Role.Tab
+                        ) { viewModel.selectGenre(genre) }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
