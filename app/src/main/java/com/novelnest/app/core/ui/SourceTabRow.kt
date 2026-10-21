@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -85,7 +86,7 @@ fun SourceTabRow(
             snap()
         } else {
             spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
+                dampingRatio = 0.86f,
                 stiffness = Spring.StiffnessMediumLow
             )
         },
@@ -98,7 +99,7 @@ fun SourceTabRow(
             snap()
         } else {
             spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
+                dampingRatio = 0.86f,
                 stiffness = Spring.StiffnessMediumLow
             )
         },
@@ -163,9 +164,8 @@ fun SourceTabRow(
                                 tabBounds = tabBounds + (source to (xDp to widthDp))
                             }
                         }
-                        .bounceSelectable(
+                        .selectable(
                             selected = isSelected,
-                            scaleDown = BounceScale.Small,
                             role = Role.Tab,
                             onClick = {
                                 playHaptic(NovelNestHapticType.LIGHT_TICK)
@@ -180,19 +180,19 @@ fun SourceTabRow(
                         modifier = Modifier.padding(horizontal = 4.dp)
                     ) {
                         val (sourceIcon, sourceRotation) = when (source) {
-                            NovelSourceType.NOVEL_PHOENIX -> Icons.Rounded.LocalFireDepartment to -10f
+                            NovelSourceType.NOVEL_PHOENIX -> Icons.Rounded.LocalFireDepartment to -8f
                             NovelSourceType.FREE_WEB_NOVEL -> Icons.AutoMirrored.Rounded.MenuBook to 0f
-                            NovelSourceType.ASURA_SCANS -> Icons.Rounded.Bolt to 12f
+                            NovelSourceType.ASURA_SCANS -> Icons.Rounded.Bolt to 10f
                         }
 
                         val iconScale by animateFloatAsState(
-                            targetValue = if (isSelected) 1.16f else 1.0f,
+                            targetValue = if (isSelected) 1.14f else 1.0f,
                             animationSpec = if (areAnimationsDisabled) {
                                 snap()
                             } else {
                                 spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
+                                    dampingRatio = 0.8f,
+                                    stiffness = Spring.StiffnessMediumLow
                                 )
                             },
                             label = "source_icon_scale"
@@ -204,7 +204,7 @@ fun SourceTabRow(
                                 snap()
                             } else {
                                 spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    dampingRatio = 0.8f,
                                     stiffness = Spring.StiffnessMediumLow
                                 )
                             },

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -112,7 +113,6 @@ fun NovelNestFooter(
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var itemCenters by remember { mutableStateOf(mapOf<String, Dp>()) }
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
     val playHaptic = rememberNovelNestHaptic()
 
@@ -170,41 +170,9 @@ fun NovelNestFooter(
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
                             onNavigate(destination.route)
                         },
-                        onPositioned = { centerX ->
-                            if (itemCenters[destination.route] != centerX) {
-                                itemCenters = itemCenters + (destination.route to centerX)
-                            }
-                        },
                         modifier = Modifier.weight(1f)
                     )
                 }
-            }
-
-            // Single sliding glowing indicator pill
-            val targetCenterX = itemCenters[selectedRoute]
-            if (targetCenterX != null) {
-                val animatedDotCenterX by animateDpAsState(
-                    targetValue = targetCenterX,
-                    animationSpec = if (areAnimationsDisabled) {
-                        snap()
-                    } else {
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    },
-                    label = "footer_sliding_dot"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(bottom = 3.dp)
-                        .offset(x = animatedDotCenterX - 6.dp)
-                        .size(width = 12.dp, height = 3.dp)
-                        .clip(RoundedCornerShape(1.5.dp))
-                        .background(NovelPrimary)
-                )
             }
         }
     }
@@ -215,10 +183,8 @@ private fun FooterNavItem(
     destination: FooterDestination,
     isSelected: Boolean,
     onClick: () -> Unit,
-    onPositioned: (Dp) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
     // Active Card Hover & Selection Styling with dedicated padding room
@@ -248,15 +214,8 @@ private fun FooterNavItem(
             .clip(RoundedCornerShape(20.dp))
             .background(bgPillColor)
             .border(1.dp, activeBorderColor, RoundedCornerShape(20.dp))
-            .onGloballyPositioned { coordinates ->
-                val centerX = with(density) {
-                    coordinates.positionInParent().x.toDp() + (coordinates.size.width.toDp() / 2f)
-                }
-                onPositioned(centerX)
-            }
-            .bounceSelectable(
+            .selectable(
                 selected = isSelected,
-                scaleDown = BounceScale.Small,
                 role = Role.Tab,
                 onClick = onClick
             ),
