@@ -10,7 +10,7 @@ Web novel and manhwa readers struggle with cluttered, ad-heavy websites, slow pa
 
 ## 3. Core Flow
 1. Open the app to the **Home** or **Discover** screen.
-2. Select or swipe between sources (**NovelFire**, **FWN (FreeWebNovel)**, **Asura Scans**).
+2. Select or swipe between sources (**NovelPhoenix**, **FWN (FreeWebNovel)**, **Asura Scans**).
 3. Browse hero recommendation slides and categorized sections (Top Trending, Latest Releases, Popular).
 4. Tap the Search bar with fluid transition animation to search specifically within the active source.
 5. View novel posters, genres, ratings, and chapter counts.
@@ -19,7 +19,7 @@ Web novel and manhwa readers struggle with cluttered, ad-heavy websites, slow pa
 ### Included in Version 1:
 - Single-activity Jetpack Compose application with Material 3 calm reading theme.
 - Tab-based multi-source browsing:
-  - **NovelFire**
+  - **NovelPhoenix**
   - **FreeWebNovel (FWN)**
   - **Asura Scans**
 - Hero recommendation carousel with smooth indicator and auto/manual scroll.
