@@ -69,6 +69,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.core.ui.footer.NovelNestFooter
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.navigation.NovelNestDestination
 import com.novelnest.app.navigation.NovelNestNavHost
@@ -99,76 +100,31 @@ fun NovelNestApp(
                 enter = slideInVertically(initialOffsetY = { it }),
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
-                NavigationBar(
-                    containerColor = NovelSurface,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .height(64.dp)
-                        .border(
-                            width = 0.5.dp,
-                            color = NovelSurfaceBorder,
-                            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-                        )
-                ) {
-                    // Home Tab
-                    NavigationBarItem(
-                        selected = currentRoute == NovelNestDestination.Home.route,
-                        onClick = {
-                            if (currentRoute != NovelNestDestination.Home.route) {
-                                navController.navigate(NovelNestDestination.Home.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+                NovelNestFooter(
+                    currentRoute = currentRoute,
+                    onNavigateToHome = {
+                        if (currentRoute != NovelNestDestination.Home.route) {
+                            navController.navigate(NovelNestDestination.Home.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        },
-                        icon = {
-                            Icon(imageVector = Icons.Rounded.Home, contentDescription = "Home")
-                        },
-                        label = {
-                            Text(text = "Home", fontSize = 11.sp)
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = NovelPrimary,
-                            selectedTextColor = NovelPrimary,
-                            unselectedIconColor = NovelTextSecondary,
-                            unselectedTextColor = NovelTextSecondary,
-                            indicatorColor = NovelSurfaceVariant
-                        )
-                    )
-
-                    // Discover Tab
-                    NavigationBarItem(
-                        selected = currentRoute == NovelNestDestination.Discover.route,
-                        onClick = {
-                            if (currentRoute != NovelNestDestination.Discover.route) {
-                                navController.navigate(NovelNestDestination.Discover.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+                        }
+                    },
+                    onNavigateToDiscover = {
+                        if (currentRoute != NovelNestDestination.Discover.route) {
+                            navController.navigate(NovelNestDestination.Discover.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        },
-                        icon = {
-                            Icon(imageVector = Icons.Rounded.Explore, contentDescription = "Discover")
-                        },
-                        label = {
-                            Text(text = "Discover", fontSize = 11.sp)
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = NovelPrimary,
-                            selectedTextColor = NovelPrimary,
-                            unselectedIconColor = NovelTextSecondary,
-                            unselectedTextColor = NovelTextSecondary,
-                            indicatorColor = NovelSurfaceVariant
-                        )
-                    )
-                }
+                        }
+                    }
+                )
             }
         }
     ) { innerPadding ->

@@ -1,9 +1,9 @@
 package com.novelnest.app.data.repository
 
-import com.novelnest.app.data.local.MemoryLruCache
-import com.novelnest.app.data.local.NovelEntity
-import com.novelnest.app.data.local.NovelNestDatabase
-import com.novelnest.app.data.local.SectionEntity
+import com.novelnest.app.data.cache.MemoryLruCache
+import com.novelnest.app.data.database.NovelNestDatabase
+import com.novelnest.app.data.database.entity.NovelEntity
+import com.novelnest.app.data.database.entity.SectionEntity
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType

@@ -1,10 +1,16 @@
-package com.novelnest.app.data.local
+package com.novelnest.app.data.database
 
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.novelnest.app.data.database.dao.NovelDao
+import com.novelnest.app.data.database.dao.SectionDao
+import com.novelnest.app.data.database.entity.NovelEntity
+import com.novelnest.app.data.database.entity.SectionEntity
+import com.novelnest.app.data.database.entity.SectionNovelCrossRef
+import com.novelnest.app.data.database.migration.DatabaseMigrations
 
 @Database(
     entities = [
@@ -32,6 +38,7 @@ abstract class NovelNestDatabase : RoomDatabase() {
                     NovelNestDatabase::class.java,
                     "novelnest_cache.db"
                 )
+                    .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

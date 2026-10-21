@@ -1,4 +1,4 @@
-package com.novelnest.app.data.local
+package com.novelnest.app.data.database.entity
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -19,18 +19,4 @@ data class SectionEntity(
     val sectionType: String = SectionType.HORIZONTAL_LIST.name,
     val displayOrder: Int = 0,
     val lastFetchedTimestamp: Long = System.currentTimeMillis()
-)
-
-@Entity(
-    tableName = "section_novel_cross_ref",
-    primaryKeys = ["sectionId", "novelId"],
-    indices = [
-        Index(value = ["novelId"]),
-        Index(value = ["sectionId"])
-    ]
-)
-data class SectionNovelCrossRef(
-    val sectionId: String,
-    val novelId: String,
-    val positionIndex: Int = 0
 )

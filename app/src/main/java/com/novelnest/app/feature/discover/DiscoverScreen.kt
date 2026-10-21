@@ -45,6 +45,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.SearchBarTrigger
 import com.novelnest.app.core.ui.SourceTabRow
+import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 
@@ -70,27 +71,11 @@ fun DiscoverScreen(
             .fillMaxSize()
             .background(NovelBackground)
     ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Explore,
-                contentDescription = null,
-                tint = NovelPrimary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = "Discover",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = NovelTextPrimary
-            )
-        }
+        // Reusable Header
+        NovelNestHeader(
+            title = "Discover",
+            icon = Icons.Rounded.Explore
+        )
 
         // Source Tab Row (NovelFire, FWN, Asura Scans)
         SourceTabRow(

@@ -47,6 +47,7 @@ import com.novelnest.app.core.ui.HeroCarousel
 import com.novelnest.app.core.ui.NovelSectionRow
 import com.novelnest.app.core.ui.SearchBarTrigger
 import com.novelnest.app.core.ui.SourceTabRow
+import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
@@ -65,8 +66,20 @@ fun HomeScreen(
             .fillMaxSize()
             .background(NovelBackground)
     ) {
-        // App Header
-        HomeTopBar()
+        // Reusable App Header
+        NovelNestHeader(
+            title = "NovelNest",
+            icon = Icons.Rounded.AutoStories,
+            actions = {
+                IconButton(onClick = {}) {
+                    Icon(
+                        imageVector = Icons.Rounded.BookmarkBorder,
+                        contentDescription = "Bookmarks",
+                        tint = NovelTextSecondary
+                    )
+                }
+            }
+        )
 
         // Source Tabs (NovelFire, FWN, Asura Scans)
         SourceTabRow(
@@ -165,43 +178,6 @@ fun HomeScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeTopBar() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Rounded.AutoStories,
-                contentDescription = null,
-                tint = NovelPrimary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = "NovelNest",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = NovelTextPrimary
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = {}) {
-                Icon(
-                    imageVector = Icons.Rounded.BookmarkBorder,
-                    contentDescription = "Bookmarks",
-                    tint = NovelTextSecondary
-                )
             }
         }
     }

@@ -1,4 +1,4 @@
-package com.novelnest.app.data.local
+package com.novelnest.app.data.cache
 
 /**
  * Thread-safe pure Kotlin LRU Cache.

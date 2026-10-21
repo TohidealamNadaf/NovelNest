@@ -1,4 +1,4 @@
-package com.novelnest.app.data.local
+package com.novelnest.app.data.database.entity
 
 import androidx.room.Entity
 import androidx.room.Index

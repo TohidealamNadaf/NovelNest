@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.novelnest.app.core.designsystem.NovelNestTheme
-import com.novelnest.app.data.local.NovelNestDatabase
+import com.novelnest.app.data.database.NovelNestDatabase
 import com.novelnest.app.data.repository.NovelRepositoryImpl
 
 class MainActivity : ComponentActivity() {
