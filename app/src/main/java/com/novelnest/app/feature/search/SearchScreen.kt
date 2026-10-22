@@ -89,6 +89,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
@@ -138,6 +139,7 @@ fun SearchScreen(
 
     Column(
         modifier = modifier
+            .sourceSwipeNavigation(uiState.selectedSource, viewModel::selectSource)
             .fillMaxSize()
             .background(NovelBackground)
     ) {

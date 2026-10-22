@@ -14,6 +14,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -22,6 +29,7 @@ import com.novelnest.app.core.ui.HeroCarousel
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.NovelSectionRow
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
 import com.novelnest.app.core.ui.header.NovelNestHeader
@@ -53,7 +61,19 @@ fun DiscoverScreen(
         }
     }
 
-    Column(modifier.fillMaxSize().background(NovelBackground)) {
+    val infiniteTransition = rememberInfiniteTransition(label = "refresh_spin")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "refresh_rotation"
+    )
+
+    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
+        .fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = "Novel Nest",
             subtitle = "Discover",
@@ -82,10 +102,25 @@ fun DiscoverScreen(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = "Refresh discoveries",
                     tint = NovelPrimary,
+                    enabled = !state.isRefreshing,
+                    modifier = Modifier.graphicsLayer {
+                        if (state.isRefreshing) {
+                            rotationZ = rotationAngle
+                        }
+                    },
                     onClick = viewModel::refresh
                 )
             }
         )
+
+        // Live refresh network activity indicator
+        if (state.isRefreshing) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(2.5.dp),
+                color = NovelPrimary,
+                trackColor = NovelBackground
+            )
+        }
 
         // Collapsible Source Tabs and Search Bar: hide and blend away when scrolled
         androidx.compose.animation.AnimatedVisibility(

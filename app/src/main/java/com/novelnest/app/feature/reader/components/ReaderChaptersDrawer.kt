@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -98,7 +100,7 @@ fun ReaderChaptersDrawer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -130,7 +132,7 @@ fun ReaderChaptersDrawer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                    .padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // FIRST
@@ -145,10 +147,18 @@ fun ReaderChaptersDrawer(
                             coroutineScope.launch { listState.animateScrollToItem(0) }
                         }
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier.padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardDoubleArrowUp,
+                            contentDescription = null,
+                            tint = NovelTextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = "FIRST",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -197,10 +207,18 @@ fun ReaderChaptersDrawer(
                             }
                         }
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier.padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardDoubleArrowDown,
+                            contentDescription = null,
+                            tint = NovelTextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = "LATEST",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -59,6 +60,8 @@ fun ReaderQuickSettingsSheet(
     onSetLineHeight: (Float) -> Unit,
     onSetFontFamily: (ReaderFont) -> Unit,
     onSetParagraphSpacing: (Float) -> Unit = {},
+    onCopyChapter: () -> Unit = {},
+    canCopyChapter: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -82,9 +85,17 @@ fun ReaderQuickSettingsSheet(
             ) {
                 Text(
                     text = "Reading Customization",
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     color = textColor,
                     fontWeight = FontWeight.Bold
+                )
+                NovelNestIconButton(
+                    icon = Icons.Rounded.ContentCopy,
+                    contentDescription = "Copy chapter",
+                    tint = if (canCopyChapter) textColor else secondaryColor.copy(alpha = 0.4f),
+                    enabled = canCopyChapter,
+                    onClick = onCopyChapter
                 )
                 NovelNestIconButton(
                     icon = Icons.Rounded.Close,

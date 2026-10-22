@@ -20,6 +20,7 @@ import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
 import com.novelnest.app.core.ui.header.NovelNestHeader
@@ -67,7 +68,8 @@ fun HomeScreen(
     }
 
     BackHandler(enabled = selected != null) { selected = null }
-    Column(modifier.fillMaxSize().background(NovelBackground)) {
+    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
+        .fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = if (selected != null) "Remove Bookmark" else "Novel Nest",
             icon = Icons.Rounded.AutoStories,
@@ -157,12 +159,31 @@ fun HomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Rounded.Bookmark, null, tint = NovelPrimary, modifier = Modifier.size(36.dp))
                             Spacer(Modifier.height(12.dp))
-                            Text("No saved novels from ${state.selectedSource.shortName}", color = NovelTextPrimary,
+                            val isManhwa = state.selectedSource == NovelSourceType.ASURA_SCANS
+                            val mediaTypePlural = if (isManhwa) "manhwas" else "novels"
+                            val mediaTypeSingular = if (isManhwa) "manhwa" else "novel"
+                            val discoverButtonText = if (isManhwa) "Discover manhwas" else "Discover novels"
+                            Text("No saved $mediaTypePlural from ${state.selectedSource.shortName}", color = NovelTextPrimary,
                                 style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(8.dp))
-                            Text("Bookmark a novel to keep it here.", color = NovelTextSecondary)
+                            Text("Bookmark a $mediaTypeSingular to keep it here.", color = NovelTextSecondary)
                             Spacer(Modifier.height(16.dp))
-                            Button(onClick = { onNavigateToDiscover(state.selectedSource) }) { Text("Discover novels") }
+                            Button(
+                                onClick = { onNavigateToDiscover(state.selectedSource) },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NovelPrimary,
+                                    contentColor = NovelOnPrimary
+                                )
+                            ) {
+                                Text(
+                                    text = discoverButtonText,
+                                    color = NovelOnPrimary,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    )
+                                )
+                            }
                         }
                     }
                 }

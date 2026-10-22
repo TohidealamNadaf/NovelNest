@@ -1,5 +1,9 @@
 package com.novelnest.app.feature.reader
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -13,6 +17,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +57,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
@@ -79,6 +88,7 @@ fun ReaderScreen(
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val context = LocalContext.current
 
     val currentTheme = settings.theme
     val textColor = currentTheme.textColor.copy(alpha = settings.textBrightness)
@@ -295,6 +305,20 @@ fun ReaderScreen(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .pointerInput(chapter.id) {
+                                awaitEachGesture {
+                                    // Do not consume side touches, scrolling, long presses, or child controls.
+                                    val down = awaitFirstDown(requireUnconsumed = true)
+                                    if (down.position.x !in (size.width * 0.2f)..(size.width * 0.8f) ||
+                                        !swipeEnabled || listState.isScrollInProgress || pullOffset != 0f) return@awaitEachGesture
+                                    val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                    if (up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis &&
+                                        (up.position - down.position).getDistance() <= viewConfiguration.touchSlop) {
+                                        up.consume()
+                                        viewModel.showQuickSettings(true)
+                                    }
+                                }
+                            }
                             .graphicsLayer { translationY = pullOffset },
                         contentPadding = PaddingValues(
                             start = 20.dp,
@@ -444,7 +468,28 @@ fun ReaderScreen(
                 onSetFontSize = { viewModel.setFontSize(it) },
                 onSetLineHeight = { viewModel.setLineHeight(it) },
                 onSetFontFamily = { viewModel.setFontFamily(it) },
-                onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) }
+                onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) },
+                canCopyChapter = !uiState.isLoading && uiState.chapters.getOrNull(uiState.currentChapterIndex)
+                    ?.paragraphs?.any { it.isNotBlank() } == true,
+                onCopyChapter = {
+                    // Resolve on tap so the clipboard always receives the active chapter, not an outgoing animation frame.
+                    val state = viewModel.uiState.value
+                    val chapter = state.chapters.getOrNull(state.currentChapterIndex)
+                    if (!state.isLoading && chapter != null && chapter.paragraphs.any { it.isNotBlank() }) {
+                        val chapterText = (listOf(chapter.title) + chapter.paragraphs)
+                            .filter { it.isNotBlank() }.joinToString("\n\n")
+                        try {
+                            val clipboard = context.getSystemService(ClipboardManager::class.java)
+                            checkNotNull(clipboard).setPrimaryClip(ClipData.newPlainText(chapter.title, chapterText))
+                            // Android 13+ supplies its own clipboard confirmation.
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                Toast.makeText(context, "Chapter copied", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (_: RuntimeException) {
+                            Toast.makeText(context, "Could not copy this chapter. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             )
         }
     }

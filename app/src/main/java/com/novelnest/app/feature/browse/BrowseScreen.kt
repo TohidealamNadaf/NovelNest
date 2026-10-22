@@ -39,6 +39,7 @@ import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
@@ -65,7 +66,8 @@ fun BrowseScreen(
         }
     }
 
-    Column(modifier.fillMaxSize().background(NovelBackground)) {
+    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
+        .fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = "Browse",
             subtitle = state.selectedSource.displayName,

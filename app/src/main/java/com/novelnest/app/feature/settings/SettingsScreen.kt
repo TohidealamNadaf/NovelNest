@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -187,10 +188,17 @@ fun SettingsScreen(
                             viewModel.resetReadingDefaults()
                             showResetDialog = false
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = NovelPrimary, contentColor = NovelOnPrimary),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NovelPrimary,
+                            contentColor = NovelOnPrimary
+                        ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Reset Defaults")
+                        Text(
+                            text = "Reset Defaults",
+                            color = NovelOnPrimary,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 },
                 dismissButton = {
