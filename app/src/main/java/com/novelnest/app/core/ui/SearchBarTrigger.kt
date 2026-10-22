@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,11 +49,11 @@ fun SearchBarTrigger(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .height(48.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(NovelSurfaceVariant)
-            .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(14.dp))
+            .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(12.dp))
             .bounceClick(
                 scaleDown = BounceScale.Medium,
                 onClickLabel = "Search ${currentSource.displayName}",
@@ -86,7 +87,7 @@ fun SearchBarTrigger(
                 Text(
                     text = "Search in ${currentSource.displayName}...",
                     color = NovelTextSecondary,
-                    fontSize = 14.sp
+                    fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
 

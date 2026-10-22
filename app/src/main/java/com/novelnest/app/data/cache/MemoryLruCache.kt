@@ -14,13 +14,15 @@ class MemoryLruCache<K, V>(
     }
     private val lock = Any()
 
-    fun get(key: K): V? = synchronized(lock) {
+    operator fun get(key: K): V? = synchronized(lock) {
         map[key]
     }
 
     fun put(key: K, value: V): V? = synchronized(lock) {
         map.put(key, value)
     }
+
+    operator fun set(key: K, value: V) { put(key, value) }
 
     fun remove(key: K): V? = synchronized(lock) {
         map.remove(key)

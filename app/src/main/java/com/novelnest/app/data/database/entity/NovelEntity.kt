@@ -26,5 +26,7 @@ data class NovelEntity(
     val status: String = "Ongoing",
     val views: String = "",
     val rank: Int = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val chapterCount: Int = 0,
     val lastUpdatedTimestamp: Long = System.currentTimeMillis()
 )

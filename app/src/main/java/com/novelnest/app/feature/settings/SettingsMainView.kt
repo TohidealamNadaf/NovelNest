@@ -1,8 +1,6 @@
 package com.novelnest.app.feature.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
@@ -33,17 +32,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelSurface
-import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
+import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
 import com.novelnest.app.core.ui.header.NovelNestHeader
@@ -51,6 +52,14 @@ import com.novelnest.app.data.preferences.GeneralAppSettings
 import com.novelnest.app.data.preferences.ReaderSettings
 import com.novelnest.app.feature.settings.components.SettingsCategoryTile
 
+/**
+ * Main Settings overview screen.
+ * Designed with UI/UX Pro Max principles:
+ * - Solid, borderless card architecture (zero glassmorphism, zero stroke clutter)
+ * - Cohesive obsidian surface layers on NovelBackground
+ * - Solid icon badges and chips without borders
+ * - Responsive micro-bounce feedback and haptic ticks
+ */
 @Composable
 fun SettingsMainView(
     readerSettings: ReaderSettings,
@@ -61,11 +70,11 @@ fun SettingsMainView(
     modifier: Modifier = Modifier
 ) {
     val playHaptic = rememberNovelNestHaptic()
+    val cardShape = RoundedCornerShape(12.dp)
 
     Column(modifier = modifier.fillMaxSize()) {
         NovelNestHeader(
             title = "Settings",
-            subtitle = "Preferences & reading controls",
             icon = Icons.Rounded.Settings
         )
 
@@ -74,18 +83,29 @@ fun SettingsMainView(
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = 8.dp,
+                top = 6.dp,
                 bottom = rememberFooterBottomPadding() + 16.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Group 1 Header: Reading Experience
+            item {
+                Text(
+                    text = "READING EXPERIENCE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NovelTextSecondary.copy(alpha = 0.7f),
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)
+                )
+            }
+
             // 1. Reading & Display Category Tile
             item {
                 SettingsCategoryTile(
                     title = "Reading & Display",
                     subtitle = "Themes, typography & live preview",
                     icon = Icons.AutoMirrored.Rounded.MenuBook,
-                    valueBadge = "${readerSettings.theme.displayName} • ${readerSettings.fontSizeSp.toInt()}sp",
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         onNavigateTo(SettingsSubPage.READING_DISPLAY)
@@ -99,11 +119,22 @@ fun SettingsMainView(
                     title = "Reading Behavior",
                     subtitle = "Scroll mode, screen awake & volume keys",
                     icon = Icons.Rounded.TouchApp,
-                    valueBadge = readerSettings.scrollMode.displayName,
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         onNavigateTo(SettingsSubPage.READING_BEHAVIOR)
                     }
+                )
+            }
+
+            // Group 2 Header: Application & Storage
+            item {
+                Text(
+                    text = "APPLICATION & STORAGE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NovelTextSecondary.copy(alpha = 0.7f),
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)
                 )
             }
 
@@ -113,7 +144,6 @@ fun SettingsMainView(
                     title = "App Experience & Haptics",
                     subtitle = "Default source, tactile feedback & motion",
                     icon = Icons.Rounded.Tune,
-                    valueBadge = if (appSettings.hapticFeedbackEnabled) "Haptics On" else "Haptics Off",
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         onNavigateTo(SettingsSubPage.APP_EXPERIENCE)
@@ -127,7 +157,6 @@ fun SettingsMainView(
                     title = "Storage & Offline Cache",
                     subtitle = "Offline chapters & memory optimization",
                     icon = Icons.Rounded.Storage,
-                    valueBadge = cacheSize,
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         onNavigateTo(SettingsSubPage.STORAGE_CACHE)
@@ -135,16 +164,30 @@ fun SettingsMainView(
                 )
             }
 
-            // 5. Reset All Preferences Action Card
+            // Group 3 Header: System
             item {
-                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "SYSTEM & ACTIONS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NovelTextSecondary.copy(alpha = 0.7f),
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp)
+                )
+            }
+
+            // 5. Reset All Preferences Action Card (Standard compact card)
+            item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = NovelSurface),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
+                    shape = cardShape,
+                    border = null,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(
+                        .clip(cardShape)
+                        .bounceClick(
+                            scaleDown = BounceScale.Small,
                             role = Role.Button,
                             onClick = {
                                 playHaptic(NovelNestHapticType.LIGHT_TICK)
@@ -155,35 +198,35 @@ fun SettingsMainView(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(NovelPrimary.copy(alpha = 0.12f))
-                                .border(0.5.dp, NovelPrimary.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF281E1E)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.RestartAlt,
                                 contentDescription = null,
-                                tint = NovelPrimary,
+                                tint = Color(0xFFF87171),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Reset All Preferences",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
                                 color = NovelTextPrimary
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(1.dp))
                             Text(
                                 text = "Restore reading and app settings to defaults",
                                 style = MaterialTheme.typography.bodySmall,
@@ -195,31 +238,68 @@ fun SettingsMainView(
                 }
             }
 
-            // 6. About Sanctuary Card
+            // 6. About Sanctuary Card (Standard compact card)
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = NovelSurfaceVariant.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder.copy(alpha = 0.5f)),
+                    colors = CardDefaults.cardColors(containerColor = NovelSurface),
+                    shape = cardShape,
+                    border = null,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "NovelNest v1.0",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = NovelTextPrimary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Calm Reading Sanctuary • Offline Cache Enabled",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NovelTextSecondary,
-                            fontSize = 11.sp
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(NovelSurfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = NovelPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "NovelNest v1.0",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 14.sp,
+                                color = NovelTextPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(1.dp))
+                            Text(
+                                text = "Calm Reading Sanctuary • Offline Cache",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NovelTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(NovelSurfaceVariant)
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "PRO",
+                                color = NovelPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,7 +28,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -39,7 +43,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Button
@@ -61,6 +64,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -134,6 +138,7 @@ fun SearchScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -255,13 +260,13 @@ fun SearchScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "No results found for \"${uiState.query}\"",
+                            text = uiState.errorMessage ?: "No results found for \"${uiState.query}\"",
                             style = MaterialTheme.typography.titleMedium,
                             color = NovelTextPrimary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Try searching with different keywords or switch source tab above",
+                            text = if (uiState.errorMessage != null) "Check your connection and retry." else "Try searching with different keywords or switch source tab above",
                             style = MaterialTheme.typography.bodyMedium,
                             color = NovelTextSecondary
                         )
@@ -269,7 +274,7 @@ fun SearchScreen(
                         Button(
                             onClick = {
                                 playHaptic(NovelNestHapticType.LIGHT_TICK)
-                                viewModel.clearQuery()
+                                if (uiState.errorMessage != null) viewModel.performSearch(uiState.query) else viewModel.clearQuery()
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = NovelPrimary,
@@ -277,7 +282,7 @@ fun SearchScreen(
                             ),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Clear Search")
+                            Text(if (uiState.errorMessage != null) "Retry Search" else "Clear Search")
                         }
                     }
                 }
@@ -294,10 +299,10 @@ fun SearchScreen(
                         val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = navBarBottom + 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            columns = GridCells.Fixed(3),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = navBarBottom + 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(uiState.results, key = { it.id }) { novel ->
@@ -306,6 +311,7 @@ fun SearchScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     onClick = {
                                         playHaptic(NovelNestHapticType.ACTION_CONFIRM)
+                                        viewModel.onNovelOpened(novel)
                                         onNovelClick(novel)
                                     }
                                 )
@@ -320,86 +326,40 @@ fun SearchScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = navBarBottom + 16.dp)
                     ) {
-                        if (uiState.recentSearches.isNotEmpty()) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 12.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.History,
-                                        contentDescription = null,
-                                        tint = NovelPrimary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Popular & Recent Searches",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = NovelTextPrimary
-                                    )
-                                }
-
-                                TextButton(
-                                    onClick = {
-                                        playHaptic(NovelNestHapticType.LIGHT_TICK)
-                                        viewModel.clearRecentSearches()
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.DeleteOutline,
-                                        contentDescription = "Clear all recent searches",
-                                        tint = NovelTextTertiary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Clear",
-                                        color = NovelTextTertiary,
-                                        fontSize = 12.sp
-                                    )
+                        SearchSuggestions(
+                            title = "Recent Searches",
+                            keywords = uiState.recentSearches,
+                            onSearch = { keyword ->
+                                playHaptic(NovelNestHapticType.LIGHT_TICK)
+                                keyboardController?.hide()
+                                viewModel.performSearch(keyword)
+                            },
+                            onRemove = viewModel::removeRecentSearch,
+                            onClear = viewModel::clearRecentSearches
+                        )
+                        when {
+                            uiState.isPopularLoading -> {
+                                Text("Loading popular novels...", color = NovelTextSecondary,
+                                    modifier = Modifier.padding(vertical = 12.dp))
+                            }
+                            uiState.popularErrorMessage != null -> {
+                                Text(uiState.popularErrorMessage.orEmpty(), color = NovelTextSecondary)
+                                TextButton(onClick = { viewModel.loadPopular(forceRefresh = true) }) {
+                                    Text("Retry popular novels", color = NovelPrimary)
                                 }
                             }
-
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                uiState.recentSearches.forEach { keyword ->
-                                    Box(
-                                        modifier = Modifier
-                                            .heightIn(min = 36.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(NovelSurfaceVariant)
-                                            .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp))
-                                            .bounceClick(
-                                                scaleDown = BounceScale.Small,
-                                                onClickLabel = "Search $keyword",
-                                                role = Role.Button
-                                            ) {
-                                                playHaptic(NovelNestHapticType.LIGHT_TICK)
-                                                keyboardController?.hide()
-                                                viewModel.onQueryChange(keyword)
-                                                viewModel.performSearch(keyword)
-                                            }
-                                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = keyword,
-                                            color = NovelTextPrimary,
-                                            fontSize = 13.sp
-                                        )
-                                    }
+                            else -> SearchSuggestions(
+                                title = "Popular on ${uiState.selectedSource.shortName}",
+                                keywords = uiState.popularNovels.map { it.title },
+                                onSearch = { keyword ->
+                                    playHaptic(NovelNestHapticType.LIGHT_TICK)
+                                    keyboardController?.hide()
+                                    viewModel.performSearch(keyword)
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.height(24.dp))
+                            )
                         }
 
                         // Genre Discovery Shortcuts
@@ -461,6 +421,52 @@ fun SearchScreen(
     }
 }
 
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchSuggestions(
+    title: String,
+    keywords: List<String>,
+    onSearch: (String) -> Unit,
+    onRemove: ((String) -> Unit)? = null,
+    onClear: (() -> Unit)? = null
+) {
+    if (keywords.isEmpty()) return
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = NovelTextPrimary)
+        if (onClear != null) {
+            TextButton(onClick = onClear) {
+                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Clear", color = NovelTextSecondary)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        keywords.forEach { keyword ->
+            Row(modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                .background(NovelSurfaceVariant)
+                .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(8.dp)),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(keyword, color = NovelTextPrimary, fontSize = 13.sp, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp).heightIn(min = 48.dp)
+                        .bounceClick(scaleDown = BounceScale.Small, onClickLabel = "Search $keyword",
+                            role = Role.Button, onClick = { onSearch(keyword) })
+                        .padding(horizontal = 12.dp, vertical = 12.dp))
+                if (onRemove != null) {
+                    NovelNestIconButton(icon = Icons.Rounded.Close,
+                        contentDescription = "Remove $keyword from recent searches",
+                        onClick = { onRemove(keyword) }, tint = NovelTextTertiary)
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(24.dp))
+}
+
 @Composable
 private fun SearchShimmerGrid(sourceName: String) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -472,13 +478,13 @@ private fun SearchShimmerGrid(sourceName: String) {
         )
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            columns = GridCells.Fixed(3),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(4) {
+            items(6) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier

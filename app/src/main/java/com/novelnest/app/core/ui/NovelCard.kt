@@ -52,7 +52,16 @@ import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.ratingLabel
+import com.novelnest.app.data.model.hasRating
+import com.novelnest.app.data.model.chapterCountLabel
+import com.novelnest.app.data.progress.ReadingCompletion
+import androidx.compose.material3.LinearProgressIndicator
 import com.novelnest.app.data.model.NovelSourceType
+
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.Check
+import com.novelnest.app.core.designsystem.NovelOnPrimary
 
 /**
  * Modern novel poster card component.
@@ -65,8 +74,14 @@ import com.novelnest.app.data.model.NovelSourceType
 fun NovelCard(
     novel: Novel,
     modifier: Modifier = Modifier.width(135.dp),
+    isSelected: Boolean = false,
+    readingCompletion: ReadingCompletion? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
+    val chapterBadge = readingCompletion?.let {
+        if (it.total > 0) "${it.read} / ${it.total}" else "${it.read} read"
+    } ?: novel.chapterCountLabel()
     val interactionSource = remember { MutableInteractionSource() }
     val playHaptic = rememberNovelNestHaptic()
 
@@ -78,6 +93,13 @@ fun NovelCard(
                 indication = null,
                 role = Role.Button,
                 onClickLabel = "Open ${novel.title}",
+                onLongClickLabel = if (onLongClick != null) "Select ${novel.title}" else null,
+                onLongClick = onLongClick?.let { action ->
+                    {
+                        playHaptic(NovelNestHapticType.ACTION_CONFIRM)
+                        action()
+                    }
+                },
                 onClick = {
                     playHaptic(NovelNestHapticType.LIGHT_TICK)
                     onClick()
@@ -93,8 +115,30 @@ fun NovelCard(
                 .clip(RoundedCornerShape(12.dp))
                 .background(NovelSurfaceVariant)
                 .indication(interactionSource, LocalIndication.current)
-                .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(12.dp))
+                .border(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) NovelPrimary else NovelSurfaceBorder,
+                    shape = RoundedCornerShape(12.dp)
+                )
         ) {
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(NovelPrimary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Selected",
+                        tint = NovelOnPrimary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(novel.coverUrl)
@@ -121,6 +165,30 @@ fun NovelCard(
                     )
             )
 
+            // Top rank badge
+            if (novel.rank > 0) {
+                Box(
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xD90F1216))
+                        .border(
+                            0.5.dp,
+                            if (novel.rank <= 3) NovelGold.copy(alpha = 0.8f) else NovelSurfaceBorder,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "#${novel.rank}",
+                        color = if (novel.rank <= 3) NovelGold else NovelTextPrimary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             // Top rating badge
             Box(
                 modifier = Modifier
@@ -137,12 +205,12 @@ fun NovelCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Star,
-                        contentDescription = "Rating",
+                        contentDescription = if (novel.hasRating()) "Rating" else "Not rated",
                         tint = NovelGold,
                         modifier = Modifier.size(10.dp)
                     )
                     Text(
-                        text = String.format("%.1f", novel.rating),
+                        text = novel.ratingLabel(),
                         color = NovelTextPrimary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -151,9 +219,9 @@ fun NovelCard(
             }
 
             // Bottom chapter badge
-            if (novel.latestChapter.isNotBlank()) {
+            if (chapterBadge.isNotBlank()) {
                 Text(
-                    text = novel.latestChapter,
+                    text = chapterBadge,
                     color = NovelPrimary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
@@ -161,8 +229,14 @@ fun NovelCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 7.dp)
                 )
+            }
+            if (readingCompletion != null) {
+                LinearProgressIndicator(progress = { readingCompletion.fraction },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
+                    color = NovelPrimary, trackColor = NovelSurfaceBorder,
+                    gapSize = 0.dp, drawStopIndicator = {})
             }
         }
 

@@ -3,6 +3,7 @@ package com.novelnest.app.data.database.mapper
 import com.novelnest.app.data.database.entity.NovelEntity
 import com.novelnest.app.data.database.entity.SectionEntity
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUtils
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
@@ -14,13 +15,14 @@ fun NovelEntity.toDomain(): Novel {
     return Novel(
         id = id,
         title = title,
-        coverUrl = coverUrl,
+        coverUrl = if (source == NovelSourceType.FREE_WEB_NOVEL.name) FreeWebNovelUtils.posterUrl(coverUrl) else coverUrl,
         source = NovelSourceType.entries.firstOrNull { it.name == source } ?: NovelSourceType.NOVEL_PHOENIX,
         sourceUrl = sourceUrl,
         synopsis = synopsis,
         author = author,
         rating = rating,
         latestChapter = latestChapter,
+        chapterCount = chapterCount,
         genres = genres,
         status = status,
         views = views,
@@ -39,6 +41,7 @@ fun Novel.toEntity(): NovelEntity {
         author = author,
         rating = rating,
         latestChapter = latestChapter,
+        chapterCount = chapterCount,
         genres = genres,
         status = status,
         views = views,

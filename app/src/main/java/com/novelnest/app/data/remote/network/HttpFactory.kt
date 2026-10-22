@@ -16,7 +16,8 @@ object HttpFactory {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .addNetworkInterceptor { chain ->
-                val request = chain.request().newBuilder()
+                val original = chain.request()
+                val request = if (original.header("User-Agent") != null) original else original.newBuilder()
                     .header(
                         "User-Agent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"

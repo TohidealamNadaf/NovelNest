@@ -47,6 +47,8 @@ import com.novelnest.app.data.model.NovelSection
 fun NovelSectionRow(
     section: NovelSection,
     modifier: Modifier = Modifier,
+    selectedNovelId: String? = null,
+    onNovelLongClick: ((Novel) -> Unit)? = null,
     onNovelClick: (Novel) -> Unit = {},
     onSeeAllClick: () -> Unit = {}
 ) {
@@ -139,6 +141,8 @@ fun NovelSectionRow(
             items(section.novels, key = { it.id }) { novel ->
                 NovelCard(
                     novel = novel,
+                    isSelected = selectedNovelId == novel.id,
+                    onLongClick = onNovelLongClick?.let { { it(novel) } },
                     onClick = { onNovelClick(novel) }
                 )
             }

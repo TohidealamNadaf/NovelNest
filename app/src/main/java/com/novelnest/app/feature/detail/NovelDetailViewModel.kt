@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.remote.SeedData
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.feature.reader.Chapter
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,25 +22,58 @@ data class NovelDetailUiState(
     val isAscending: Boolean = true,
     val chapterQuery: String = "",
     val isBookmarked: Boolean = false,
+    val readingProgress: com.novelnest.app.data.progress.NovelProgress? = null,
+    val readChapterIds: Set<String> = emptySet(),
     val isLoading: Boolean = true,
+    val isChaptersLoading: Boolean = false,
     val isSynopsisExpanded: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val chaptersErrorMessage: String? = null
 )
 
 class NovelDetailViewModel(
     private val novelId: String,
-    private val repository: NovelRepository
+    private val repository: NovelRepository,
+    private val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager? = null,
+    private val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NovelDetailUiState())
+    private val _uiState = MutableStateFlow(
+        NovelDetailUiState(
+            isBookmarked = bookmarkManager?.isBookmarked(novelId) ?: false,
+            readingProgress = readingProgressManager?.getProgress(novelId),
+            readChapterIds = readingProgressManager?.getProgress(novelId)?.readChapterIds ?: emptySet()
+        )
+    )
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
+    private var chapterJob: Job? = null
+    private var detailJob: Job? = null
 
     init {
         loadNovelDetails()
+        observeReadingProgress()
+    }
+
+    private fun observeReadingProgress() {
+        readingProgressManager?.let { pm ->
+            viewModelScope.launch {
+                pm.progressMap.collect { map ->
+                    val progress = map[novelId]
+                    _uiState.update { current ->
+                        current.copy(
+                            readingProgress = progress,
+                            readChapterIds = progress?.readChapterIds ?: emptySet()
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun toggleBookmark() {
-        _uiState.update { it.copy(isBookmarked = !it.isBookmarked) }
+        val currentNovel = _uiState.value.novel ?: return
+        val newStatus = bookmarkManager?.toggleBookmark(currentNovel) ?: !_uiState.value.isBookmarked
+        _uiState.update { it.copy(isBookmarked = newStatus) }
     }
 
     fun toggleSynopsis() {
@@ -48,17 +83,19 @@ class NovelDetailViewModel(
     fun toggleSortOrder() {
         _uiState.update { current ->
             val newAscending = !current.isAscending
-            val sorted = if (newAscending) {
-                current.chapters.sortedBy { it.id }
-            } else {
-                current.chapters.sortedByDescending { it.id }
-            }
+            val sorted = current.chapters.reversed()
             current.copy(
                 isAscending = newAscending,
                 chapters = sorted,
                 filteredChapters = filterChapters(sorted, current.chapterQuery)
             )
         }
+    }
+
+    fun readerChapterIndex(chapterId: String): Int {
+        val state = _uiState.value
+        val chapters = if (state.isAscending) state.chapters else state.chapters.asReversed()
+        return chapters.indexOfFirst { it.id == chapterId }.coerceAtLeast(0)
     }
 
     fun onChapterSearch(query: String) {
@@ -70,78 +107,230 @@ class NovelDetailViewModel(
         }
     }
 
+    fun resyncChapters() {
+        // Reset circuit breaker so manual retry always makes a fresh attempt
+        repository.resetSourceCircuitBreaker(_uiState.value.novel?.source ?: NovelSourceType.NOVEL_PHOENIX)
+        loadChapters(forceRefresh = true)
+    }
+
     private fun filterChapters(chapters: List<Chapter>, query: String): List<Chapter> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return chapters
         return chapters.filter { it.title.lowercase().contains(q) || it.id.lowercase().contains(q) }
     }
 
-    private fun loadNovelDetails() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+    fun retryLoadDetails() {
+        // Reset circuit breaker on explicit user retry
+        repository.resetSourceCircuitBreaker(_uiState.value.novel?.source ?: NovelSourceType.NOVEL_PHOENIX)
+        loadNovelDetails()
+    }
 
-            // 1. Find from seed data / repository
-            val foundNovel = SeedData.findNovelById(novelId) ?: run {
+    /**
+     * Constructs a reliable sourceUrl for the novel, ensuring it's always a valid full URL.
+     * This handles cases where the novel was loaded from bookmarks/cache with incomplete data or legacy IDs.
+     */
+    private fun resolveSourceUrl(novel: Novel): String {
+        if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
+            return FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id })
+        }
+        // 1. If sourceUrl is already a valid URL (contains "/novel/"), use it
+        if (novel.sourceUrl.isNotBlank() && novel.sourceUrl.contains("/novel/")) {
+            val url = novel.sourceUrl.trim()
+            return if (url.startsWith("http")) url else "${novel.source.baseUrl}${if (url.startsWith("/")) "" else "/"}$url"
+        }
+
+        // 2. Map legacy numeric IDs (np-1..np-10) or extract clean slug
+        val mappedSlug = mapLegacyIdToSlug(novelId) ?: mapLegacyIdToSlug(novel.id)
+        val slug = mappedSlug ?: novelId
+            .removePrefix("np-")
+            .removePrefix("fwn-")
+            .removePrefix("asura-")
+            .trimEnd('/')
+            .substringAfterLast('/')
+
+        val source = novel.source
+        return "${source.baseUrl}/novel/$slug"
+    }
+
+    private fun mapLegacyIdToSlug(id: String): String? = when (id) {
+        "np-1", "1" -> "shadow-slave"
+        "np-2", "2" -> "full-star-player-returns-as-a-godslayer"
+        "np-3", "3" -> "genius-martial-arts-trainer"
+        "np-4", "4" -> "the-mine-lord-a-dwarven-survival-base-builder"
+        "np-5", "5" -> "lord-of-the-mysteries"
+        "np-6", "6" -> "reverend-insanity"
+        "np-7", "7" -> "collecting-powerful-girlfriends-my-invincible-harem"
+        "np-8", "8" -> "tyrant-no-i-am-the-villain"
+        "np-9", "9" -> "the-beginning-after-the-end"
+        "np-10", "10" -> "mother-of-learning"
+        else -> null
+    }
+
+    private fun loadNovelDetails() {
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = it.novel == null, errorMessage = null) }
+
+            // 1. Initial resolution: Check repository/DB first, then BookmarkManager, then SeedData, then synthetic shell
+            val initialNovel = repository.getNovelById(novelId)
+                ?: bookmarkManager?.getBookmark(novelId)
+                ?: SeedData.findNovelById(novelId)
+                ?: run {
                 val formattedTitle = if (novelId.isNotBlank() && novelId != "sample") {
-                    novelId.replace("-", " ")
+                    novelId.removePrefix("np-")
+                        .replace("-", " ")
                         .split(" ")
                         .filter { it.isNotBlank() }
                         .joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
                 } else {
                     "The Whispering Sanctuary"
                 }
+                val mappedSlug = mapLegacyIdToSlug(novelId)
+                val slug = mappedSlug ?: novelId.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
+                val src = when {
+                    novelId.startsWith("asura-") -> NovelSourceType.ASURA_SCANS
+                    novelId.startsWith("fwn-") -> NovelSourceType.FREE_WEB_NOVEL
+                    else -> NovelSourceType.NOVEL_PHOENIX
+                }
                 Novel(
                     id = novelId,
                     title = formattedTitle,
-                    coverUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&q=80",
-                    author = "Gu Zhen Ren",
-                    source = NovelSourceType.NOVEL_PHOENIX,
-                    sourceUrl = "",
+                    coverUrl = "https://novelphoenix.com/server-1/$slug.jpg",
+                    author = "Author",
+                    source = src,
+                    sourceUrl = "${src.baseUrl}/novel/$slug",
                     rating = 4.8f,
-                    latestChapter = "Chapter 250",
-                    views = "1.8M",
+                    latestChapter = "Loading...",
+                    views = "",
                     status = "Ongoing",
-                    genres = listOf("Action", "Cultivation", "Fantasy", "Mystery"),
-                    synopsis = "A journey of cultivation, mysteries, and perseverance. In a realm where destiny is carved in blood and ancient runes, a solitary wanderer discovers a dormant artifact that can invert the laws of the mortal cosmos."
+                    genres = listOf("Fantasy", "Action"),
+                    synopsis = ""
                 )
             }
 
-            // Generate representative chapter list (e.g. 100 chapters)
-            val generatedChapters = (1..60).map { chNum ->
-                Chapter(
-                    id = "ch-$chNum",
-                    title = "Chapter $chNum: ${getChapterName(chNum, foundNovel.title)}",
-                    paragraphs = listOf(
-                        "The celestial runes hummed with silent authority as Chapter $chNum commenced.",
-                        "Paths diverged across the mortal wilderness, each step leading deeper into the sanctuary of the heavens."
-                    )
-                )
-            }
-
+            val hasFullDetails = initialNovel.synopsis.isNotBlank()
+            val bookmarked = bookmarkManager?.isBookmarked(novelId) == true || bookmarkManager?.isBookmarked(initialNovel.id) == true
             _uiState.update {
                 it.copy(
-                    novel = foundNovel,
-                    chapters = generatedChapters,
-                    filteredChapters = generatedChapters,
-                    isLoading = false
+                    novel = initialNovel,
+                    isLoading = !hasFullDetails,
+                    isBookmarked = bookmarked
                 )
+            }
+
+            // Immediately kick off chapter fetching concurrently with details
+            loadChapters(forceRefresh = false)
+
+            // 2. Fetch live novel details from remote source
+            val source = initialNovel.source
+            val novelUrl = resolveSourceUrl(initialNovel)
+
+            val detailResult = repository.getNovelDetails(source, novelUrl)
+            detailResult.fold(
+                onSuccess = { liveNovel ->
+                    // Ensure liveNovel has a proper sourceUrl
+                    val novelWithUrl = if (liveNovel.sourceUrl.isBlank()) {
+                        liveNovel.copy(sourceUrl = novelUrl)
+                    } else {
+                        liveNovel
+                    }
+                    if (bookmarkManager?.isBookmarked(initialNovel.id) == true) {
+                        bookmarkManager.addBookmark(novelWithUrl)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            novel = novelWithUrl,
+                            isLoading = false,
+                            errorMessage = null
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update { current ->
+                        if (current.novel == null || current.novel.synopsis.isBlank()) {
+                            val msg = formatFriendlyError(err)
+                            current.copy(
+                                isLoading = false,
+                                errorMessage = "Unable to load details ($msg). Tap to retry."
+                            )
+                        } else {
+                            current.copy(isLoading = false)
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    private fun formatFriendlyError(err: Throwable): String {
+        val msg = err.message.orEmpty()
+        return when {
+            msg.contains("Circuit breaker", ignoreCase = true) -> "Service temporarily paused due to rate limits"
+            msg.contains("403") || msg.contains("429") || msg.contains("blocked", ignoreCase = true) -> "Source temporarily rate limited"
+            msg.contains("404") || msg.contains("not found", ignoreCase = true) -> "Novel not found at source"
+            msg.contains("timeout", ignoreCase = true) || msg.contains("timed out", ignoreCase = true) -> "Connection timed out"
+            msg.isNotBlank() -> msg
+            else -> "Network connection error"
+        }
+    }
+
+    private fun loadChapters(forceRefresh: Boolean) {
+        chapterJob?.cancel()
+        chapterJob = viewModelScope.launch {
+            val currentNovel = _uiState.value.novel
+                ?: repository.getNovelById(novelId)
+                ?: bookmarkManager?.getBookmark(novelId)
+                ?: SeedData.findNovelById(novelId)
+                ?: return@launch
+
+            val source = currentNovel.source
+
+            // Build a robust slug/URL for chapter fetching
+            val slugOrUrl = resolveSourceUrl(currentNovel)
+
+            _uiState.update { it.copy(isChaptersLoading = true, chaptersErrorMessage = null) }
+
+            repository.getChaptersFlow(source, slugOrUrl, forceRefresh = forceRefresh).collect { result ->
+                result.onSuccess { liveChapters ->
+                    if (liveChapters.isNotEmpty()) {
+                        _uiState.update { current ->
+                            val sorted = if (current.isAscending) liveChapters else liveChapters.reversed()
+                            current.copy(
+                                chapters = sorted,
+                                filteredChapters = filterChapters(sorted, current.chapterQuery),
+                                isChaptersLoading = false,
+                                chaptersErrorMessage = null
+                            )
+                        }
+                    } else if (_uiState.value.chapters.isEmpty()) {
+                        showChapterError("No chapters available from source.")
+                    } else {
+                        _uiState.update { it.copy(isChaptersLoading = false) }
+                    }
+                }.onFailure { err ->
+                    val friendlyMsg = formatFriendlyError(err)
+                    if (_uiState.value.chapters.isEmpty()) {
+                        showChapterError("Failed to fetch live chapters ($friendlyMsg).")
+                    } else {
+                        // Handled offline state: Keep existing chapters! Never clear them out!
+                        _uiState.update { current ->
+                            current.copy(
+                                isChaptersLoading = false,
+                                chaptersErrorMessage = "Offline / Showing cached chapters ($friendlyMsg)"
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 
-    private fun getChapterName(chNum: Int, novelTitle: String): String {
-        return when (chNum) {
-            1 -> "The Awakening of Ancient Starlight"
-            2 -> "A Glimpse Beyond the Mortal Veil"
-            3 -> "The Trial of Obsidian Shadows"
-            4 -> "Riddle of the Celestial Archive"
-            5 -> "Echoes of the Forgotten Emperor"
-            6 -> "Runes of the Golden Phoenix"
-            7 -> "Whispers in the Astral Wind"
-            8 -> "The Sovereign’s Bloodline"
-            9 -> "Shattered Horizons"
-            10 -> "Dawn of the Ascendant Monarch"
-            else -> "Path of Destiny Part $chNum"
+    private fun showChapterError(reason: String) {
+        _uiState.update { current ->
+            current.copy(
+                isChaptersLoading = false,
+                chaptersErrorMessage = reason
+            )
         }
     }
 }

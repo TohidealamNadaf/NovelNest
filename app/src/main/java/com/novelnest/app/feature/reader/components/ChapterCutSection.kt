@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -21,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelPrimary
@@ -39,6 +44,7 @@ fun ChapterCutSection(
     textColor: Color,
     secondaryColor: Color,
     onNextChapter: () -> Unit,
+    nextChapterTitle: String? = null,
     modifier: Modifier = Modifier
 ) {
     val playHaptic = rememberNovelNestHaptic()
@@ -104,5 +110,26 @@ fun ChapterCutSection(
             fontWeight = if (hasNextChapter) FontWeight.SemiBold else FontWeight.Normal,
             textAlign = TextAlign.Center
         )
+        if (hasNextChapter) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowDown,
+                contentDescription = null,
+                tint = NovelPrimary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = nextChapterTitle?.takeIf { it.isNotBlank() } ?: "Next chapter",
+                color = textColor,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+        }
     }
 }

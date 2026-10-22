@@ -3,6 +3,7 @@ package com.novelnest.app
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,8 +18,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -31,11 +34,40 @@ import com.novelnest.app.navigation.NovelNestNavHost
 
 @Composable
 fun NovelNestApp(
-    repository: NovelRepository
+    repository: NovelRepository,
+    sessionManager: com.novelnest.app.data.preferences.ReaderSessionManager? = null,
+    restoreReaderSession: Boolean = false,
+    notificationRequest: com.novelnest.app.data.notification.NotificationOpen? = null,
+    onNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val initialSession = remember { if (restoreReaderSession && notificationRequest == null) sessionManager?.session else null }
+    LaunchedEffect(Unit) {
+        if (initialSession != null && navController.currentDestination?.route == NovelNestDestination.Home.route) {
+            navController.navigate(NovelNestDestination.Detail.createRoute(initialSession.novelId))
+            navController.navigate(NovelNestDestination.Reader.createRoute(initialSession.novelId, initialSession.chapterIndex))
+        }
+    }
+    LaunchedEffect(notificationRequest) {
+        notificationRequest?.let { request ->
+            if (request.novelId != null) {
+                navController.navigate(NovelNestDestination.Detail.createRoute(request.novelId)) { launchSingleTop = true }
+            } else {
+                navController.navigate(NovelNestDestination.Home.route) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+            onNotificationHandled()
+        }
+    }
+    LaunchedEffect(navBackStackEntry) {
+        val activeRoute = navController.currentDestination?.route
+        if (activeRoute != null && activeRoute != NovelNestDestination.Reader.route) sessionManager?.clear()
+    }
 
     val showBottomBar = currentRoute in listOf(
         NovelNestDestination.Home.route,
@@ -66,48 +98,56 @@ fun NovelNestApp(
         )
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = NovelBackground
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding())
-        ) {
-            NovelNestNavHost(
-                navController = navController,
-                repository = repository,
-                onNovelClick = { novel ->
-                    // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
-                    navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NovelBackground)
+    ) {
+        NovelNestNavHost(
+            navController = navController,
+            repository = repository,
+            onReaderPosition = { id, index ->
+                val entry = navController.currentBackStackEntry
+                if (entry?.destination?.route == NovelNestDestination.Reader.route && entry.arguments?.getString("novelId") == id) {
+                    sessionManager?.record(id, index)
+                }
+            },
+            onNovelClick = { novel ->
+                repository.rememberNovel(novel)
+                // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
+                navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
-            // Floating Capsule Footer Dock (shown on Home, Discover, Settings)
-            AnimatedVisibility(
-                visible = showBottomBar,
-                enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it }),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                NovelNestFooter(
-                    destinations = footerDestinations,
-                    selectedRoute = currentRoute,
-                    onNavigate = { route ->
-                        if (currentRoute != route) {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+        // Floating Capsule Footer Dock (shown on Home, Discover, Settings)
+        AnimatedVisibility(
+            visible = showBottomBar,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            NovelNestFooter(
+                destinations = footerDestinations,
+                selectedRoute = currentRoute,
+                onNavigate = { route ->
+                    if (navController.currentDestination?.route != route) {
+                        // Home already anchors the stack. Restoring a saved stack here can
+                        // bring back another screen instead of the requested Home screen.
+                        if (route == NovelNestDestination.Home.route) {
+                            val returnedHome = navController.popBackStack(
+                                NovelNestDestination.Home.route, inclusive = false, saveState = true)
+                            if (!returnedHome) navController.navigate(route) { launchSingleTop = true }
+                        } else navController.navigate(route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
                             }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
-                )
-            }
+                }
+            )
         }
     }
 }

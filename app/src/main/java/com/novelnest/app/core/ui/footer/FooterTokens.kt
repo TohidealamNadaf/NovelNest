@@ -11,9 +11,9 @@ import androidx.compose.ui.unit.dp
  * Shared layout dimension tokens for the pill-shaped navigation footer.
  */
 object FooterTokens {
-    val PillHeight: Dp = 64.dp
+    val PillHeight: Dp = 58.dp
     val VerticalMargin: Dp = 10.dp
-    val TotalFooterHeight: Dp = PillHeight + (VerticalMargin * 2) // 84.dp
+    val TotalFooterHeight: Dp = PillHeight + (VerticalMargin * 2) // 78.dp
 }
 
 /**

@@ -86,6 +86,7 @@ fun rememberNovelNestHaptic(hapticEnabled: Boolean = true): (NovelNestHapticType
     return remember(hapticFeedback, hapticEnabled) {
         { type ->
             if (hapticEnabled) {
+                try {
                 when (type) {
                     NovelNestHapticType.LIGHT_TICK -> {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -97,6 +98,10 @@ fun rememberNovelNestHaptic(hapticEnabled: Boolean = true): (NovelNestHapticType
                     NovelNestHapticType.WARNING -> {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
+                }
+                } catch (error: RuntimeException) {
+                    // Optional device feedback must never prevent navigation or reading actions.
+                    android.util.Log.w("NovelNestHaptic", "Haptic feedback unavailable", error)
                 }
             }
         }

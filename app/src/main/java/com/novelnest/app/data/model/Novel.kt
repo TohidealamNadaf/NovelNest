@@ -13,5 +13,6 @@ data class Novel(
     val genres: List<String> = emptyList(),
     val status: String = "Ongoing",
     val views: String = "",
-    val rank: Int = 0
+    val rank: Int = 0,
+    val chapterCount: Int = 0
 )

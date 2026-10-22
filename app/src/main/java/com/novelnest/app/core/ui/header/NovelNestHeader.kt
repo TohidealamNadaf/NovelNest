@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,6 +34,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
 
 /**
  * Reusable, modular Top Header component for NovelNest screens.
@@ -50,14 +52,15 @@ fun NovelNestHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 60.dp)
+            .statusBarsPadding()
+            .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f, fill = false)
+            modifier = Modifier.weight(1f)
         ) {
             if (navigationIcon != null) {
                 navigationIcon()
@@ -72,10 +75,11 @@ fun NovelNestHeader(
                 Spacer(modifier = Modifier.width(10.dp))
             }
 
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Bold,
                     color = NovelTextPrimary
                 )
@@ -84,7 +88,8 @@ fun NovelNestHeader(
                         text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
                         color = NovelTextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
