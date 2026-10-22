@@ -49,6 +49,7 @@ enum class SettingsSubPage {
     READING_DISPLAY,
     READING_BEHAVIOR,
     APP_EXPERIENCE,
+    NOTIFICATIONS,
     STORAGE_CACHE
 }
 
@@ -131,6 +132,12 @@ fun SettingsScreen(
                     AppExperiencePage(
                         appSettings = appSettings,
                         viewModel = viewModel,
+                        onBack = { currentSubPage = SettingsSubPage.MAIN }
+                    )
+                }
+
+                SettingsSubPage.NOTIFICATIONS -> {
+                    NotificationSettingsPage(
                         onBack = { currentSubPage = SettingsSubPage.MAIN }
                     )
                 }

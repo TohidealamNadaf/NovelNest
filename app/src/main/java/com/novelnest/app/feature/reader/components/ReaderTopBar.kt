@@ -53,7 +53,7 @@ fun ReaderTopBar(
     currentTheme: ReaderTheme,
     textColor: Color,
     secondaryColor: Color,
-    isVisible: Boolean,
+    isVisible: Boolean = true,
     isBookmarked: Boolean = false,
     isSyncing: Boolean = false,
     onBack: () -> Unit,

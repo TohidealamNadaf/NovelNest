@@ -42,6 +42,60 @@ class ProfileNotificationTest {
             "Book $index", "", source, "${source.baseUrl}/novel/book-$index",
             latestChapter = "Chapter 100: Old", chapterCount = 100)
 
+    @Test fun bookmarkAddsEmitOnceAndRestoringOrRefreshingMetadataEmitsNothing() {
+        val context = bookmarkContext()
+        val emitted = mutableListOf<AppNotification>()
+        val bookmarks = BookmarkManager(context) { emitted += bookmarkConfirmation(it, 1000) }
+        val novel = book(42)
+        assertTrue(bookmarks.toggleBookmark(novel))
+        assertEquals(1, emitted.size)
+        bookmarks.addBookmark(novel.copy(chapterCount = 110))
+        assertEquals(1, emitted.size)
+        val restored = BookmarkManager(context) { emitted += bookmarkConfirmation(it, 1000) }
+        assertTrue(restored.isBookmarked(novel.id))
+        assertEquals(1, emitted.size)
+        assertFalse(restored.toggleBookmark(novel))
+        assertEquals(1, emitted.size)
+        restored.addBookmark(novel)
+        assertEquals(2, emitted.size)
+        assertNotEquals(emitted[0].id, emitted[1].id)
+        assertTrue(emitted.all { it.bookmark && !it.reminder && it.novelId == novel.id })
+    }
+
+    @Test fun bookmarkConfirmationSettingsAreIndependentAndPersistWithTheirEventType() {
+        val storage = prefs()
+        val store = NotificationStore(storage)
+        val confirmation = bookmarkConfirmation(book(), 1000)
+        val chapter = AppNotification("chapter", "Update", "New chapter", 1000, book().id)
+        val reminder = AppNotification("reminder", "Reminder", "Read", 1000, reminder = true)
+        assertFalse(store.settings.value.allows(confirmation))
+        store.configure(enabled = true, chapters = false, reminders = false)
+        assertTrue(store.settings.value.allows(confirmation))
+        assertFalse(store.settings.value.allows(chapter))
+        assertFalse(store.settings.value.allows(reminder))
+        store.add(confirmation)
+        val restored = NotificationStore(storage)
+        assertTrue(restored.items.value.single().bookmark)
+        assertTrue(restored.settings.value.bookmarkConfirmations)
+        restored.configure(bookmarks = false)
+        assertFalse(NotificationStore(storage).settings.value.allows(confirmation))
+    }
+
+    @Test fun newBookmarksFromEverySourceProduceConfirmationEvents() {
+        val emitted = mutableListOf<AppNotification>()
+        val bookmarks = BookmarkManager(bookmarkContext()) { emitted += bookmarkConfirmation(it) }
+        NovelSourceType.entries.forEachIndexed { index, source -> bookmarks.addBookmark(book(index + 200, source)) }
+        assertEquals(NovelSourceType.entries.size, emitted.size)
+        assertEquals(emitted.size, emitted.map { it.id }.toSet().size)
+        assertTrue(emitted.all { it.bookmark && it.message.contains("saved to your library") })
+    }
+
+    @Test fun notificationCallbackFailureCannotUndoASuccessfulBookmark() {
+        val bookmarks = BookmarkManager(bookmarkContext()) { throw IllegalStateException("Platform unavailable") }
+        assertTrue(bookmarks.toggleBookmark(book(50)))
+        assertTrue(bookmarks.isBookmarked(book(50).id))
+    }
+
     @Test fun profileNamePhotoAndReadingDaysPersistWithoutDuplicateDays() {
         val prefs = prefs()
         val manager = ProfileManager(prefs)

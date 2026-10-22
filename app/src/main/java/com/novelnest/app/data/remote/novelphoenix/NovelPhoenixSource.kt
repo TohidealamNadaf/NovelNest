@@ -9,6 +9,7 @@ import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.network.CircuitBreaker
 import com.novelnest.app.data.remote.network.HostRateLimiter
 import com.novelnest.app.data.remote.network.HttpFactory
+import com.novelnest.app.data.remote.awaitTextResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -555,7 +556,7 @@ class NovelPhoenixSource(
             }
 
             try {
-                val response = client.newCall(reqBuilder.build()).execute()
+                val response = client.newCall(reqBuilder.build()).awaitTextResponse()
                 val code = response.code
 
                 when {
@@ -582,7 +583,7 @@ class NovelPhoenixSource(
                         throw IOException("Unexpected HTTP code $code on $url")
                     }
                     else -> {
-                        val bodyString = response.body?.string().orEmpty()
+                        val bodyString = response.body
                         if (NovelPhoenixUtils.isCloudflareChallenge(bodyString)) {
                             circuitBreaker.recordFailure(host)
                             throw PhoenixException.SourceBlockedError(isCloudflareChallenge = true)
@@ -591,6 +592,8 @@ class NovelPhoenixSource(
                         return bodyString
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: PhoenixException) {
                 throw e
             } catch (e: Exception) {

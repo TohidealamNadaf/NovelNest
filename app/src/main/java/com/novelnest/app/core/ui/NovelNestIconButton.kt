@@ -6,11 +6,16 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -18,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.novelnest.app.core.designsystem.NovelTextPrimary
+import coil.compose.AsyncImage
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 
@@ -37,9 +43,11 @@ fun NovelNestIconButton(
     modifier: Modifier = Modifier,
     tint: Color = NovelTextPrimary,
     iconSize: Dp = 22.dp,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    imageUri: String? = null
 ) {
     val playHaptic = rememberNovelNestHaptic()
+    var imageLoaded by remember(imageUri) { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -60,7 +68,7 @@ fun NovelNestIconButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
+        if (!imageLoaded) Icon(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
@@ -68,5 +76,15 @@ fun NovelNestIconButton(
                 .size(iconSize)
                 .clearAndSetSemantics { }
         )
+        if (imageUri != null) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onSuccess = { imageLoaded = true },
+                onError = { imageLoaded = false },
+                modifier = Modifier.size(iconSize).clip(CircleShape).clearAndSetSemantics { }
+            )
+        }
     }
 }

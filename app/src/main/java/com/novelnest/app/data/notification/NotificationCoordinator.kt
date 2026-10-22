@@ -32,6 +32,7 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
 
     fun initialize() {
         val system = app.getSystemService(NotificationManager::class.java)
+        system.createNotificationChannel(NotificationChannel("bookmarks", "Bookmark confirmations", NotificationManager.IMPORTANCE_DEFAULT))
         system.createNotificationChannel(NotificationChannel("chapters", "Bookmarked novel updates", NotificationManager.IMPORTANCE_DEFAULT))
         system.createNotificationChannel(NotificationChannel("reading_reminders", "Reading reminders", NotificationManager.IMPORTANCE_DEFAULT))
         scope.launch {
@@ -48,9 +49,16 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
         scheduleReminder()
     }
     fun configure(enabled: Boolean = store.settings.value.enabled,
-        chapters: Boolean = store.settings.value.chapterUpdates, reminders: Boolean = store.settings.value.reminders) {
-        store.configure(enabled, chapters, reminders)
+        chapters: Boolean = store.settings.value.chapterUpdates, reminders: Boolean = store.settings.value.reminders,
+        bookmarks: Boolean = store.settings.value.bookmarkConfirmations) {
+        store.configure(enabled, chapters, reminders, bookmarks)
     }
+    fun bookmarkAdded(novel: com.novelnest.app.data.model.Novel) {
+        val item = bookmarkConfirmation(novel)
+        if (!store.settings.value.allows(item)) return
+        scope.launch { publish(item) }
+    }
+
     fun schedule() {
         val settings = store.settings.value
         if (settings.enabled && settings.chapterUpdates && app.bookmarkManager.bookmarks.value.isNotEmpty()) {
@@ -75,7 +83,7 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
     }
 
     suspend fun checkBookmarkedUpdates() {
-        BookmarkUpdateChecker(app.novelRepository, app.bookmarkManager, store, ::publish).check()
+        BookmarkUpdateChecker(app.novelRepository, app.bookmarkManager, store, { publish(it) }).check()
     }
 
     fun sendInactivityReminder() {
@@ -85,28 +93,41 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
         val activity = store.lastActive
         if (!reminderDue(now, activity, store.remindedFor, foreground)) { scheduleReminder(); return }
         val index = ((now / INACTIVITY_MILLIS) % readingNudges.size).toInt()
-        publish(AppNotification("reminder:$activity", "A little plot twist for your day",
+        val delivered = publish(AppNotification("reminder:$activity", "A little plot twist for your day",
             readingNudges[index], now, reminder = true))
-        store.recordReminder(activity)
+        if (delivered) store.recordReminder(activity)
     }
 
-    private fun publish(item: AppNotification) {
+    private fun publish(item: AppNotification): Boolean {
         val settings = store.settings.value
-        if (!settings.enabled || (item.reminder && !settings.reminders) || (!item.reminder && !settings.chapterUpdates)) return
-        if (item.reminder && !reminderDue(System.currentTimeMillis(), store.lastActive, store.remindedFor, foreground)) return
-        if (item.novelId != null && !app.bookmarkManager.isBookmarked(item.novelId)) return
-        if (!store.add(item) || !NotificationManagerCompat.from(app).areNotificationsEnabled()) return
+        if (!settings.allows(item)) return false
+        if (item.reminder && !reminderDue(System.currentTimeMillis(), store.lastActive, store.remindedFor, foreground)) return false
+        if (item.novelId != null && !app.bookmarkManager.isBookmarked(item.novelId)) return false
+        store.add(item)
+        val channel = when { item.reminder -> "reading_reminders"; item.bookmark -> "bookmarks"; else -> "chapters" }
+        val system = app.getSystemService(NotificationManager::class.java)
+        if (!NotificationManagerCompat.from(app).areNotificationsEnabled() ||
+            system.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            android.util.Log.w("Notifications", "System delivery disabled for channel: " + channel)
+            return false
+        }
         val intent = Intent(app, MainActivity::class.java)
             .setData(Uri.parse("novelnest://notification/${Uri.encode(item.id)}"))
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(EXTRA_NOTIFICATION_ID, item.id).putExtra(EXTRA_NOVEL_ID, item.novelId)
         val pending = PendingIntent.getActivity(app, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = NotificationCompat.Builder(app, if (item.reminder) "reading_reminders" else "chapters")
+        val builder = NotificationCompat.Builder(app, channel)
             .setSmallIcon(R.drawable.ic_notification_book).setContentTitle(item.title).setContentText(item.message)
-            .setAutoCancel(true).setContentIntent(pending).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true).setOnlyAlertOnce(true).setContentIntent(pending).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setStyle(NotificationCompat.BigTextStyle().bigText(item.message))
         if (item.reminder) builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bookDoodle()).setSummaryText(item.message))
-        try { NotificationManagerCompat.from(app).notify(item.id, 0, builder.build()) } catch (_: SecurityException) { }
+        return try {
+            NotificationManagerCompat.from(app).notify(item.id, 0, builder.build())
+            true
+        } catch (error: SecurityException) {
+            android.util.Log.w("Notifications", "System notification permission rejected", error)
+            false
+        }
     }
 
     private fun bookDoodle(): Bitmap {

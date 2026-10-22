@@ -1,5 +1,6 @@
 package com.novelnest.app.data.remote.novelphoenix
 
+import com.novelnest.app.data.remote.RatingParser
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -69,27 +70,18 @@ object NovelPhoenixParser {
             ?: "Ongoing"
         val status = if (statusText.contains("Completed", ignoreCase = true)) "Completed" else "Ongoing"
 
-        // Ratings: Try JSON-LD first for high accuracy
-        var ratingVal = 4.5f
+        // JSON-LD and widget attributes both carry scores which ranking cards often omit.
+        var ratingVal = RatingParser.structured(doc) ?: 0f
         var ratingCount = 0
-        val jsonLdScripts = doc.select("script[type=application/ld+json]")
-        for (script in jsonLdScripts) {
-            val content = script.data()
-            if (content.contains("AggregateRating", ignoreCase = true)) {
-                val ratingValMatch = Regex("\"ratingValue\"\\s*:\\s*\"?([0-9.]+)\"?").find(content)
-                val ratingCountMatch = Regex("\"ratingCount\"\\s*:\\s*\"?([0-9]+)\"?").find(content)
-                if (ratingValMatch != null) {
-                    ratingValMatch.groupValues[1].toFloatOrNull()?.let { ratingVal = it }
-                }
-                if (ratingCountMatch != null) {
-                    ratingCountMatch.groupValues[1].toIntOrNull()?.let { ratingCount = it }
-                }
-                if (ratingCount > 0) break
-            }
+        for (script in doc.select("script[type=application/ld+json]")) {
+            val count = Regex(""""ratingCount"\s*:\s*"?([0-9]+)"?""").find(script.data())
+            if (count != null) { ratingCount = count.groupValues[1].toIntOrNull() ?: 0; break }
         }
-        if (ratingCount == 0) {
-            val nubText = doc.selectFirst(".rating strong.nub, .rating .my-rating")?.text().orEmpty()
-            nubText.toFloatOrNull()?.let { ratingVal = it }
+        if (ratingVal == 0f) {
+            ratingVal = doc.select(NovelPhoenixSelectors.DETAIL_RATING).firstNotNullOfOrNull { item ->
+                sequenceOf(item.attr("data-rating"), item.attr("content"), item.text())
+                    .firstNotNullOfOrNull { RatingParser.score(it) }
+            } ?: 0f
         }
 
         // Rank
@@ -348,6 +340,8 @@ object NovelPhoenixParser {
             val totalCh = extractInt("total_chapter")
             val imageRel = extractString("image")
             val rank = extractInt("rank")
+            val explicitRating = Regex(""""(?:rating|rating_value)"\s*:\s*"?([0-9.,]+)"?""")
+                .find(objBody)?.groupValues?.get(1)?.let { RatingParser.score(it) } ?: 0f
 
             if (slug.isNotBlank() && title.isNotBlank()) {
                 results.add(
@@ -356,7 +350,7 @@ object NovelPhoenixParser {
                         title = title,
                         coverUrl = NovelPhoenixUtils.resolveUrl(imageRel),
                         latestChapter = if (totalCh > 0) "$totalCh Chapters" else "Latest",
-                        rating = 4.7f,
+                        rating = explicitRating,
                         rankBadge = if (rank > 0) "R $rank" else null
                     )
                 )
@@ -404,9 +398,10 @@ object NovelPhoenixParser {
             val latestCh = chapterStatsText
                 ?: item.selectFirst(NovelPhoenixSelectors.LISTING_LATEST_CHAPTER)?.text()?.trim().orEmpty()
 
-            val ratingText = item.selectFirst(NovelPhoenixSelectors.LISTING_RATING_BADGE)?.text()
-                ?.replace(Regex("[^0-9.]"), "")
-            val rating = ratingText?.toFloatOrNull()?.takeIf { it.isFinite() && it in 0f..5f } ?: 0f
+            val rating = item.select(NovelPhoenixSelectors.LISTING_RATING_BADGE).firstNotNullOfOrNull { badge ->
+                sequenceOf(badge.attr("data-rating"), badge.attr("content"), badge.text())
+                    .firstNotNullOfOrNull { RatingParser.score(it) }
+            } ?: 0f
 
             // Clean rank extraction: check badge._bl, rank-counter, or stats with icon-crown/Rank
             val rankBadgeRaw = item.selectFirst(".badge._bl, .rank-counter")?.text()?.trim()

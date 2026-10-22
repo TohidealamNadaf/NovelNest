@@ -1,10 +1,12 @@
 package com.novelnest.app.data.remote.freewebnovel
 
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.reuseRatings
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
 import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.remote.RatingParser
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -70,7 +72,7 @@ object FreeWebNovelParser {
             NovelSection("fwn-live-recommended-v1", "Recommended Novels", "", "Recommendations from FreeWebNovel", SectionType.HORIZONTAL_LIST, recommended),
             NovelSection("fwn-live-popular-v1", "Most Popular", "", "FreeWebNovel rankings", SectionType.HORIZONTAL_LIST, popular),
             NovelSection("fwn-live-latest-v1", "Recently Released", "", "Latest chapter updates", SectionType.HORIZONTAL_LIST, released)
-        )
+        ).reuseRatings()
     }
 
     fun parseDetails(html: String, url: String): Novel {
@@ -86,7 +88,9 @@ object FreeWebNovelParser {
             coverUrl = runCatching { FreeWebNovelUtils.posterUrl(FreeWebNovelUrls.resolve(meta("og:image"))) }.getOrDefault(""),
             source = NovelSourceType.FREE_WEB_NOVEL, sourceUrl = FreeWebNovelUrls.novelUrl(canonical),
             synopsis = synopsis, author = meta("og:novel:author").ifBlank { "Unknown" },
-            rating = Regex("[0-9.]+").find(doc.selectFirst(FreeWebNovelSelectors.DETAIL_RATING)?.text().orEmpty())?.value?.toFloatOrNull() ?: 0f,
+            rating = RatingParser.structured(doc) ?: doc.select(FreeWebNovelSelectors.DETAIL_RATING)
+                .firstNotNullOfOrNull { item -> sequenceOf(item.attr("data-score"), item.attr("content"), item.text())
+                    .firstNotNullOfOrNull { RatingParser.score(it) } } ?: 0f,
             latestChapter = meta("og:novel:lastest_chapter_name"),
             chapterCount = doc.selectFirst(FreeWebNovelSelectors.PAGINATION)?.attr("data-total-chapters")?.toIntOrNull() ?: 0,
             genres = meta("og:novel:genre").split(',').map { it.trim() }.filter { it.isNotBlank() },

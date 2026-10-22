@@ -295,12 +295,7 @@ fun ReaderScreen(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { translationY = pullOffset }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { viewModel.toggleChrome() }
-                            ),
+                            .graphicsLayer { translationY = pullOffset },
                         contentPadding = PaddingValues(
                             start = 20.dp,
                             end = 20.dp,
@@ -417,14 +412,14 @@ fun ReaderScreen(
             }
         }
 
-        // Properly placed Top Reading Control Header (Footer removed completely)
+        // Fixed Top Reading Control Header (pinned, does not collapse or slide up on tap)
         ReaderTopBar(
             novelTitle = uiState.novel?.title ?: "NovelNest",
             chapterTitle = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.title.orEmpty(),
             currentTheme = currentTheme,
             textColor = textColor,
             secondaryColor = secondaryColor,
-            isVisible = uiState.isChromeVisible,
+            isVisible = true,
             isBookmarked = uiState.isBookmarked,
             isSyncing = uiState.isChapterLoading,
             onBack = onBack,

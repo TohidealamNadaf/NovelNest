@@ -1,5 +1,6 @@
 package com.novelnest.app.feature.reader.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,9 +29,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +42,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelnest.app.core.designsystem.NovelOnPrimary
+import com.novelnest.app.core.designsystem.NovelBadgeBackground
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelSurface
 import com.novelnest.app.core.designsystem.NovelSurfaceBorder
@@ -49,14 +52,16 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.feature.reader.Chapter
+import kotlinx.coroutines.launch
 
 /**
  * Sidebar drawer for Reader Screen displaying all chapters.
  * - Opens via swipe-right gesture from left edge or top bar menu action.
  * - Wraps long chapter titles naturally without truncation.
- * - Displays rounded square cards: green checkmark on subtle green background when read,
- *   or chapter index number when unread.
- * - Dims read chapter titles for clear progression awareness.
+ * - Displays redesigned index cards:
+ *   - Read chapter: dark emerald container with circular outline tick mark (matching reference design).
+ *   - Current chapter: title text indicates amber gold, while index card background does NOT turn amber gold.
+ *   - Unread chapter: clean surface badge with chapter number.
  */
 @Composable
 fun ReaderChaptersDrawer(
@@ -68,6 +73,7 @@ fun ReaderChaptersDrawer(
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     // Scroll to current active chapter when opened
     LaunchedEffect(currentChapterIndex) {
@@ -120,6 +126,92 @@ fun ReaderChaptersDrawer(
                 )
             }
 
+            // Quick Jump navigation bar (FIRST, CURRENT, LATEST)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // FIRST
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NovelSurfaceVariant,
+                    border = BorderStroke(1.dp, NovelSurfaceBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            coroutineScope.launch { listState.animateScrollToItem(0) }
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "FIRST",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = NovelTextSecondary
+                        )
+                    }
+                }
+
+                // CURRENT
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NovelBadgeBackground,
+                    border = BorderStroke(1.dp, NovelPrimary.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem((currentChapterIndex - 2).coerceAtLeast(0))
+                            }
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "CURRENT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = NovelPrimary
+                        )
+                    }
+                }
+
+                // LATEST
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NovelSurfaceVariant,
+                    border = BorderStroke(1.dp, NovelSurfaceBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem((chapters.size - 1).coerceAtLeast(0))
+                            }
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "LATEST",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = NovelTextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             HorizontalDivider(
                 color = NovelSurfaceBorder.copy(alpha = 0.5f),
                 thickness = 1.dp
@@ -139,14 +231,14 @@ fun ReaderChaptersDrawer(
                     val isRead = readChapterIds.contains(chapter.id)
 
                     val cardBackground = when {
-                        isCurrent -> NovelSurfaceVariant
-                        isRead -> Color(0xFF12161C)
-                        else -> NovelSurfaceVariant.copy(alpha = 0.45f)
+                        isCurrent -> NovelSurfaceVariant.copy(alpha = 0.7f)
+                        isRead -> Color(0xFF11151A)
+                        else -> Color.Transparent
                     }
 
                     val cardBorder = when {
                         isCurrent -> NovelSurfaceBorder.copy(alpha = 0.8f)
-                        else -> NovelSurfaceBorder.copy(alpha = 0.35f)
+                        else -> NovelSurfaceBorder.copy(alpha = 0.25f)
                     }
 
                     Row(
@@ -159,45 +251,49 @@ fun ReaderChaptersDrawer(
                                 onSelectChapter(index)
                                 onCloseDrawer()
                             }
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Index card: green border/tint ONLY when read; solid NovelPrimary when current
+                        // Redesigned Index Card:
+                        // - When read: dark emerald container with circular outline tick mark
+                        // - When current: background does NOT turn amber gold; title text indicates amber gold
+                        // - When unread: clean surface badge with chapter number
                         val indexBg = when {
-                            isCurrent -> NovelPrimary
-                            isRead -> Color(0x2222C55E)
-                            else -> Color(0xFF161B22)
+                            isRead -> Color(0xFF0D251D)
+                            else -> NovelSurfaceVariant
                         }
 
                         val indexBorder = when {
-                            isCurrent -> NovelPrimary
-                            isRead -> Color(0x8822C55E)
-                            else -> NovelSurfaceBorder
+                            isRead -> Color(0x3310B981)
+                            isCurrent -> NovelSurfaceBorder.copy(alpha = 0.8f)
+                            else -> NovelSurfaceBorder.copy(alpha = 0.5f)
                         }
 
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(indexBg)
                                 .border(1.dp, indexBorder, RoundedCornerShape(8.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             if (isRead) {
-                                // Tick mark inside a small circle
+                                // Circular outline tick mark as in reference image
                                 Box(
                                     modifier = Modifier
                                         .size(20.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x3322C55E))
-                                        .border(1.dp, Color(0xFF22C55E), CircleShape),
+                                        .border(
+                                            width = 1.5.dp,
+                                            color = Color(0xFF10B981),
+                                            shape = CircleShape
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.Check,
                                         contentDescription = "Read",
-                                        tint = Color(0xFF22C55E),
-                                        modifier = Modifier.size(13.dp)
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(12.dp)
                                     )
                                 }
                             } else {
@@ -205,20 +301,20 @@ fun ReaderChaptersDrawer(
                                     text = "${index + 1}",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) NovelOnPrimary else NovelTextSecondary
+                                    color = if (isCurrent) NovelPrimary else NovelTextPrimary
                                 )
                             }
                         }
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // Chapter title - wraps naturally across lines without truncation
+                        // Chapter title - ONLY text color indicates amber gold for current chapter
                         Text(
                             text = chapter.title,
                             style = MaterialTheme.typography.bodyMedium,
                             color = when {
                                 isCurrent -> NovelPrimary
-                                isRead -> NovelTextTertiary.copy(alpha = 0.65f) // Dimmed text
+                                isRead -> NovelTextTertiary.copy(alpha = 0.65f) // Dimmed text for read
                                 else -> NovelTextPrimary
                             },
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,

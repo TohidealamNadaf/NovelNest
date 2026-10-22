@@ -12,7 +12,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
@@ -36,6 +39,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
+    val app = LocalContext.current.applicationContext as NovelNestApplication
+    val profile by app.profileManager.profile.collectAsStateWithLifecycle()
     val gridStates = remember { NovelSourceType.entries.associateWith { LazyGridState() } }
     var selected by remember { mutableStateOf<Novel?>(null) }
     val shownHistory = remember { mutableSetOf<NovelSourceType>() }
@@ -44,8 +49,15 @@ fun HomeScreen(
             gridStates.getValue(state.selectedSource).scrollToItem(0)
         }
     }
-    LaunchedEffect(state.selectedSource, state.bookmarkedNovels) {
-        if (state.visibleBookmarks.none { it.id == selected?.id }) selected = null
+    LaunchedEffect(state.selectedSource, state.bookmarkedNovels, state.recentlyRead) {
+        if (state.visibleBookmarks.none { it.id == selected?.id } &&
+            state.recentlyRead.none { it.novel.id == selected?.id }) selected = null
+    }
+    val onSelectNovel: (Novel) -> Unit = { novel ->
+        selected = if (selected?.id == novel.id) null else novel
+    }
+    val onOpenNovel: (Novel) -> Unit = { novel ->
+        if (selected != null) selected = null else onNovelClick(novel)
     }
     val currentGridState = gridStates.getValue(state.selectedSource)
     val isScrolled by remember(currentGridState) {
@@ -81,7 +93,8 @@ fun HomeScreen(
                         )
                     }
                     NovelNestIconButton(Icons.Rounded.NotificationsNone, "Notifications", onClick = onNavigateToNotifications)
-                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile", onClick = onNavigateToProfile)
+                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile", onClick = onNavigateToProfile,
+                        imageUri = profile.photoUri)
                 }
             }
         )
@@ -126,7 +139,9 @@ fun HomeScreen(
                                     items(state.recentlyRead, key = { it.novel.id }) { entry ->
                                         val completion = remember(entry) { entry.novel.readingCompletion(entry.progress) }
                                         NovelCard(entry.novel, modifier = Modifier.width(cardWidth), readingCompletion = completion,
-                                            onClick = { onNovelClick(entry.novel) })
+                                            isSelected = selected?.id == entry.novel.id,
+                                            onLongClick = { onSelectNovel(entry.novel) },
+                                            onClick = { onOpenNovel(entry.novel) })
                                     }
                                 }
                             }
@@ -156,8 +171,8 @@ fun HomeScreen(
                     val completion = remember(novel, progress) { novel.readingCompletion(progress) }
                     NovelCard(novel, readingCompletion = completion, modifier = Modifier.fillMaxWidth(),
                         isSelected = selected?.id == novel.id,
-                        onLongClick = { selected = if (selected?.id == novel.id) null else novel },
-                        onClick = { if (selected != null) selected = null else onNovelClick(novel) })
+                        onLongClick = { onSelectNovel(novel) },
+                        onClick = { onOpenNovel(novel) })
                 }
             }
         }

@@ -8,7 +8,7 @@ data class Novel(
     val sourceUrl: String,
     val synopsis: String = "",
     val author: String = "Unknown",
-    val rating: Float = 4.5f,
+    val rating: Float = 0f,
     val latestChapter: String = "Chapter 1",
     val genres: List<String> = emptyList(),
     val status: String = "Ongoing",

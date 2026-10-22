@@ -8,15 +8,17 @@ import org.json.JSONObject
 
 data class AppNotification(
     val id: String, val title: String, val message: String, val createdAt: Long,
-    val novelId: String? = null, val reminder: Boolean = false, val read: Boolean = false
+    val novelId: String? = null, val reminder: Boolean = false, val read: Boolean = false,
+    val bookmark: Boolean = false
 )
-data class NotificationPreferences(val enabled: Boolean = false, val chapterUpdates: Boolean = true, val reminders: Boolean = true)
+data class NotificationPreferences(val enabled: Boolean = false, val chapterUpdates: Boolean = true, val reminders: Boolean = true, val bookmarkConfirmations: Boolean = true)
 
 class NotificationStore(private val prefs: SharedPreferences) {
     private val _items = MutableStateFlow(load())
     val items = _items.asStateFlow()
     private val _settings = MutableStateFlow(NotificationPreferences(
-        prefs.getBoolean("enabled", false), prefs.getBoolean("chapter_updates", true), prefs.getBoolean("reminders", true)))
+        prefs.getBoolean("enabled", false), prefs.getBoolean("chapter_updates", true), prefs.getBoolean("reminders", true),
+        prefs.getBoolean("bookmark_confirmations", true)))
     val settings = _settings.asStateFlow()
     val lastActive get() = prefs.getLong("last_active", 0)
     val remindedFor get() = prefs.getLong("reminded_for", -1)
@@ -28,9 +30,10 @@ class NotificationStore(private val prefs: SharedPreferences) {
         set(value) { prefs.edit().putInt("cursor", value).apply() }
 
     @Synchronized fun configure(enabled: Boolean = _settings.value.enabled,
-        chapters: Boolean = _settings.value.chapterUpdates, reminders: Boolean = _settings.value.reminders) {
-        prefs.edit().putBoolean("enabled", enabled).putBoolean("chapter_updates", chapters).putBoolean("reminders", reminders).apply()
-        _settings.value = NotificationPreferences(enabled, chapters, reminders)
+        chapters: Boolean = _settings.value.chapterUpdates, reminders: Boolean = _settings.value.reminders,
+        bookmarks: Boolean = _settings.value.bookmarkConfirmations) {
+        prefs.edit().putBoolean("enabled", enabled).putBoolean("chapter_updates", chapters).putBoolean("reminders", reminders).putBoolean("bookmark_confirmations", bookmarks).apply()
+        _settings.value = NotificationPreferences(enabled, chapters, reminders, bookmarks)
     }
     fun recordActive(now: Long) { prefs.edit().putLong("last_active", now).apply() }
     fun recordReminder(activity: Long) { prefs.edit().putLong("reminded_for", activity).apply() }
@@ -42,11 +45,13 @@ class NotificationStore(private val prefs: SharedPreferences) {
     }
     @Synchronized fun markRead(id: String) = save(_items.value.map { if (it.id == id) it.copy(read = true) else it })
     @Synchronized fun markAllRead() = save(_items.value.map { it.copy(read = true) })
+    @Synchronized fun delete(id: String) = save(_items.value.filterNot { it.id == id })
+    @Synchronized fun clearAll() = save(emptyList())
     private fun save(items: List<AppNotification>) {
         val json = JSONArray()
         items.forEach { item -> json.put(JSONObject().put("id", item.id).put("title", item.title)
             .put("message", item.message).put("at", item.createdAt).put("novel", item.novelId)
-            .put("reminder", item.reminder).put("read", item.read)) }
+            .put("reminder", item.reminder).put("read", item.read).put("bookmark", item.bookmark)) }
         prefs.edit().putString("inbox", json.toString()).apply()
         _items.value = items
     }
@@ -55,7 +60,7 @@ class NotificationStore(private val prefs: SharedPreferences) {
         (0 until json.length()).mapNotNull { index -> runCatching {
             val item = json.getJSONObject(index)
             AppNotification(item.getString("id"), item.getString("title"), item.getString("message"), item.getLong("at"),
-                item.optString("novel").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("reminder"), item.optBoolean("read"))
+                item.optString("novel").takeIf { it.isNotBlank() && it != "null" }, item.optBoolean("reminder"), item.optBoolean("read"), item.optBoolean("bookmark"))
         }.getOrNull() }.take(100)
     }.getOrDefault(emptyList())
 

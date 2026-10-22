@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
@@ -151,7 +152,20 @@ fun SettingsMainView(
                 )
             }
 
-            // 4. Storage & Cache Category Tile
+            // 4. Notifications Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "Notifications",
+                    subtitle = "System alerts, chapter updates & reminders",
+                    icon = Icons.Rounded.Notifications,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.NOTIFICATIONS)
+                    }
+                )
+            }
+
+            // 5. Storage & Cache Category Tile
             item {
                 SettingsCategoryTile(
                     title = "Storage & Offline Cache",

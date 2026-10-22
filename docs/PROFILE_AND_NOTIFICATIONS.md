@@ -13,13 +13,16 @@ Profile shows current/best reading streak, recorded reading days, distinct chapt
 Notifications are opt-in. Profile and Notifications both provide the same controls:
 
 - Enable notifications: requests POST_NOTIFICATIONS on Android 13+, or opens Android notification settings when needed.
+- Bookmark confirmations: immediate system/inbox events when a novel is newly added.
 - Bookmarked novel updates: periodic new-chapter checks.
 - Reading nudges: a doodle and rotating joke after at least 24 hours away.
 - Disable notifications and open Android channel settings.
 
-There are separate Android channels for chapter updates and reminders. Permission denial does not prevent reading or using the profile. Repeated denial leads to settings recovery instead of a nonworking repeated permission request.
+There are separate Android channels for bookmark confirmations, chapter updates and reminders. Permission denial does not prevent reading or using the profile. Repeated denial leads to settings recovery instead of a nonworking repeated permission request.
 
 ## Real events and delivery
+
+New bookmark actions call the notification coordinator after persistence and state publication. The callback is shared by Home, Search, Discover, details and reader bookmark actions through BookmarkManager. It does not fire during startup, an existing bookmark metadata refresh, or removal. Removing and bookmarking again is a new real action. This path does no network requests and is independent of the chapter-update polling preference. The master preference, bookmark preference, runtime permission and Android channel settings still apply. A disabled channel or rejected permission is logged; optional notification failures cannot undo a bookmark.
 
 The inbox is persisted, bounded to 100 events and shared with system notifications. Read state and Mark all read survive restarts. No placeholder chapter releases, cache-completion messages or fake timestamps are inserted.
 
@@ -42,3 +45,17 @@ The JVM suite does not test Android permission dialogs, document-provider grants
 - [Notification runtime permission](https://developer.android.com/develop/ui/compose/notifications/notification-permission)
 - [JobScheduler](https://developer.android.com/reference/android/app/job/JobScheduler)
 - [User-selected document access and persisted URI grants](https://developer.android.com/training/data-storage/shared/documents-files)
+
+
+## Inactivity artwork and messages
+
+There is one locally drawn 480 x 240 doodle: a smiling amber open book with three sparkle marks on a dark background. All six message variants share this artwork and the title “A little plot twist for your day.” The current variants are:
+
+1. Your bookmark called. It says the suspense is getting personal.
+2. Plot twist: your next chapter has been waiting for YOU.
+3. I tried to read your next chapter. The book said, 'Bring my human.'
+4. Your fictional friends asked where you went. I said: side quest.
+5. A chapter a day keeps the cliffhanger... slightly further away.
+6. The villain took a tea break. Perfect time to catch up.
+
+A reminder is eligible after 24 hours away, at most once per inactive period; Android can defer job execution. Its cooldown is now committed only after the system accepts the notification, rather than when delivery is disabled.

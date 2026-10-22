@@ -28,6 +28,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -54,17 +55,23 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
+import com.novelnest.app.core.ui.animation.NovelNestPagerIndicator
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.ratingLabel
 import com.novelnest.app.data.model.hasRating
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 
 @Composable
 fun HeroCarousel(
     novels: List<Novel>,
     modifier: Modifier = Modifier,
-    onNovelClick: (Novel) -> Unit = {}
+    onNovelClick: (Novel) -> Unit = {},
+    onNovelVisibility: (Novel, Boolean) -> Unit = { _, _ -> },
+    isVisible: Boolean = true
 ) {
     if (novels.isEmpty()) return
 
@@ -72,13 +79,23 @@ fun HeroCarousel(
     val slideHeight = 230.dp + 120.dp * (fontScale - 1f).coerceAtLeast(0f)
     val pagerState = rememberPagerState(pageCount = { novels.size })
 
+    val visibleNovel = novels.getOrNull(pagerState.currentPage)
+    DisposableEffect(visibleNovel?.source, visibleNovel?.id, isVisible) {
+        if (isVisible) visibleNovel?.let { onNovelVisibility(it, true) }
+        onDispose { if (isVisible) visibleNovel?.let { onNovelVisibility(it, false) } }
+    }
+
     // Auto-advance hero slides every 5 seconds
-    LaunchedEffect(pagerState, novels.size) {
-        while (true) {
-            delay(5000)
-            if (novels.size > 1) {
-                val nextPage = (pagerState.currentPage + 1) % novels.size
-                pagerState.animateScrollToPage(nextPage, animationSpec = tween(600))
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(pagerState, novels.size, isVisible, lifecycle) {
+        if (!isVisible || novels.size < 2) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(5000)
+                if (!pagerState.isScrollInProgress) {
+                    val nextPage = (pagerState.currentPage + 1) % novels.size
+                    pagerState.animateScrollToPage(nextPage, animationSpec = tween(600))
+                }
             }
         }
     }
@@ -97,23 +114,19 @@ fun HeroCarousel(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Pager indicator dots
-        Row(
+        // Animated Pager Indicator Dots (Smooth real-time morphing & tap navigation)
+        Box(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            novels.indices.forEach { index ->
-                val isSelected = pagerState.currentPage == index
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 3.dp)
-                        .height(5.dp)
-                        .width(if (isSelected) 18.dp else 5.dp)
-                        .clip(CircleShape)
-                        .background(if (isSelected) NovelPrimary else NovelSurfaceBorder)
-                )
-            }
+            NovelNestPagerIndicator(
+                pagerState = pagerState,
+                pageCount = novels.size,
+                dotHeight = 5.dp,
+                activeDotWidth = 20.dp,
+                inactiveDotWidth = 5.dp,
+                spacing = 5.dp
+            )
         }
     }
 }
@@ -258,12 +271,11 @@ private fun HeroSlideCard(
                 Spacer(Modifier.width(12.dp))
                 Box(
                     modifier = Modifier
-                        .widthIn(min = 84.dp)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(NovelPrimary)
                         .bounceClick(scaleDown = BounceScale.Medium, onClick = onClick)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                        .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -276,12 +288,12 @@ private fun HeroSlideCard(
                             tint = NovelOnPrimary,
                             modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = "Read",
                             color = NovelOnPrimary,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

@@ -17,7 +17,8 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
     }
 
     val novelRepository: NovelRepository by lazy {
-        NovelRepositoryImpl(database = database)
+        NovelRepositoryImpl(database = database,
+            readerCache = com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume")))
     }
 
     val preferencesManager: com.novelnest.app.data.preferences.ReaderPreferencesManager by lazy {
@@ -25,7 +26,9 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
     }
 
     val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager by lazy {
-        com.novelnest.app.data.bookmark.BookmarkManager(this)
+        com.novelnest.app.data.bookmark.BookmarkManager(this, onBookmarked = {
+            notificationCoordinator.bookmarkAdded(it)
+        })
     }
 
     val searchHistoryManager: com.novelnest.app.data.preferences.SearchHistoryManager by lazy {

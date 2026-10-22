@@ -7,12 +7,16 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -47,12 +51,17 @@ fun NotificationControls(modifier: Modifier = Modifier) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    Card(modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = NovelSurface)) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = NovelSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder)
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("System notifications", style = MaterialTheme.typography.titleMedium, color = NovelTextPrimary)
             Text(when {
                 !allowed -> "Allow notifications to receive updates outside the app."
-                settings.enabled -> "Enabled. Updates may arrive later while your phone is idle."
+                settings.enabled -> "Bookmark confirmations arrive when saved. Chapter checks and reading reminders run in the background."
                 else -> "Choose which reading updates you want."
             }, style = MaterialTheme.typography.bodySmall, color = NovelTextSecondary)
             if (!settings.enabled || !allowed) Button(onClick = {
@@ -79,6 +88,13 @@ fun NotificationControls(modifier: Modifier = Modifier) {
             }) { Text(if (!allowed) "Allow notifications" else "Enable notifications") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
+                    Text("Bookmark confirmations", color = NovelTextPrimary)
+                    Text("Notify when a novel is added to your library", style = MaterialTheme.typography.bodySmall, color = NovelTextSecondary)
+                }
+                Switch(settings.bookmarkConfirmations, { app.notificationCoordinator.configure(bookmarks = it) }, enabled = settings.enabled)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
                     Text("Bookmarked novel updates", color = NovelTextPrimary)
                     Text("Periodic checks for new chapters", style = MaterialTheme.typography.bodySmall, color = NovelTextSecondary)
                 }
@@ -91,11 +107,37 @@ fun NotificationControls(modifier: Modifier = Modifier) {
                 }
                 Switch(settings.reminders, { app.notificationCoordinator.configure(reminders = it) }, enabled = settings.enabled)
             }
-            TextButton(onClick = {
-                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-            }) { Text("Android notification settings", color = NovelPrimary) }
-            if (settings.enabled) TextButton(onClick = { app.notificationCoordinator.configure(enabled = false) }) {
-                Text("Turn off notifications", color = NovelPrimary)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Android notification settings",
+                    color = NovelPrimary,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .clickable {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            )
+                        }
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                )
+                if (settings.enabled) {
+                    Text(
+                        text = "Turn off notifications",
+                        color = NovelPrimary.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        modifier = Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                            .clickable {
+                                app.notificationCoordinator.configure(enabled = false)
+                            }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                    )
+                }
             }
         }
     }

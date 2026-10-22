@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CancellationException
 
 data class Chapter(
@@ -165,6 +167,8 @@ class ReaderViewModel(
         repository.resetSourceCircuitBreaker(source)
         if (state.currentChapterIndex in state.chapters.indices) {
             loadChapterContent(state.currentChapterIndex, state.chapters[state.currentChapterIndex], forceRefresh = true)
+        } else if (!state.isLoading) {
+            loadNovelAndChapters()
         }
     }
 
@@ -256,11 +260,27 @@ class ReaderViewModel(
             val resumeIndex = savedStateHandle.get<Int>("readerChapterIndex") ?: initialChapterIndex
             val requestedIndex = (if (resumeIndex >= 0) resumeIndex
                 else readingProgressManager?.getProgress(novelId)?.lastReadChapterIndex ?: 0).coerceAtLeast(0)
+            // Start the exact saved chapter before catalog requests occupy the host queue.
+            val progress = readingProgressManager?.getProgress(novelId)
+            val savedContentUrl = progress?.takeIf { it.lastReadChapterIndex == requestedIndex }
+                ?.lastReadChapterId?.takeIf { it.isNotBlank() }?.let { id ->
+                    if (source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL)) null
+                    else runCatching {
+                        val root = slugOrUrl.trimEnd('/') + "/"
+                        val url = java.net.URI(root).resolve(id).toString()
+                        url.takeIf { it.startsWith(root) }
+                    }.getOrNull()
+                }
+            val pendingContent = savedContentUrl?.let { url -> async {
+                try { repository.getChapterContent(source, url, forceRefresh = false) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { Result.failure(error) }
+            } }
             val availableChapters = snapshots.value
             val chaptersResult = if (requestedIndex in availableChapters.indices) {
                 Result.success(availableChapters)
             } else {
-                repository.getChapters(source, slugOrUrl, forceRefresh = false)
+                viewModelScope.startReaderCatalog(repository, source, slugOrUrl, requestedIndex).await()
             }
 
             val loadedChapters = chaptersResult.getOrNull()?.ifEmpty { null }
@@ -276,6 +296,7 @@ class ReaderViewModel(
                 readingProgressManager?.getProgress(novelId)?.lastReadChapterIndex?.coerceIn(0, (loadedChapters.size - 1).coerceAtLeast(0)) ?: 0
             }
 
+            if (loadedChapters.isEmpty()) pendingContent?.cancel()
             if (loadedChapters.isNotEmpty()) savedStateHandle["readerChapterIndex"] = targetIndex
             _uiState.update {
                 it.copy(
@@ -291,7 +312,13 @@ class ReaderViewModel(
             // 3. Load initial chapter content
             if (loadedChapters.isNotEmpty()) {
                 val targetChapter = loadedChapters[targetIndex]
-                loadChapterContent(targetIndex, targetChapter, forceRefresh = false)
+                val targetUrl = runCatching { java.net.URI(slugOrUrl.trimEnd('/') + "/")
+                    .resolve(targetChapter.url.ifBlank { targetChapter.id }).toString() }.getOrNull()
+                val sameSavedChapter = savedContentUrl?.substringBefore('?')?.substringBefore('#') ==
+                    targetUrl?.substringBefore('?')?.substringBefore('#')
+                if (!sameSavedChapter) pendingContent?.cancel()
+                loadChapterContent(targetIndex, targetChapter, forceRefresh = false,
+                    pendingContent = pendingContent.takeIf { sameSavedChapter })
 
                 // The detail page can continue loading later pages while the first chapter is read.
                 snapshots.collect { incoming ->
@@ -318,7 +345,8 @@ class ReaderViewModel(
         chapterIndex: Int,
         chapter: Chapter,
         forceRefresh: Boolean,
-        isPrefetch: Boolean = false
+        isPrefetch: Boolean = false,
+        pendingContent: Deferred<Result<Chapter>>? = null
     ) {
         viewModelScope.launch {
             val novel = _uiState.value.novel ?: return@launch
@@ -341,7 +369,7 @@ class ReaderViewModel(
             }
 
             val contentResult = try {
-                repository.getChapterContent(
+                pendingContent?.await() ?: repository.getChapterContent(
                     source = novel.source,
                     chapterUrlOrId = targetUrl,
                     forceRefresh = forceRefresh

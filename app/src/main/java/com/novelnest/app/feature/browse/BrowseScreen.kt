@@ -103,12 +103,12 @@ fun BrowseScreen(
 
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(132.dp),
+            columns = GridCells.Fixed(4),
             state = currentGridState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = bottomPadding),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = bottomPadding),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
                 Column(
@@ -333,7 +333,7 @@ fun BrowseScreen(
                         }
                     }
                     items(state.filteredNovels, key = { it.id }, contentType = { "novel" }) { novel ->
-                        NovelCard(novel, Modifier.fillMaxWidth(), onClick = { onNovelClick(novel) })
+                        NovelCard(novel, Modifier.fillMaxWidth(), isCompact = true, onClick = { onNovelClick(novel) })
                     }
                     if (state.nextPageUrl != null) item(span = { GridItemSpan(maxLineSpan) }) {
                         Surface(

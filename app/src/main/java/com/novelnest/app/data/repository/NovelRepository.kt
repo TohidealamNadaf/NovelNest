@@ -36,6 +36,10 @@ interface NovelRepository {
             emit(getChapters(source, novelSlugOrUrl, forceRefresh))
         }
 
+    /** Interactive startup: implementations can avoid warming an unrelated first chapter. */
+    fun getReaderChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String): Flow<Result<List<com.novelnest.app.feature.reader.Chapter>>> =
+        getChaptersFlow(source, novelSlugOrUrl, forceRefresh = false)
+
     suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.feature.reader.Chapter>
 
     /**
