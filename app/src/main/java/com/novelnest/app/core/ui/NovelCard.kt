@@ -52,6 +52,8 @@ import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.ratingLabel
+import com.novelnest.app.data.model.hasRating
 import com.novelnest.app.data.model.chapterCountLabel
 import com.novelnest.app.data.progress.ReadingCompletion
 import androidx.compose.material3.LinearProgressIndicator
@@ -77,7 +79,9 @@ fun NovelCard(
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
-    val chapterBadge = readingCompletion?.label ?: novel.chapterCountLabel()
+    val chapterBadge = readingCompletion?.let {
+        if (it.total > 0) "${it.read} / ${it.total}" else "${it.read} read"
+    } ?: novel.chapterCountLabel()
     val interactionSource = remember { MutableInteractionSource() }
     val playHaptic = rememberNovelNestHaptic()
 
@@ -201,12 +205,12 @@ fun NovelCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Star,
-                        contentDescription = "Rating",
+                        contentDescription = if (novel.hasRating()) "Rating" else "Not rated",
                         tint = NovelGold,
                         modifier = Modifier.size(10.dp)
                     )
                     Text(
-                        text = String.format("%.1f", novel.rating),
+                        text = novel.ratingLabel(),
                         color = NovelTextPrimary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -231,7 +235,8 @@ fun NovelCard(
             if (readingCompletion != null) {
                 LinearProgressIndicator(progress = { readingCompletion.fraction },
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
-                    color = NovelPrimary, trackColor = NovelSurfaceBorder)
+                    color = NovelPrimary, trackColor = NovelSurfaceBorder,
+                    gapSize = 0.dp, drawStopIndicator = {})
             }
         }
 

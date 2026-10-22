@@ -1,5 +1,7 @@
 package com.novelnest.app.data.remote.freewebnovel
 
+import com.novelnest.app.data.database.mapper.toEntity
+import com.novelnest.app.data.database.mapper.toDomain
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 import com.novelnest.app.data.bookmark.BookmarkManager
@@ -29,6 +31,42 @@ class FreeWebNovelTest {
     private fun fixture(name: String): String {
         val path = "docs/sources/freewebnovel/fixtures/$name"
         return listOf(File(path), File("../$path")).first { it.exists() }.readText()
+    }
+
+    @Test fun releasePostersUseNormalCoversInsteadOfTinyTableThumbnails() {
+        val sections = FreeWebNovelParser.parseHome(fixture("home.html"), fixture("popular.html"))
+        val releases = sections.first { it.title == "Recently Released" }.novels
+        assertTrue(releases.isNotEmpty())
+        assertEquals(base + "/files/article/image/5/5704/5704s.jpg", releases.first().coverUrl)
+        assertTrue(releases.none { it.coverUrl.endsWith("ss.jpg") })
+        assertTrue(releases.first().latestChapter.startsWith("Chapter "))
+        assertFalse(releases.first().latestChapter.startsWith(releases.first().title))
+        val listing = FreeWebNovelParser.parseListing(fixture("latest.html"), base + "/sort/latest-novel")
+        assertEquals(listing.first { it.id == releases.first().id }.coverUrl, releases.first().coverUrl)
+    }
+
+    @Test fun posterUpgradeIsConservativeAndIdempotent() {
+        val tiny = base + "/files/article/image/5/5704/5704ss.jpg?v=2"
+        val normal = base + "/files/article/image/5/5704/5704s.jpg?v=2"
+        assertEquals(normal, FreeWebNovelUtils.posterUrl(tiny))
+        assertEquals(normal, FreeWebNovelUtils.posterUrl(normal))
+        listOf("", "data:image/png;base64,abc", "https://example.com/files/article/image/5/5704/5704ss.jpg",
+            base + "/other/5704ss.jpg", base + "/files/article/image/5/5704/999ss.jpg").forEach {
+            assertEquals(it, FreeWebNovelUtils.posterUrl(it))
+        }
+    }
+
+    @Test fun olderCachedRecordsUpgradePostersWithoutChangingNovelIdentity() {
+        val novel = com.novelnest.app.data.model.Novel(
+            "fwn-test", "Test", base + "/files/article/image/5/5704/5704ss.jpg",
+            NovelSourceType.FREE_WEB_NOVEL, base + "/novel/test")
+        val expected = base + "/files/article/image/5/5704/5704s.jpg"
+        assertEquals(expected, com.novelnest.app.data.model.NovelIdentity.normalize(novel).coverUrl)
+        val stored = novel.toEntity().copy(coverUrl = novel.coverUrl)
+        val restored = stored.toDomain()
+        assertEquals(expected, restored.coverUrl)
+        assertEquals(novel.id, restored.id)
+        assertEquals(novel.sourceUrl, restored.sourceUrl)
     }
 
     @Test fun canonicalIdentityMatchesEveryEntryAndLegacyUrl() {

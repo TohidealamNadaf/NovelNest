@@ -36,16 +36,32 @@ import com.novelnest.app.navigation.NovelNestNavHost
 fun NovelNestApp(
     repository: NovelRepository,
     sessionManager: com.novelnest.app.data.preferences.ReaderSessionManager? = null,
-    restoreReaderSession: Boolean = false
+    restoreReaderSession: Boolean = false,
+    notificationRequest: com.novelnest.app.data.notification.NotificationOpen? = null,
+    onNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val initialSession = remember { if (restoreReaderSession) sessionManager?.session else null }
+    val initialSession = remember { if (restoreReaderSession && notificationRequest == null) sessionManager?.session else null }
     LaunchedEffect(Unit) {
         if (initialSession != null && navController.currentDestination?.route == NovelNestDestination.Home.route) {
             navController.navigate(NovelNestDestination.Detail.createRoute(initialSession.novelId))
             navController.navigate(NovelNestDestination.Reader.createRoute(initialSession.novelId, initialSession.chapterIndex))
+        }
+    }
+    LaunchedEffect(notificationRequest) {
+        notificationRequest?.let { request ->
+            if (request.novelId != null) {
+                navController.navigate(NovelNestDestination.Detail.createRoute(request.novelId)) { launchSingleTop = true }
+            } else {
+                navController.navigate(NovelNestDestination.Home.route) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+            onNotificationHandled()
         }
     }
     LaunchedEffect(navBackStackEntry) {
@@ -115,8 +131,14 @@ fun NovelNestApp(
                 destinations = footerDestinations,
                 selectedRoute = currentRoute,
                 onNavigate = { route ->
-                    if (currentRoute != route) {
-                        navController.navigate(route) {
+                    if (navController.currentDestination?.route != route) {
+                        // Home already anchors the stack. Restoring a saved stack here can
+                        // bring back another screen instead of the requested Home screen.
+                        if (route == NovelNestDestination.Home.route) {
+                            val returnedHome = navController.popBackStack(
+                                NovelNestDestination.Home.route, inclusive = false, saveState = true)
+                            if (!returnedHome) navController.navigate(route) { launchSingleTop = true }
+                        } else navController.navigate(route) {
                             popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }

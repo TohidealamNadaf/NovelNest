@@ -26,7 +26,9 @@ data class NovelProgress(
 
 class ReadingProgressManager(
     private val readingProgressDao: ReadingProgressDao,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+    private val onChapterRead: (Long) -> Unit = {},
+    private val onHistoryLoaded: (List<Long>) -> Unit = {}
 ) {
 
     private val _progressMap = MutableStateFlow<Map<String, NovelProgress>>(emptyMap())
@@ -52,6 +54,7 @@ class ReadingProgressManager(
                         readChapterIds = entity.readChapterIds.toSet()
                     )
                 }
+                runCatching { onHistoryLoaded(mapped.values.map { it.lastReadTimestamp }) }
                 _progressMap.update { current ->
                     (mapped.keys + current.keys).associateWith { id ->
                         val stored = mapped[id]
@@ -101,6 +104,8 @@ class ReadingProgressManager(
                 readChapterIds = current[novelId]?.readChapterIds.orEmpty() + chapterId
             ))
         }
+
+        runCatching { onChapterRead(timestamp) }
 
         // Persist to Room database asynchronously
         coroutineScope.launch {

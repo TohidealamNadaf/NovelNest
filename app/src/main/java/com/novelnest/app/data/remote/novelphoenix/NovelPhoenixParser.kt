@@ -406,7 +406,7 @@ object NovelPhoenixParser {
 
             val ratingText = item.selectFirst(NovelPhoenixSelectors.LISTING_RATING_BADGE)?.text()
                 ?.replace(Regex("[^0-9.]"), "")
-            val rating = ratingText?.toFloatOrNull() ?: 4.5f
+            val rating = ratingText?.toFloatOrNull()?.takeIf { it.isFinite() && it in 0f..5f } ?: 0f
 
             // Clean rank extraction: check badge._bl, rank-counter, or stats with icon-crown/Rank
             val rankBadgeRaw = item.selectFirst(".badge._bl, .rank-counter")?.text()?.trim()

@@ -15,6 +15,7 @@ fun ReadingProgressBar(completion: ReadingCompletion, modifier: Modifier = Modif
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(progress = { completion.fraction },
             modifier = Modifier.fillMaxWidth().height(4.dp),
-            color = NovelPrimary, trackColor = NovelSurfaceBorder)
+            color = NovelPrimary, trackColor = NovelSurfaceBorder,
+            gapSize = 0.dp, drawStopIndicator = {})
     }
 }

@@ -104,6 +104,6 @@ object NovelPhoenixSelectors {
     val LISTING_COVER_DATA_SRC = "img[data-src]"
     val LISTING_COVER_SRC = "img[src]"
     val LISTING_LATEST_CHAPTER = ".novel-stats:has(.icon-book-open), .novel-stats span:contains(Chapters), .novel-stats:contains(Chapters)"
-    val LISTING_RATING_BADGE = ".badge._br, .badge"
+    val LISTING_RATING_BADGE = ".badge._br, .badge:has(.icon-star)"
     val LISTING_RANK_BADGE = ".badge._bl, .novel-stats:has(.icon-crown), .novel-stats strong:contains(Rank), .novel-stats:contains(Rank), .rank-counter"
 }

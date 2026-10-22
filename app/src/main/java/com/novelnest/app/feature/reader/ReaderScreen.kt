@@ -63,6 +63,7 @@ import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.feature.reader.components.ChapterCutSection
 import com.novelnest.app.feature.reader.components.PullChapterIndicator
 import com.novelnest.app.feature.reader.components.ReaderQuickSettingsSheet
+import com.novelnest.app.feature.reader.components.ReaderNavigationBar
 import com.novelnest.app.feature.reader.components.ReaderTopBar
 import kotlinx.coroutines.launch
 
@@ -433,6 +434,9 @@ fun ReaderScreen(
             onResyncChapter = { viewModel.resyncChapter() },
             modifier = Modifier.align(Alignment.TopCenter)
         )
+
+        // Keep scrolling text behind an opaque surface in the system navigation inset.
+        ReaderNavigationBar(currentTheme, Modifier.align(Alignment.BottomCenter))
 
         // Quick Reader Typography & Theme Customization Sheet
         if (uiState.showQuickSettingsSheet) {

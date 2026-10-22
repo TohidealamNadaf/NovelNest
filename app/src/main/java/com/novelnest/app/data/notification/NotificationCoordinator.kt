@@ -75,31 +75,7 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
     }
 
     suspend fun checkBookmarkedUpdates() {
-        if (!store.settings.value.let { it.enabled && it.chapterUpdates }) return
-        val books = app.bookmarkManager.bookmarks.value.map(NovelIdentity::normalize).distinctBy { it.id }
-        if (books.isEmpty()) return
-        val start = store.cursor.mod(books.size)
-        for (offset in 0 until minOf(10, books.size)) {
-            currentCoroutineContext().ensureActive()
-            if (!store.settings.value.let { it.enabled && it.chapterUpdates }) return
-            val novel = books[(start + offset) % books.size]
-            val result = try { app.novelRepository.getNovelDetails(novel.source, novel.sourceUrl) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { null }
-            val freshNovel = result?.getOrNull()?.let(NovelIdentity::normalize)
-            if (freshNovel != null && freshNovel.id == novel.id && app.bookmarkManager.isBookmarked(novel.id)) {
-                val fresh = freshNovel.chapterMarker()
-                val old = store.markers()[novel.id]
-                if (old != null && hasNewChapters(old, fresh)) {
-                    val version = if (fresh.count > 0) fresh.count.toString() else fresh.title
-                    publish(AppNotification("chapter:${novel.id}:$version", "New chapters · ${freshNovel.title}",
-                        freshNovel.latestChapter.ifBlank { "${fresh.count} chapters are now available." },
-                        System.currentTimeMillis(), novel.id))
-                }
-                if (old == null || fresh.count >= old.count) store.updateMarker(novel.id, fresh)
-            }
-            store.cursor = (start + offset + 1) % books.size
-        }
+        BookmarkUpdateChecker(app.novelRepository, app.bookmarkManager, store, ::publish).check()
     }
 
     fun sendInactivityReminder() {
@@ -115,6 +91,10 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
     }
 
     private fun publish(item: AppNotification) {
+        val settings = store.settings.value
+        if (!settings.enabled || (item.reminder && !settings.reminders) || (!item.reminder && !settings.chapterUpdates)) return
+        if (item.reminder && !reminderDue(System.currentTimeMillis(), store.lastActive, store.remindedFor, foreground)) return
+        if (item.novelId != null && !app.bookmarkManager.isBookmarked(item.novelId)) return
         if (!store.add(item) || !NotificationManagerCompat.from(app).areNotificationsEnabled()) return
         val intent = Intent(app, MainActivity::class.java)
             .setData(Uri.parse("novelnest://notification/${Uri.encode(item.id)}"))

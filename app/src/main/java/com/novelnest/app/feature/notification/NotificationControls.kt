@@ -59,7 +59,17 @@ fun NotificationControls(modifier: Modifier = Modifier) {
                 when {
                     Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
-                        launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        {
+                            val activity = context as? android.app.Activity
+                            if (app.notificationStore.permissionRequested &&
+                                (activity == null || !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS))) {
+                                awaitingSettings = true
+                                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                            } else {
+                                app.notificationStore.permissionRequested = true
+                                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
                     !NotificationManagerCompat.from(context).areNotificationsEnabled() -> {
                         awaitingSettings = true
                         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
@@ -81,6 +91,9 @@ fun NotificationControls(modifier: Modifier = Modifier) {
                 }
                 Switch(settings.reminders, { app.notificationCoordinator.configure(reminders = it) }, enabled = settings.enabled)
             }
+            TextButton(onClick = {
+                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+            }) { Text("Android notification settings", color = NovelPrimary) }
             if (settings.enabled) TextButton(onClick = { app.notificationCoordinator.configure(enabled = false) }) {
                 Text("Turn off notifications", color = NovelPrimary)
             }

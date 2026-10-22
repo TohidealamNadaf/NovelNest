@@ -32,8 +32,8 @@ fun NotificationScreen(onBack: () -> Unit, onNovelClick: (String) -> Unit, modif
             navigationIcon = { NovelNestIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", onBack) },
             actions = { if (unread > 0) TextButton(onClick = app.notificationStore::markAllRead) { Text("Mark all read") } })
         LazyColumn(Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(16.dp).let { PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp) },
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item(key = "controls") { NotificationControls() }
             item(key = "filter") {

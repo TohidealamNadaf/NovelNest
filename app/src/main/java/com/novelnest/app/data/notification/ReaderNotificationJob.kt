@@ -23,7 +23,7 @@ class ReaderNotificationJob : JobService() {
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (_: Exception) { retry = true
             } finally {
-                running.remove(params.jobId)
+                running.remove(params.jobId, coroutineContext[Job])
                 if (isActive) withContext(Dispatchers.Main) { jobFinished(params, retry) }
             }
         }

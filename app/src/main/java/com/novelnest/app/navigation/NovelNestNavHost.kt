@@ -85,8 +85,8 @@ fun NovelNestNavHost(
                 onNavigateToNotifications = {
                     navController.navigate(NovelNestDestination.Notifications.route)
                 },
-                onNavigateToSettings = {
-                    navController.navigate(NovelNestDestination.Settings.route)
+                onNavigateToProfile = {
+                    navController.navigate(NovelNestDestination.Profile.route)
                 }
             )
         }
@@ -125,6 +125,14 @@ fun NovelNestNavHost(
                 onBack = { navController.popBackStack() },
                 onNavigateToSearch = { navController.navigate(NovelNestDestination.Search.createRoute(it.ordinal)) },
                 onNovelClick = onNovelClick
+            )
+        }
+
+        composable(NovelNestDestination.Profile.route) {
+            com.novelnest.app.feature.profile.ProfileScreen(
+                onBack = { navController.popBackStack() },
+                onSettings = { navController.navigate(NovelNestDestination.Settings.route) },
+                onNotifications = { navController.navigate(NovelNestDestination.Notifications.route) }
             )
         }
 

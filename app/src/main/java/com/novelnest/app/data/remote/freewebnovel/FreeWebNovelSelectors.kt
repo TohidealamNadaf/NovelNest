@@ -9,7 +9,7 @@ object FreeWebNovelSelectors {
     const val LATEST_CHAPTER = ".home-release-chapter a, a[href*='/chapter-']"
     const val CHAPTER_LINK = "a[href*='/chapter-']"
     const val LINK = "a"
-    const val RATING = ".core span"
+    const val RATING = ".core span, .core [itemprop=ratingValue], [itemprop=ratingValue]"
     const val GENRE = "a[href*='/genre/']"
     const val COMPLETED = ".full, .tag-full"
     const val LISTING = ".col-content .ul-list1, .ul-list1.ss-custom, .ul-list1"

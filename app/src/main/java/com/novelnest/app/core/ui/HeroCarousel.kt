@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -35,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +56,8 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.ratingLabel
+import com.novelnest.app.data.model.hasRating
 import kotlinx.coroutines.delay
 
 @Composable
@@ -64,6 +68,8 @@ fun HeroCarousel(
 ) {
     if (novels.isEmpty()) return
 
+    val fontScale = LocalDensity.current.fontScale
+    val slideHeight = 230.dp + 120.dp * (fontScale - 1f).coerceAtLeast(0f)
     val pagerState = rememberPagerState(pageCount = { novels.size })
 
     // Auto-advance hero slides every 5 seconds
@@ -82,7 +88,7 @@ fun HeroCarousel(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(230.dp)
+                .height(slideHeight)
                 .padding(horizontal = 16.dp)
         ) { page ->
             val novel = novels[page]
@@ -187,13 +193,13 @@ private fun HeroSlideCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Star,
-                        contentDescription = "Rating",
+                        contentDescription = if (novel.hasRating()) "Rating" else "Not rated",
                         tint = NovelGold,
                         modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = String.format("%.1f", novel.rating),
+                        text = novel.ratingLabel(),
                         color = NovelTextPrimary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -216,7 +222,7 @@ private fun HeroSlideCard(
                 text = novel.title,
                 style = MaterialTheme.typography.titleLarge,
                 color = NovelTextPrimary,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
@@ -242,14 +248,18 @@ private fun HeroSlideCard(
             ) {
                 Text(
                     text = novel.latestChapter,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = NovelSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
 
+                Spacer(Modifier.width(12.dp))
                 Box(
                     modifier = Modifier
-                        .height(30.dp)
+                        .widthIn(min = 84.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(NovelPrimary)
                         .bounceClick(scaleDown = BounceScale.Medium, onClick = onClick)

@@ -61,7 +61,8 @@ class BookmarkManager(context: Context) {
     private fun normalize(novel: Novel): Novel = if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
         runCatching {
             val url = FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id })
-            novel.copy(id = FreeWebNovelUrls.novelId(url), sourceUrl = url)
+            novel.copy(id = FreeWebNovelUrls.novelId(url), sourceUrl = url,
+                coverUrl = com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUtils.posterUrl(novel.coverUrl))
         }.getOrDefault(novel)
     } else novel
 

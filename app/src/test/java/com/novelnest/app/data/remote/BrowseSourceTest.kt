@@ -35,6 +35,29 @@ class BrowseSourceTest {
             BrowseParser.parse(fwn, html, BrowseParser.initialUrl(fwn)).nextPageUrl)
     }
 
+    @Test fun fwnCategoryScoresSurviveDecorativeSpansAndLocalizedNumbers() {
+        val doc = org.jsoup.Jsoup.parse(sourceFixture(fwn, "popular.html"))
+        val score = doc.selectFirst(".core span")!!
+        score.before("<span class='rating-icon'></span>")
+        score.text("4,6 / 5")
+        val page = BrowseParser.parse(fwn, doc.html(), "https://freewebnovel.com/genre/Fantasy")
+        assertEquals(4.6f, page.novels.first().rating, 0.001f)
+        score.text("0.0")
+        val unrated = BrowseParser.parse(fwn, doc.html(), BrowseParser.initialUrl(fwn)).novels.first()
+        assertFalse(unrated.hasRating())
+        assertEquals("—", unrated.ratingLabel())
+    }
+
+    @Test fun phoenixUsesRatingBadgeInsteadOfRankAndDoesNotInventMissingScores() {
+        val doc = org.jsoup.Jsoup.parse(sourceFixture(np, "browse_fantasy.html"))
+        val score = doc.selectFirst(".novel-item .badge._br")!!
+        score.text("4.2")
+        val url = "https://novelphoenix.com/genre-fantasy/sort-new/status-all/all-novel"
+        assertEquals(4.2f, BrowseParser.parse(np, doc.html(), url).novels.first().rating, 0.001f)
+        score.text("")
+        assertEquals(0f, BrowseParser.parse(np, doc.html(), url).novels.first().rating, 0f)
+    }
+
     @Test fun externalAndNonCatalogLinksAreRejected() {
         for (source in listOf(np, fwn)) {
             for (url in listOf("https://evil.example/genre/Fantasy", "${source.baseUrl}/novel/shadow-slave", "${source.baseUrl}/genre/Fantasy?admin=1")) {
@@ -62,12 +85,17 @@ class BrowseSourceTest {
                 count.incrementAndGet()
                 delay(20)
                 return if (offline) Result.failure(IOException("offline")) else
-                    Result.success(BrowsePage(listOf(Novel(source.name, "Book", "", source, "${source.baseUrl}/novel/book")), emptyList()))
+                    Result.success(BrowsePage(listOf(Novel(source.name, "Book", "", source, "${source.baseUrl}/novel/book", rating = 0f)), emptyList()))
             }
         }
         val repository = NovelRepositoryImpl(sources = mapOf(np to stub(np), fwn to stub(fwn)))
         (1..12).map { async { repository.getBrowsePage(np).getOrThrow() } }.awaitAll()
         assertEquals(1, count.get())
+        val sparse = repository.getBrowsePage(np).getOrThrow().novels.single()
+        repository.rememberNovel(sparse.copy(rating = 4.8f, synopsis = "Known detail"))
+        assertEquals(4.8f, repository.getBrowsePage(np).getOrThrow().novels.single().rating, 0.001f)
+        repository.rememberNovel(sparse)
+        assertEquals(4.8f, repository.getBrowsePage(np).getOrThrow().novels.single().rating, 0.001f)
         repository.getBrowsePage(np, BrowseParser.initialUrl(np)).getOrThrow()
         assertEquals(1, count.get())
         assertEquals(fwn, repository.getBrowsePage(fwn).getOrThrow().novels.single().source)

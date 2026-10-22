@@ -20,6 +20,9 @@ class NotificationStore(private val prefs: SharedPreferences) {
     val settings = _settings.asStateFlow()
     val lastActive get() = prefs.getLong("last_active", 0)
     val remindedFor get() = prefs.getLong("reminded_for", -1)
+    var permissionRequested: Boolean
+        get() = prefs.getBoolean("permission_requested", false)
+        set(value) { prefs.edit().putBoolean("permission_requested", value).apply() }
     var cursor: Int
         get() = prefs.getInt("cursor", 0)
         set(value) { prefs.edit().putInt("cursor", value).apply() }
@@ -48,7 +51,7 @@ class NotificationStore(private val prefs: SharedPreferences) {
         _items.value = items
     }
     private fun load(): List<AppNotification> = runCatching {
-        val json = JSONArray(prefs.getString("inbox", "[]"))
+        val json = JSONArray(prefs.getString("inbox", "[]") ?: "[]")
         (0 until json.length()).mapNotNull { index -> runCatching {
             val item = json.getJSONObject(index)
             AppNotification(item.getString("id"), item.getString("title"), item.getString("message"), item.getLong("at"),
@@ -57,7 +60,7 @@ class NotificationStore(private val prefs: SharedPreferences) {
     }.getOrDefault(emptyList())
 
     @Synchronized fun markers(): Map<String, ChapterMarker> = runCatching {
-        val obj = JSONObject(prefs.getString("markers", "{}"))
+        val obj = JSONObject(prefs.getString("markers", "{}") ?: "{}")
         obj.keys().asSequence().associateWith { key -> obj.getJSONObject(key).let { ChapterMarker(it.optInt("count"), it.optString("title")) } }
     }.getOrDefault(emptyMap())
     @Synchronized fun updateMarker(id: String, marker: ChapterMarker) {
@@ -67,7 +70,9 @@ class NotificationStore(private val prefs: SharedPreferences) {
     }
     @Synchronized fun reconcile(markers: Map<String, ChapterMarker>) {
         val old = markers()
-        saveMarkers(markers.mapValues { (id, marker) -> old[id] ?: marker })
+        saveMarkers(markers.mapNotNull { (id, marker) ->
+            (old[id] ?: marker.takeIf { it.count > 0 })?.let { id to it }
+        }.toMap())
     }
     private fun saveMarkers(markers: Map<String, ChapterMarker>) {
         val obj = JSONObject()

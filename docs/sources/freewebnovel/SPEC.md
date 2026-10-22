@@ -127,3 +127,8 @@ Home is the source-filtered bookmarked library and does not fetch discovery feed
 - FreeWebNovelSource.kt: requests, rate limiting, cache locks and progressive chapter loading.
 
 Only network failures, HTTP 429 and HTTP 5xx are automatically retried. Verification, missing resources and recognized layout failures surface immediately. Incomplete chapter lists never replace the complete-list cache. Update selectors and captured fixtures together when markup changes.
+
+
+### Release poster resolution
+
+The home release table uses 40 x 53 pixel `<img>` thumbnails named `/files/article/image/{bucket}/{id}/{id}ss.jpg`; normal listing/detail covers use `{id}s.jpg`. `FreeWebNovelUtils.posterUrl` upgrades only this known, same-host image path. The parser applies it to fresh cards/details, and database/bookmark/identity normalization applies it to older cached records. Unrelated paths and external URLs stay unchanged. This avoids stretching table thumbnails into poster cards, adds no per-novel metadata requests, and gives Coil a distinct URL/cache key for the larger image without clearing the library or image cache.

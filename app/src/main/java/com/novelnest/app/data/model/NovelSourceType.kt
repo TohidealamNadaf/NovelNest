@@ -15,7 +15,7 @@ enum class NovelSourceType(
     ),
     FREE_WEB_NOVEL(
         displayName = "FreeWebNovel",
-        shortName = "FWN",
+        shortName = "FreeWeb",
         baseUrl = "https://freewebnovel.com",
         subtitle = "Unlimited Web Novels"
     ),

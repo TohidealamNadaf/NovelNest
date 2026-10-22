@@ -7,6 +7,7 @@ import com.novelnest.app.data.database.entity.SectionEntity
 import com.novelnest.app.data.database.mapper.toDomain
 import com.novelnest.app.data.database.mapper.toEntity
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.hasRating
 import com.novelnest.app.data.model.NovelIdentity
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
@@ -77,17 +78,18 @@ class NovelRepositoryImpl(
         return lock.withLock {
             val cached = browseCache.get(key)
             if (!forceRefresh && cached != null && browseClockMillis() - cached.first < L1_TTL_MILLIS) {
-                return@withLock Result.success(cached.second)
+                return@withLock Result.success(cached.second.copy(novels = cached.second.novels.map(::withKnownRating)))
             }
             val remote = sources[source] ?: return@withLock Result.failure(IOException("Source is unavailable"))
             val result = remote.getBrowsePage(canonicalUrl).map { page ->
-                page.copy(novels = page.novels.filter { it.source == source }.distinctBy { it.id })
+                page.copy(novels = page.novels.filter { it.source == source }.distinctBy { it.id }.map(::withKnownRating))
             }
             result.onSuccess { page ->
                 page.novels.forEach(::rememberNovel)
                 browseCache.put(key, browseClockMillis() to page)
             }
-            if (result.isFailure && cached != null) Result.success(cached.second.copy(isStale = true)) else result
+            if (result.isFailure && cached != null) Result.success(cached.second.copy(isStale = true,
+                novels = cached.second.novels.map(::withKnownRating))) else result
         }
     }
 
@@ -105,12 +107,20 @@ class NovelRepositoryImpl(
         return if (result.isFailure && cached != null) Result.success(cached.second) else result
     }
 
+    /** Sparse catalog cards must not erase a score already fetched from this source. */
+    private fun withKnownRating(novel: Novel): Novel {
+        if (novel.hasRating()) return novel
+        val known = memoryNovels[novel.id]?.takeIf { it.source == novel.source && it.hasRating() }
+        return if (known != null) novel.copy(rating = known.rating) else novel
+    }
+
     override fun rememberNovel(novel: Novel) {
         val canonical = if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
             runCatching { novel.copy(id = FreeWebNovelUrls.novelId(novel.sourceUrl), sourceUrl = FreeWebNovelUrls.novelUrl(novel.sourceUrl)) }.getOrDefault(novel)
         } else novel
         val existing = memoryNovels[canonical.id]
         val merged = if (existing != null && canonical.synopsis.isBlank()) canonical.copy(
+            rating = withKnownRating(canonical).rating,
             chapterCount = canonical.chapterCount.takeIf { it > 0 } ?: existing.chapterCount,
             genres = canonical.genres.ifEmpty { existing.genres },
             synopsis = existing.synopsis, author = existing.author.takeUnless { it == "Unknown" } ?: canonical.author

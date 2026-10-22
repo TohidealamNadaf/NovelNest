@@ -81,3 +81,21 @@ The Continue button seeds the exact local novel record and resumes its saved cha
 Home combines persisted reading progress with bookmark metadata and local repository/Room lookups. It fetches no discovery feed and makes no network detail requests. Resolved history metadata is bounded to ten records per source and reused as chapters are read. Missing legacy metadata receives a local title/placeholder cover so history remains navigable. Stable section/card keys and a single vertically scrolling lazy grid keep large bookmark libraries virtualized; the recent row scrolls horizontally.
 
 HomeHistoryTest covers current/ten-recent selection, source isolation, read-first bookmark ordering, aliases, unbookmarked history, local metadata caching and updates after a chapter is read. Device layout and touch behavior have not been visually verified.
+
+
+## Reading screen and library layout
+
+Reading progress lines disable Material stop indicators and track gaps: the far-end marker was decorative, not a second progress value. Home uses three fixed columns; recent cards use the same available-width calculation and spacing. Poster badges use compact read/total counts. Continue uses one bounded Coil cover request for the poster and its ambient background, with an opaque gradient for text contrast.
+
+Reader navigation bars have an opaque inset mask matching the selected reading theme. System navigation color and icon contrast also follow the theme, with app defaults restored on exit. This supports both edge-to-edge gesture bars and older Android navigation bars.
+
+Home and Discover share the Novel Nest branding. Headers constrain titles and keep actions in separate space; search text stays on one line. Source indicators derive their equal widths from constraints without measured-layout state updates. Browse categories, results and recovery states share one scroll surface, leaving more room for results on small screens.
+
+Footer hit targets remain stationary while icons animate. Returning Home pops to the existing Home entry and saves the tab being left, rather than restoring a potentially nested Home stack. Haptic platform failures are logged and cannot block actions. These address plausible intermittent navigation paths; a device trace is still required to confirm the originally reported intermittent freeze.
+
+
+## Featured captions and source ratings
+
+Featured slides bound the chapter caption to the space left after the Read action, with one-line ellipsis and a 48dp button target. Titles may use two lines; carousel height grows with the configured font scale. FWN chapter captions strip a repeated novel-title prefix.
+
+FWN New Novels can report 0.0 on the source itself; that is displayed as an unrated dash, not a numeric reader score. Explicit positive source ratings are parsed from rating elements, skipping decorative spans and accepting decimal commas or /5 suffixes. Phoenix catalog parsing targets star badges rather than rank badges and no longer substitutes a fabricated 4.5 when the rating is absent. Browse reuses already-known scores from memory when a sparse record omits them, including cached/offline page reads, without issuing a detail request per card. No score is fabricated when the source and local metadata both lack one.

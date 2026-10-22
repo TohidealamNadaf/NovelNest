@@ -1,5 +1,6 @@
 package com.novelnest.app.data.model
 
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUtils
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import java.net.URI
 
@@ -8,6 +9,7 @@ object NovelIdentity {
     fun normalize(novel: Novel): Novel = runCatching {
         when (novel.source) {
             NovelSourceType.FREE_WEB_NOVEL -> novel.copy(
+                coverUrl = FreeWebNovelUtils.posterUrl(novel.coverUrl),
                 id = FreeWebNovelUrls.novelId(novel.sourceUrl.ifBlank { novel.id }),
                 sourceUrl = FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id }))
             NovelSourceType.NOVEL_PHOENIX -> {

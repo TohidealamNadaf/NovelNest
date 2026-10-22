@@ -20,7 +20,7 @@ object FreeWebNovelParser {
     private fun cover(item: Element): String {
         val img = item.selectFirst(FreeWebNovelSelectors.IMAGE) ?: return ""
         return listOf(img.attr("data-src"), img.attr("src"))
-            .firstNotNullOfOrNull { runCatching { FreeWebNovelUrls.resolve(it) }.getOrNull() }.orEmpty()
+            .firstNotNullOfOrNull { runCatching { FreeWebNovelUtils.posterUrl(FreeWebNovelUrls.resolve(it)) }.getOrNull() }.orEmpty()
     }
 
     private fun card(item: Element): Novel? {
@@ -30,13 +30,16 @@ object FreeWebNovelParser {
         if (!href.contains("/novel/")) return null
         val title = link.text().trim().ifBlank { link.attr("title").trim() }
         if (title.isBlank()) return null
-        val latest = item.selectFirst(FreeWebNovelSelectors.LATEST_CHAPTER)?.attr("title")
+        val latestRaw = item.selectFirst(FreeWebNovelSelectors.LATEST_CHAPTER)?.attr("title")
             ?.ifBlank { item.selectFirst(FreeWebNovelSelectors.CHAPTER_LINK)?.text().orEmpty() }
             ?: item.select(FreeWebNovelSelectors.LINK).firstOrNull { it.text().contains("Chapters", true) }?.text().orEmpty()
+        val shortCaption = latestRaw.removePrefix(title).trimStart(' ', ':', '-')
+        val latest = if (shortCaption.startsWith("Chapter ", true) || shortCaption.startsWith("Ch.", true))
+            shortCaption else latestRaw
         return Novel(
             id = FreeWebNovelUrls.novelId(url), title = title, coverUrl = cover(item),
             source = NovelSourceType.FREE_WEB_NOVEL, sourceUrl = url,
-            rating = item.selectFirst(FreeWebNovelSelectors.RATING)?.text()?.toFloatOrNull() ?: 0f,
+            rating = FreeWebNovelUtils.rating(item),
             latestChapter = latest, genres = item.select(FreeWebNovelSelectors.GENRE).map { it.text() }.distinct(),
             status = if (item.select(FreeWebNovelSelectors.COMPLETED).isNotEmpty() || latest.contains("Full", true)) "Completed" else "Ongoing"
         )
@@ -80,7 +83,7 @@ object FreeWebNovelParser {
             .ifBlank { doc.selectFirst(FreeWebNovelSelectors.SYNOPSIS)?.text().orEmpty() }
         return Novel(
             id = FreeWebNovelUrls.novelId(canonical), title = title,
-            coverUrl = runCatching { FreeWebNovelUrls.resolve(meta("og:image")) }.getOrDefault(""),
+            coverUrl = runCatching { FreeWebNovelUtils.posterUrl(FreeWebNovelUrls.resolve(meta("og:image"))) }.getOrDefault(""),
             source = NovelSourceType.FREE_WEB_NOVEL, sourceUrl = FreeWebNovelUrls.novelUrl(canonical),
             synopsis = synopsis, author = meta("og:novel:author").ifBlank { "Unknown" },
             rating = Regex("[0-9.]+").find(doc.selectFirst(FreeWebNovelSelectors.DETAIL_RATING)?.text().orEmpty())?.value?.toFloatOrNull() ?: 0f,

@@ -36,13 +36,23 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.preferences.ReaderSessionManager(getSharedPreferences("reader_session", MODE_PRIVATE))
     }
 
+    val profileManager by lazy {
+        com.novelnest.app.data.profile.ProfileManager(getSharedPreferences("profile", MODE_PRIVATE))
+    }
+    val notificationStore by lazy {
+        com.novelnest.app.data.notification.NotificationStore(getSharedPreferences("notifications", MODE_PRIVATE))
+    }
+    val notificationCoordinator by lazy { com.novelnest.app.data.notification.NotificationCoordinator(this) }
+
     val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager by lazy {
-        com.novelnest.app.data.progress.ReadingProgressManager(database.readingProgressDao())
+        com.novelnest.app.data.progress.ReadingProgressManager(database.readingProgressDao(),
+            onChapterRead = profileManager::recordReading, onHistoryLoaded = profileManager::recordReadings)
     }
 
     override fun onCreate() {
         super.onCreate()
         HttpFactory.initialize(cacheDir)
+        notificationCoordinator.initialize()
     }
 
     override fun newImageLoader(): ImageLoader {

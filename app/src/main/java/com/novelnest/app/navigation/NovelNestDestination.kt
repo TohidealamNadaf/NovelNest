@@ -6,6 +6,7 @@ sealed class NovelNestDestination(val route: String) {
     data object Browse : NovelNestDestination("browse/{sourceOrdinal}") {
         fun createRoute(sourceOrdinal: Int) = "browse/$sourceOrdinal"
     }
+    data object Profile : NovelNestDestination("profile")
     data object Settings : NovelNestDestination("settings")
     data object Search : NovelNestDestination("search/{sourceOrdinal}") {
         fun createRoute(sourceOrdinal: Int) = "search/$sourceOrdinal"

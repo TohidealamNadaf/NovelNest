@@ -43,10 +43,11 @@ class ProfileManager(private val prefs: SharedPreferences) {
         prefs.edit().putString("photo", uri).apply()
         _profile.value = _profile.value.copy(photoUri = uri)
     }
-    @Synchronized fun recordReading(timestamp: Long) {
-        val day = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
-        if (day in _profile.value.readingDays) return
-        val days = _profile.value.readingDays + day
+    fun recordReading(timestamp: Long) = recordReadings(listOf(timestamp))
+    @Synchronized fun recordReadings(timestamps: List<Long>) {
+        val additions = timestamps.map { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay() }.toSet()
+        if (_profile.value.readingDays.containsAll(additions)) return
+        val days = _profile.value.readingDays + additions
         prefs.edit().putStringSet("reading_days", days.map { it.toString() }.toSet()).apply()
         _profile.value = _profile.value.copy(readingDays = days)
     }

@@ -72,6 +72,7 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
+import androidx.compose.foundation.selection.selectable
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import kotlinx.coroutines.coroutineScope
@@ -150,7 +151,7 @@ fun NovelNestFooter(
         // Pill-shaped container: Solid background, smooth rounded corners, subtle border and shadow
         androidx.compose.foundation.layout.BoxWithConstraints(
             modifier = Modifier
-                .widthIn(min = 270.dp, max = 290.dp)
+                .widthIn(max = 290.dp).fillMaxWidth()
                 .height(FooterTokens.PillHeight)
                 .then(shadowModifier)
                 .clip(pillShape)
@@ -184,14 +185,15 @@ fun NovelNestFooter(
             var isInitialized by remember { mutableStateOf(false) }
 
             LaunchedEffect(totalWidthPx) {
-                if (totalWidthPx > 0f && !isInitialized) {
+                if (totalWidthPx > 0f) {
                     leftAnim.snapTo(getTargetLeft(selectedIndex))
                     rightAnim.snapTo(getTargetRight(selectedIndex))
+                    previousIndex = selectedIndex
                     isInitialized = true
                 }
             }
 
-            LaunchedEffect(selectedIndex) {
+            LaunchedEffect(selectedIndex, isInitialized, areAnimationsDisabled) {
                 if (!isInitialized) return@LaunchedEffect
                 val prev = previousIndex
                 val curr = selectedIndex
@@ -340,10 +342,8 @@ private fun FooterNavItem(
         modifier = modifier
             .fillMaxHeight()
             .clip(itemShape)
-            .bounceClick(
-                scaleDown = BounceScale.Small,
-                enabled = true,
-                onClickLabel = destination.label,
+            .selectable(
+                selected = isSelected,
                 role = Role.Tab,
                 onClick = onClick
             ),

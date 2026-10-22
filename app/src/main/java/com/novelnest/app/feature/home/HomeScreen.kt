@@ -32,7 +32,7 @@ fun HomeScreen(
     onNavigateToDiscover: (NovelSourceType) -> Unit,
     onContinueReading: (Novel, Int) -> Unit = { novel, _ -> onNovelClick(novel) },
     onNavigateToNotifications: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -47,10 +47,18 @@ fun HomeScreen(
     LaunchedEffect(state.selectedSource, state.bookmarkedNovels) {
         if (state.visibleBookmarks.none { it.id == selected?.id }) selected = null
     }
+    val currentGridState = gridStates.getValue(state.selectedSource)
+    val isScrolled by remember(currentGridState) {
+        derivedStateOf {
+            currentGridState.firstVisibleItemIndex > 0 || currentGridState.firstVisibleItemScrollOffset > 24
+        }
+    }
+
     BackHandler(enabled = selected != null) { selected = null }
     Column(modifier.fillMaxSize().background(NovelBackground)) {
-        NovelNestHeader(title = if (selected != null) "Remove Bookmark" else "My Library",
-            icon = Icons.Rounded.Bookmark,
+        NovelNestHeader(
+            title = if (selected != null) "Remove Bookmark" else "Novel Nest",
+            icon = Icons.Rounded.AutoStories,
             actions = {
                 if (selected != null) {
                     NovelNestIconButton(Icons.Rounded.DeleteOutline, "Remove bookmark", onClick = {
@@ -59,70 +67,98 @@ fun HomeScreen(
                     })
                     NovelNestIconButton(Icons.Rounded.Close, "Cancel selection", onClick = { selected = null })
                 } else {
-                    NovelNestIconButton(Icons.Rounded.Search, "Search novels", onClick = { onNavigateToSearch(state.selectedSource) })
+                    // Search icon appears in header when search bar is collapsed on scroll
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isScrolled,
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f)
+                    ) {
+                        NovelNestIconButton(
+                            icon = Icons.Rounded.Search,
+                            contentDescription = "Search ${state.selectedSource.displayName}",
+                            tint = NovelPrimary,
+                            onClick = { onNavigateToSearch(state.selectedSource) }
+                        )
+                    }
                     NovelNestIconButton(Icons.Rounded.NotificationsNone, "Notifications", onClick = onNavigateToNotifications)
-                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile and settings", onClick = onNavigateToSettings)
-                }
-            })
-        SourceTabRow(selectedSource = state.selectedSource, onSourceSelected = viewModel::selectSource)
-        SearchBarTrigger(currentSource = state.selectedSource, onClick = { onNavigateToSearch(state.selectedSource) })
-        val bottomPadding = rememberFooterBottomPadding()
-        LazyVerticalGrid(columns = GridCells.Adaptive(128.dp),
-            state = gridStates.getValue(state.selectedSource),
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            state.currentReading?.let { current ->
-                item(key = "current_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "current") {
-                    HomeContinueReadingCard(
-                        entry = current,
-                        onOpenDetails = { onNovelClick(current.novel) },
-                        onContinue = { onContinueReading(current.novel, current.progress.lastReadChapterIndex) }
-                    )
+                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile", onClick = onNavigateToProfile)
                 }
             }
-            if (state.recentlyRead.isNotEmpty()) {
-                item(key = "recent_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "recent") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        HomeSectionTitle("Recently Read", "${state.recentlyRead.size} novels")
-                        key(state.selectedSource) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                items(state.recentlyRead, key = { it.novel.id }) { entry ->
-                                    val completion = remember(entry) { entry.novel.readingCompletion(entry.progress) }
-                                    NovelCard(entry.novel, readingCompletion = completion,
-                                        onClick = { onNovelClick(entry.novel) })
+        )
+
+        // Collapsible Source Tabs and Search Bar: hide and blend away when scrolled
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !isScrolled,
+            enter = androidx.compose.animation.expandVertically(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(180)),
+            exit = androidx.compose.animation.shrinkVertically(animationSpec = androidx.compose.animation.core.tween(240)) +
+                    androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(160))
+        ) {
+            Column {
+                SourceTabRow(selectedSource = state.selectedSource, onSourceSelected = viewModel::selectSource)
+                SearchBarTrigger(currentSource = state.selectedSource, onClick = { onNavigateToSearch(state.selectedSource) })
+            }
+        }
+        val bottomPadding = rememberFooterBottomPadding()
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val cardWidth = (maxWidth - 32.dp - 24.dp) / 3
+            LazyVerticalGrid(columns = GridCells.Fixed(3),
+                state = gridStates.getValue(state.selectedSource),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                state.currentReading?.let { current ->
+                    item(key = "current_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "current") {
+                        HomeContinueReadingCard(
+                            entry = current,
+                            onOpenDetails = { onNovelClick(current.novel) },
+                            onContinue = { onContinueReading(current.novel, current.progress.lastReadChapterIndex) }
+                        )
+                    }
+                }
+                if (state.recentlyRead.isNotEmpty()) {
+                    item(key = "recent_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "recent") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HomeSectionTitle("Recently Read", "${state.recentlyRead.size} novels")
+                            key(state.selectedSource) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.recentlyRead, key = { it.novel.id }) { entry ->
+                                        val completion = remember(entry) { entry.novel.readingCompletion(entry.progress) }
+                                        NovelCard(entry.novel, modifier = Modifier.width(cardWidth), readingCompletion = completion,
+                                            onClick = { onNovelClick(entry.novel) })
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            item(key = "bookmarks_heading", span = { GridItemSpan(maxLineSpan) }, contentType = "heading") {
-                HomeSectionTitle("Bookmarks", "${state.visibleBookmarks.size} saved · Recent reads first")
-            }
-            if (state.visibleBookmarks.isEmpty()) {
-                item(key = "bookmarks_empty", span = { GridItemSpan(maxLineSpan) }, contentType = "empty") {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Rounded.Bookmark, null, tint = NovelPrimary, modifier = Modifier.size(36.dp))
-                        Spacer(Modifier.height(12.dp))
-                        Text("No saved novels from ${state.selectedSource.shortName}", color = NovelTextPrimary,
-                            style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Bookmark a novel to keep it here.", color = NovelTextSecondary)
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = { onNavigateToDiscover(state.selectedSource) }) { Text("Discover novels") }
+                item(key = "bookmarks_heading", span = { GridItemSpan(maxLineSpan) }, contentType = "heading") {
+                    HomeSectionTitle("Bookmarks", "${state.visibleBookmarks.size} saved · Recent reads first")
+                }
+                if (state.visibleBookmarks.isEmpty()) {
+                    item(key = "bookmarks_empty", span = { GridItemSpan(maxLineSpan) }, contentType = "empty") {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.Bookmark, null, tint = NovelPrimary, modifier = Modifier.size(36.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text("No saved novels from ${state.selectedSource.shortName}", color = NovelTextPrimary,
+                                style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Bookmark a novel to keep it here.", color = NovelTextSecondary)
+                            Spacer(Modifier.height(16.dp))
+                            Button(onClick = { onNavigateToDiscover(state.selectedSource) }) { Text("Discover novels") }
+                        }
                     }
                 }
-            }
-            items(state.visibleBookmarks, key = { "bookmark:${it.id}" }, contentType = { "bookmark" }) { novel ->
-                val progress = state.progressFor(novel)
-                val completion = remember(novel, progress) { novel.readingCompletion(progress) }
-                NovelCard(novel, readingCompletion = completion, modifier = Modifier.fillMaxWidth(),
-                    isSelected = selected?.id == novel.id,
-                    onLongClick = { selected = if (selected?.id == novel.id) null else novel },
-                    onClick = { if (selected != null) selected = null else onNovelClick(novel) })
+                items(state.visibleBookmarks, key = { "bookmark:${it.id}" }, contentType = { "bookmark" }) { novel ->
+                    val progress = state.progressFor(novel)
+                    val completion = remember(novel, progress) { novel.readingCompletion(progress) }
+                    NovelCard(novel, readingCompletion = completion, modifier = Modifier.fillMaxWidth(),
+                        isSelected = selected?.id == novel.id,
+                        onLongClick = { selected = if (selected?.id == novel.id) null else novel },
+                        onClick = { if (selected != null) selected = null else onNovelClick(novel) })
+                }
             }
         }
     }
