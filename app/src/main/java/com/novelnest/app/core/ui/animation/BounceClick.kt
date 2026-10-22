@@ -4,8 +4,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -43,7 +45,9 @@ fun Modifier.bounceClick(
     interactionSource: MutableInteractionSource? = null,
     indication: Indication? = null,
     onClickLabel: String? = null,
+    onLongClickLabel: String? = null,
     role: Role? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ): Modifier = composed {
     val source = interactionSource ?: remember { MutableInteractionSource() }
@@ -75,7 +79,7 @@ fun Modifier.bounceClick(
         label = "bounce_focus"
     )
 
-    this
+    val baseModifier = this
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
@@ -86,7 +90,21 @@ fun Modifier.bounceClick(
                 drawRect(color = Color.White.copy(alpha = focusAlpha))
             }
         }
-        .clickable(
+
+    if (onLongClick != null) {
+        @OptIn(ExperimentalFoundationApi::class)
+        baseModifier.combinedClickable(
+            interactionSource = source,
+            indication = indication,
+            enabled = enabled,
+            onClickLabel = onClickLabel,
+            onLongClickLabel = onLongClickLabel,
+            role = role,
+            onLongClick = onLongClick,
+            onClick = onClick
+        )
+    } else {
+        baseModifier.clickable(
             interactionSource = source,
             indication = indication,
             enabled = enabled,
@@ -94,6 +112,7 @@ fun Modifier.bounceClick(
             role = role,
             onClick = onClick
         )
+    }
 }
 
 /**

@@ -126,6 +126,7 @@
 | **URL** | `ul.chapter-list li a` | `attr("href")` | `"/novel/genetic-ascension/chapter-1"` | Resolve to `https://novelphoenix.com/novel/genetic-ascension/chapter-1` |
 | **release date** | `time.chapter-update` | `.text()` | `"2 years ago"` | Trim whitespace |
 | **locked / coin** | None | "not available" | `false` | All chapters on NovelPhoenix are unlocked |
+| **total pages / range** | `select[aria-label="Chapter range"] option, .chaprange select option` | `option[value]` / regex `page=(\d+)` | `33` options (`"1-100"` to `"3201-3221"`) | Parse total page count from dropdown for concurrent background batch fetching |
 
 ---
 
@@ -133,23 +134,23 @@
 
 | Field | Source / Selector | Attribute / Extraction | Sample Real Value | Normalization / Stripping |
 | :--- | :--- | :--- | :--- | :--- |
-| **chapter title** | `#content h4` | `.text()` | `"Chapter 1 Worst-Case Scenario"` | Trim whitespace |
-| **chapter body** | `#content p` | List of `.text()` | `"Sylas shrugged off his lab coat..."` | Filter out empty lines, ads, and scripts |
-| **prev chapter** | `a.prevchap` | `attr("href")` | `null` (has `.isDisabled` & `href="javascript:;"`) | Return null if disabled / javascript |
-| **next chapter** | `a.nextchap` | `attr("href")` | `"/novel/genetic-ascension/chapter-2"` | Resolve to absolute URL |
-| **ad / noise removal** | Elements to strip: `.nf-ads`, `ins.pubadx-slot`, `#frame`, `iframe`, `script` | Remove from DOM before extracting `<p>` | Clean reading text only |
+| **chapter title** | `#content h4, .titles .chapter-title, .box-detail h1 .chapter-title` | `.text()` | `"Chapter 1 Worst-Case Scenario"` | Trim whitespace |
+| **chapter body** | `#content p` (Fallback: `<br>`/text nodes if `<p>` absent) | List of `.text()` | `"Sylas shrugged off his lab coat..."` | Filter out empty lines, ads, and scripts |
+| **prev chapter** | `a.prevchap[href], a.chnav.prev[href]` | `attr("href")` | `null` (has `.isDisabled` & `href="javascript:;"`) | Return null if disabled / javascript |
+| **next chapter** | `a.nextchap[href], a.chnav.next[href]` | `attr("href")` | `"/novel/genetic-ascension/chapter-2"` | Resolve to absolute URL |
+| **ad / noise removal** | Elements to strip: `.nf-ads`, `ins.pubadx-slot`, `ins`, `iframe`, `#frame`, `script`, `.sharethis-inline-share-buttons` | Remove from DOM before extracting text | Clean reading text only |
 
 ---
 
-### D. Listing Cards (from `browse_new.html` & `ranking.html`)
+### D. Listing Cards (from `browse_new.html`, `ranking.html`, & `search_page_shadow.html`)
 
 | Field | Source / Selector | Attribute / Extraction | Sample Real Value | Normalization |
 | :--- | :--- | :--- | :--- | :--- |
 | **slug** | `li.novel-item a[href*='/novel/']` | Extract from `href` | `"shadow-slave"` | Path segment after `/novel/` |
-| **title** | `h4.novel-title` or `h2.title a` | `.text()` | `"Shadow Slave"` | Trim whitespace |
+| **title** | `.novel-title, h4.novel-title, h2.title a, .title a, h4, h2 a` (Fallback: `a[title]` attribute) | `.text()` or `attr("title")` | `"Shadow Slave"` | Must target leaf heading/anchor text directly, NEVER recursive `a.text()` which embeds crown rank and chapter stats |
 | **cover** | `img.lazy[data-src]` | `attr("data-src")` fallback `attr("src")` | `"/server-1/shadow-slave.jpg"` | Prepend `https://novelphoenix.com` |
-| **chapter count**| `.novel-stats` | `.text()` | `"92 Chapters"` | Parse integer `92` |
-| **rank** | `span.badge._bl` or `span.rank-counter` | `.text()` | `"R 21908"` or list position | Parse integer |
+| **chapter count**| `.novel-stats:has(.icon-book-open)`, `.novel-stats span:contains(Chapters)` | `.text()` | `"3221 Chapters"` | Filter stats containing "Chapter" |
+| **rank** | `span.badge._bl`, `.novel-stats:has(.icon-crown)`, `.novel-stats strong:contains(Rank)`, `span.rank-counter` | `.text()` | `"R 1"` or `"Rank 1"` | Parse integer |
 | **status** | `span.status` | `.text()` | `"Ongoing"` | Trim |
 
 ---

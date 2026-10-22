@@ -1,7 +1,9 @@
 package com.novelnest.app.data.preferences
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import com.novelnest.app.R
 
 /**
  * Reading theme configurations with high contrast, calm color pairings.
@@ -58,12 +60,17 @@ enum class ReaderTheme(
 
 /**
  * Supported reader typography families.
+ * Includes official Google Fonts bundled directly in APK for zero-latency, 100% offline reading.
  */
 enum class ReaderFont(val displayName: String, val fontFamily: FontFamily) {
-    SYSTEM("System Default", FontFamily.Default),
+    LITERATA("Literata", FontFamily(Font(R.font.literata))),
+    SOURCE_SERIF_4("Source Serif 4", FontFamily(Font(R.font.source_serif_4))),
+    NOTO_SERIF("Noto Serif", FontFamily(Font(R.font.noto_serif))),
+    ROBOTO("Roboto", FontFamily(Font(R.font.roboto))),
     SERIF("Classic Serif", FontFamily.Serif),
     SANS_SERIF("Modern Sans", FontFamily.SansSerif),
-    MONOSPACE("Monospace", FontFamily.Monospace)
+    MONOSPACE("Monospace", FontFamily.Monospace),
+    SYSTEM("System Default", FontFamily.Default)
 }
 
 /**

@@ -7,6 +7,8 @@ package com.novelnest.app.data.remote.novelphoenix
  * and fallback chains here adapts the parsers without altering core extraction logic.
  */
 object NovelPhoenixSelectors {
+    const val BROWSE_CATEGORIES = "a[href^='/genre-'][href*='/sort-new/']"
+    const val BROWSE_NEXT = "a[rel=next][href]"
 
     const val BASE_URL = "https://novelphoenix.com"
 
@@ -97,11 +99,11 @@ object NovelPhoenixSelectors {
 
     // --- Listing Card Selectors ---
     val LISTING_ITEMS = "li.novel-item, .novel-item"
-    val LISTING_TITLE = ".novel-title, h4, a[title]"
+    val LISTING_TITLE = ".novel-title, h4.novel-title, h2.title a, .title a, h4, h2 a"
     val LISTING_LINK = "a[href*='/novel/'], a"
     val LISTING_COVER_DATA_SRC = "img[data-src]"
     val LISTING_COVER_SRC = "img[src]"
-    val LISTING_LATEST_CHAPTER = ".novel-stats"
+    val LISTING_LATEST_CHAPTER = ".novel-stats:has(.icon-book-open), .novel-stats span:contains(Chapters), .novel-stats:contains(Chapters)"
     val LISTING_RATING_BADGE = ".badge._br, .badge"
-    val LISTING_RANK_BADGE = ".badge._bl"
+    val LISTING_RANK_BADGE = ".badge._bl, .novel-stats:has(.icon-crown), .novel-stats strong:contains(Rank), .novel-stats:contains(Rank), .rank-counter"
 }

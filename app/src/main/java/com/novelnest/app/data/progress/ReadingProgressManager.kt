@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class NovelProgress(
     val novelId: String,
@@ -28,6 +32,11 @@ class ReadingProgressManager(
     private val _progressMap = MutableStateFlow<Map<String, NovelProgress>>(emptyMap())
     val progressMap: StateFlow<Map<String, NovelProgress>> = _progressMap.asStateFlow()
 
+    private val loaded = CompletableDeferred<Unit>()
+    private val writes = Mutex()
+
+    suspend fun awaitLoaded() = loaded.await()
+
     init {
         // Load existing reading progress from Room on initialization
         coroutineScope.launch {
@@ -43,9 +52,24 @@ class ReadingProgressManager(
                         readChapterIds = entity.readChapterIds.toSet()
                     )
                 }
-                _progressMap.value = mapped
+                _progressMap.update { current ->
+                    (mapped.keys + current.keys).associateWith { id ->
+                        val stored = mapped[id]
+                        val live = current[id]
+                        when {
+                            live == null -> stored!!
+                            stored == null -> live
+                            else -> (if (live.lastReadTimestamp >= stored.lastReadTimestamp) live else stored)
+                                .copy(readChapterIds = live.readChapterIds + stored.readChapterIds)
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                // Fallback to empty if initial query fails
+                // Existing live updates remain available if loading fails.
+            } finally {
+                loaded.complete(Unit)
             }
         }
     }
@@ -59,43 +83,46 @@ class ReadingProgressManager(
         return progress.readChapterIds.contains(chapterId)
     }
 
+    @Synchronized
     fun markChapterRead(
         novelId: String,
         chapterId: String,
         chapterIndex: Int,
         chapterTitle: String
     ) {
-        val currentProgress = _progressMap.value[novelId]
-        val updatedSet = (currentProgress?.readChapterIds ?: emptySet()) + chapterId
-        val updatedProgress = NovelProgress(
-            novelId = novelId,
-            lastReadChapterId = chapterId,
-            lastReadChapterIndex = chapterIndex,
-            lastReadChapterTitle = chapterTitle,
-            lastReadTimestamp = System.currentTimeMillis(),
-            readChapterIds = updatedSet
-        )
-
-        // Instant UI update
+        val timestamp = System.currentTimeMillis()
+        // Derive from the current map inside the atomic update so hydration cannot
+        // insert stored history between our read and write.
         _progressMap.update { current ->
-            current + (novelId to updatedProgress)
+            current + (novelId to NovelProgress(
+                novelId = novelId, lastReadChapterId = chapterId,
+                lastReadChapterIndex = chapterIndex, lastReadChapterTitle = chapterTitle,
+                lastReadTimestamp = timestamp,
+                readChapterIds = current[novelId]?.readChapterIds.orEmpty() + chapterId
+            ))
         }
 
         // Persist to Room database asynchronously
         coroutineScope.launch {
-            try {
-                readingProgressDao.insertOrUpdate(
-                    ReadingProgressEntity(
-                        novelId = novelId,
-                        lastReadChapterId = chapterId,
-                        lastReadChapterIndex = chapterIndex,
-                        lastReadChapterTitle = chapterTitle,
-                        lastReadTimestamp = updatedProgress.lastReadTimestamp,
-                        readChapterIds = updatedSet.toList()
+            loaded.await()
+            writes.withLock {
+                try {
+                    val latest = _progressMap.value[novelId] ?: return@withLock
+                    readingProgressDao.insertOrUpdate(
+                        ReadingProgressEntity(
+                            novelId = novelId,
+                            lastReadChapterId = latest.lastReadChapterId,
+                            lastReadChapterIndex = latest.lastReadChapterIndex,
+                            lastReadChapterTitle = latest.lastReadChapterTitle,
+                            lastReadTimestamp = latest.lastReadTimestamp,
+                            readChapterIds = latest.readChapterIds.toList()
+                        )
                     )
-                )
-            } catch (_: Exception) {
-                // Database persistence error ignored to keep UI responsive
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Database persistence error ignored to keep UI responsive
+                }
             }
         }
     }

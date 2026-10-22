@@ -25,7 +25,13 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE novels ADD COLUMN chapterCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-        MIGRATION_1_2
+        MIGRATION_1_2, MIGRATION_2_3
     )
 }

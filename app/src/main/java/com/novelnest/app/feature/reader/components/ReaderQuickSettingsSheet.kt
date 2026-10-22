@@ -2,6 +2,7 @@ package com.novelnest.app.feature.reader.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,8 @@ import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceSelectable
+import com.novelnest.app.core.designsystem.NovelOnPrimary
+import com.novelnest.app.data.preferences.ReaderFont
 import com.novelnest.app.data.preferences.ReaderSettings
 import com.novelnest.app.data.preferences.ReaderTheme
 
@@ -54,6 +57,8 @@ fun ReaderQuickSettingsSheet(
     onSetTheme: (ReaderTheme) -> Unit,
     onSetFontSize: (Float) -> Unit,
     onSetLineHeight: (Float) -> Unit,
+    onSetFontFamily: (ReaderFont) -> Unit,
+    onSetParagraphSpacing: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -131,6 +136,46 @@ fun ReaderQuickSettingsSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
+            // Typography font family selector
+            Text("Typography & Font", color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.selectableGroup()
+            ) {
+                items(ReaderFont.entries) { font ->
+                    val isSelected = font == settings.fontFamily
+                    Box(
+                        modifier = Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) NovelPrimary else Color(0x22888888))
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) NovelPrimary else Color(0x33888888),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .bounceSelectable(
+                                selected = isSelected,
+                                scaleDown = BounceScale.Small,
+                                onClick = { onSetFontFamily(font) }
+                            )
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = font.displayName,
+                            fontFamily = font.fontFamily,
+                            color = if (isSelected) NovelOnPrimary else textColor,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
             // Font size controls
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -197,6 +242,61 @@ fun ReaderQuickSettingsSheet(
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Paragraph padding / spacing controls
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Paragraph Padding", color = secondaryColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("${settings.paragraphSpacingDp.toInt()} dp", color = NovelPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Slider(
+                value = settings.paragraphSpacingDp,
+                onValueChange = onSetParagraphSpacing,
+                valueRange = 4f..24f,
+                steps = 9,
+                colors = SliderDefaults.colors(
+                    thumbColor = NovelPrimary,
+                    activeTrackColor = NovelPrimary,
+                    inactiveTrackColor = secondaryColor.copy(alpha = 0.25f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(8f to "Compact", 12f to "Normal", 16f to "Relaxed", 20f to "Spacious").forEach { (spacing, label) ->
+                    val isSelected = kotlin.math.abs(settings.paragraphSpacingDp - spacing) < 1f
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) NovelPrimary else Color(0x22888888))
+                            .border(
+                                1.dp,
+                                if (isSelected) NovelPrimary else Color(0x33888888),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable { onSetParagraphSpacing(spacing) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) NovelOnPrimary else textColor,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
         }
     }
 }

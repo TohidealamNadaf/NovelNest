@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,20 +24,81 @@ class BookmarkManager(context: Context) {
     val bookmarks: StateFlow<List<Novel>> = _bookmarks.asStateFlow()
 
     fun isBookmarked(novelId: String): Boolean {
-        return _bookmarks.value.any { it.id == novelId }
+        return getBookmark(novelId) != null
+    }
+
+    fun getBookmark(novelId: String): Novel? {
+        val list = _bookmarks.value
+        // 1. Exact ID match
+        list.find { it.id == novelId }?.let { return it }
+
+        val source = when {
+            novelId.startsWith("fwn-") -> NovelSourceType.FREE_WEB_NOVEL
+            novelId.startsWith("asura-") -> NovelSourceType.ASURA_SCANS
+            else -> NovelSourceType.NOVEL_PHOENIX
+        }
+        val sameSource = list.filter { it.source == source }
+        if (source == NovelSourceType.FREE_WEB_NOVEL) {
+            val canonicalId = runCatching { FreeWebNovelUrls.novelId(novelId) }.getOrNull() ?: return null
+            return sameSource.find { normalize(it).id == canonicalId }
+        }
+
+        // 2. Legacy numeric ID match
+        val mappedSlug = mapLegacyIdToSlug(novelId)
+        if (mappedSlug != null) {
+            sameSource.find { it.id == "np-$mappedSlug" || it.sourceUrl.endsWith("/$mappedSlug") }?.let { return it }
+        }
+
+        // 3. Match by slug
+        val cleanSlug = novelId.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-").trimEnd('/')
+        if (cleanSlug.isNotBlank()) {
+            sameSource.find { it.id.removePrefix("np-").removePrefix("asura-") == cleanSlug || it.sourceUrl.trimEnd('/').endsWith("/$cleanSlug") }?.let { return it }
+        }
+
+        return null
+    }
+
+    private fun normalize(novel: Novel): Novel = if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
+        runCatching {
+            val url = FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id })
+            novel.copy(id = FreeWebNovelUrls.novelId(url), sourceUrl = url)
+        }.getOrDefault(novel)
+    } else novel
+
+    private fun sameNovel(left: Novel, right: Novel): Boolean {
+        if (left.source != right.source) return false
+        fun key(novel: Novel): String = if (novel.source == NovelSourceType.NOVEL_PHOENIX) {
+            mapLegacyIdToSlug(novel.id)?.let { "np-$it" } ?: novel.id
+        } else normalize(novel).id
+        return key(left) == key(right)
+    }
+
+    private fun mapLegacyIdToSlug(id: String): String? = when (id) {
+        "np-1" -> "shadow-slave"
+        "np-2" -> "full-star-player-returns-as-a-godslayer"
+        "np-3" -> "genius-martial-arts-trainer"
+        "np-4" -> "the-mine-lord-a-dwarven-survival-base-builder"
+        "np-5" -> "lord-of-the-mysteries"
+        "np-6" -> "reverend-insanity"
+        "np-7" -> "collecting-powerful-girlfriends-my-invincible-harem"
+        "np-8" -> "tyrant-no-i-am-the-villain"
+        "np-9" -> "the-beginning-after-the-end"
+        "np-10" -> "mother-of-learning"
+        else -> null
     }
 
     @Synchronized
     fun toggleBookmark(novel: Novel): Boolean {
         val current = _bookmarks.value.toMutableList()
-        val existingIndex = current.indexOfFirst { it.id == novel.id }
+        val normalized = normalize(novel)
+        val existingIndex = current.indexOfFirst { sameNovel(it, normalized) }
         val isNowBookmarked: Boolean
 
         if (existingIndex >= 0) {
-            current.removeAt(existingIndex)
+            current.removeAll { sameNovel(it, normalized) }
             isNowBookmarked = false
         } else {
-            current.add(0, novel) // Add to top of bookmarked list
+            current.add(0, normalized) // Add to top of bookmarked list
             isNowBookmarked = true
         }
 
@@ -48,17 +110,18 @@ class BookmarkManager(context: Context) {
     @Synchronized
     fun addBookmark(novel: Novel) {
         val current = _bookmarks.value.toMutableList()
-        if (current.none { it.id == novel.id }) {
-            current.add(0, novel)
-            saveBookmarks(current)
-            _bookmarks.value = current
-        }
+        val normalized = normalize(novel)
+        val existing = current.indexOfFirst { sameNovel(it, normalized) }
+        if (existing < 0) current.add(0, normalized) else current[existing] = normalized
+        saveBookmarks(current)
+        _bookmarks.value = current
     }
 
     @Synchronized
     fun removeBookmark(novelId: String) {
         val current = _bookmarks.value.toMutableList()
-        val removed = current.removeAll { it.id == novelId }
+        val target = getBookmark(novelId)
+        val removed = current.removeAll { it.id == novelId || (target != null && sameNovel(it, target)) }
         if (removed) {
             saveBookmarks(current)
             _bookmarks.value = current
@@ -98,6 +161,7 @@ class BookmarkManager(context: Context) {
                         author = obj.optString("author", "Unknown"),
                         rating = obj.optDouble("rating", 4.5).toFloat(),
                         latestChapter = obj.optString("latestChapter", "Chapter 1"),
+                        chapterCount = obj.optInt("chapterCount", 0),
                         genres = genres,
                         status = obj.optString("status", "Ongoing"),
                         views = obj.optString("views", ""),
@@ -105,7 +169,7 @@ class BookmarkManager(context: Context) {
                     )
                 )
             }
-            list
+            list.map(::normalize).distinctBy { it.source to it.id }
         } catch (_: Exception) {
             emptyList()
         }
@@ -124,6 +188,7 @@ class BookmarkManager(context: Context) {
                 put("author", novel.author)
                 put("rating", novel.rating.toDouble())
                 put("latestChapter", novel.latestChapter)
+                put("chapterCount", novel.chapterCount)
                 val genresArray = JSONArray()
                 novel.genres.forEach { genresArray.put(it) }
                 put("genres", genresArray)

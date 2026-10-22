@@ -146,11 +146,6 @@ fun ReaderTopBar(
                             )
                         }
 
-                        AnimatedBookmarkButton(
-                            isBookmarked = isBookmarked,
-                            onToggle = { onToggleBookmark() }
-                        )
-
                         NovelNestIconButton(
                             icon = Icons.AutoMirrored.Rounded.MenuBook,
                             contentDescription = "Open chapters sidebar",

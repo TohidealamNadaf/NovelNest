@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -67,6 +68,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.animation.animateColorAsState
+import com.novelnest.app.core.ui.ReadingProgressBar
+import com.novelnest.app.data.progress.readingCompletion
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,14 +135,49 @@ fun NovelDetailScreen(
             .fillMaxSize()
             .background(NovelBackground)
     ) {
-        if (uiState.isLoading || novel == null) {
+        if (uiState.isLoading && novel == null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = NovelPrimary)
             }
-        } else {
+        } else if (novel == null && uiState.errorMessage != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Unable to load novel details",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NovelTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = uiState.errorMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NovelTextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { viewModel.retryLoadDetails() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NovelPrimary,
+                            contentColor = NovelOnPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Retry",
+                            color = NovelOnPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        } else if (novel != null) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -153,6 +195,12 @@ fun NovelDetailScreen(
                         },
                         onStartReading = { targetIndex -> onStartReading(novel.id, targetIndex) }
                     )
+                }
+
+                item {
+                    val completion = remember(novel, uiState.readingProgress) { novel.readingCompletion(uiState.readingProgress) }
+                    ReadingProgressBar(completion,
+                        Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                 }
 
                 // 2. SYNOPSIS / SUMMARY SECTION
@@ -185,7 +233,7 @@ fun NovelDetailScreen(
                 }
 
                 // 3b. FALLBACK / ERROR NOTIFICATION BANNER
-                if (uiState.chaptersErrorMessage != null) {
+                if (uiState.chaptersErrorMessage != null || uiState.errorMessage != null) {
                     item {
                         Card(
                             shape = RoundedCornerShape(12.dp),
@@ -210,7 +258,7 @@ fun NovelDetailScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = uiState.chaptersErrorMessage.orEmpty(),
+                                        text = (uiState.chaptersErrorMessage ?: uiState.errorMessage).orEmpty(),
                                         color = NovelTextSecondary,
                                         fontSize = 11.sp,
                                         maxLines = 1,
@@ -219,7 +267,7 @@ fun NovelDetailScreen(
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Button(
-                                    onClick = { viewModel.resyncChapters() },
+                                    onClick = { if (uiState.errorMessage != null) viewModel.retryLoadDetails() else viewModel.resyncChapters() },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = NovelPrimary,
                                         contentColor = NovelOnPrimary
@@ -230,10 +278,16 @@ fun NovelDetailScreen(
                                     Icon(
                                         imageVector = Icons.Rounded.Refresh,
                                         contentDescription = null,
+                                        tint = NovelOnPrimary,
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text(text = "Retry", fontSize = 11.sp)
+                                    Text(
+                                        text = "Retry",
+                                        color = NovelOnPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -252,14 +306,14 @@ fun NovelDetailScreen(
                         isRead = isRead,
                         onClick = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
-                            val actualIndex = uiState.chapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
+                            val actualIndex = viewModel.readerChapterIndex(chapter.id)
                             onStartReading(novel.id, actualIndex)
                         }
                     )
                 }
             }
 
-            // 1. Initial Start State: Floating Circle Back & Bookmark Buttons Overlaid on Parallax Hero
+            // 1. Initial state: Back button over the hero.
             AnimatedVisibility(
                 visible = !isScrolled,
                 enter = fadeIn(animationSpec = tween(220)),
@@ -284,14 +338,6 @@ fun NovelDetailScreen(
                             .background(Color(0xCC0F1216))
                     )
 
-                    AnimatedBookmarkButton(
-                        isBookmarked = uiState.isBookmarked,
-                        onToggle = { viewModel.toggleBookmark() },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xCC0F1216))
-                    )
                 }
             }
 
@@ -381,59 +427,20 @@ fun NovelDetailScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
 
-                        // Continue / Read Button (Synced with scrolled header)
-                        val lastReadIdx = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
-                        Button(
-                            onClick = {
-                                playHaptic(NovelNestHapticType.LIGHT_TICK)
-                                onStartReading(novel.id, lastReadIdx)
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = NovelPrimary,
-                                contentColor = NovelOnPrimary
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoStories,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (uiState.readingProgress != null) "Continue" else "Read",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        AnimatedBookmarkButton(
-                            isBookmarked = uiState.isBookmarked,
-                            onToggle = { viewModel.toggleBookmark() },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x99161B22))
-                        )
                     }
                 }
             }
 
-            // Floating Instant Scroll-to-Top Button (Appears when scrolled down)
+            // Floating Instant Scroll-to-Top Button (Moved to bottom left of page)
             AnimatedVisibility(
                 visible = showScrollToTop,
                 enter = fadeIn() + androidx.compose.animation.scaleIn(),
                 exit = fadeOut() + androidx.compose.animation.scaleOut(),
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(end = 20.dp, bottom = 24.dp)
+                    .padding(start = 20.dp, bottom = 24.dp)
             ) {
                 NovelNestIconButton(
                     icon = Icons.Rounded.KeyboardArrowUp,
@@ -451,6 +458,52 @@ fun NovelDetailScreen(
                         .background(NovelPrimary)
                 )
             }
+
+            // Floating Pill Read / Continue Button (Positioned in bottom right of page)
+            AnimatedVisibility(
+                visible = isScrolled,
+                enter = fadeIn() + androidx.compose.animation.scaleIn(),
+                exit = fadeOut() + androidx.compose.animation.scaleOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 20.dp, bottom = 24.dp)
+            ) {
+                val lastReadIdx = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
+                Button(
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onStartReading(novel.id, lastReadIdx)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NovelPrimary,
+                        contentColor = NovelOnPrimary
+                    ),
+                    shape = CircleShape,
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .height(46.dp)
+                        .bounceClick(scaleDown = BounceScale.Small, onClick = {
+                            playHaptic(NovelNestHapticType.LIGHT_TICK)
+                            onStartReading(novel.id, lastReadIdx)
+                        })
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoStories,
+                        contentDescription = null,
+                        tint = NovelOnPrimary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        text = if (uiState.readingProgress != null) "Continue" else "Read",
+                        color = NovelOnPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }
@@ -458,6 +511,7 @@ fun NovelDetailScreen(
 /**
  * Top Hero Poster with blurred backdrop gradient, novel details, and key actions.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun NovelDetailHeroHeader(
     novel: Novel,
@@ -508,7 +562,7 @@ private fun NovelDetailHeroHeader(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = statusBarHeight + 58.dp, start = 16.dp, end = 16.dp)
+                .padding(top = statusBarHeight + 66.dp, start = 16.dp, end = 16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -609,10 +663,11 @@ private fun NovelDetailHeroHeader(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Ranking, Rating, Status, and Views Badges
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // Ranking, Rating, Status, and Views Badges (FlowRow ensures badges wrap cleanly without squishing or line breaks)
+                    FlowRow(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         // Rank Badge in details
                         if (novel.rank > 0) {
@@ -627,7 +682,9 @@ private fun NovelDetailHeroHeader(
                                     text = "Rank #${novel.rank}",
                                     color = NovelGold,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -651,7 +708,9 @@ private fun NovelDetailHeroHeader(
                                 text = String.format("%.1f", novel.rating),
                                 color = NovelTextPrimary,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 
@@ -666,11 +725,13 @@ private fun NovelDetailHeroHeader(
                                 text = novel.status,
                                 color = NovelSecondary,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 
-                        // Views Badge
+                        // Views Badge - Always kept on a single line with icon
                         if (novel.views.isNotBlank()) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -689,7 +750,9 @@ private fun NovelDetailHeroHeader(
                                 Text(
                                     text = novel.views,
                                     color = NovelTextSecondary,
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -736,31 +799,56 @@ private fun NovelDetailHeroHeader(
                 "Start Reading"
             }
 
-            Button(
-                onClick = { onStartReading(lastReadIndex) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = NovelPrimary,
-                    contentColor = NovelOnPrimary
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .bounceClick(scaleDown = BounceScale.Medium, onClick = { onStartReading(lastReadIndex) })
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoStories,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = continueLabel,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Button(
+                    onClick = { onStartReading(lastReadIndex) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NovelPrimary,
+                        contentColor = NovelOnPrimary
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .bounceClick(scaleDown = BounceScale.Medium, onClick = { onStartReading(lastReadIndex) })
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoStories,
+                        contentDescription = null,
+                        tint = NovelOnPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = continueLabel,
+                        color = NovelOnPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Bookmark toggle in hero header: visible when NOT bookmarked, hidden when bookmarked
+                if (!uiState.isBookmarked) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NovelSurfaceVariant)
+                            .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedBookmarkButton(
+                            isBookmarked = false,
+                            onToggle = { onToggleBookmark() }
+                        )
+                    }
+                }
             }
         }
     }
@@ -775,14 +863,23 @@ private fun NovelSynopsisCard(
     isExpanded: Boolean,
     onToggleExpand: () -> Unit
 ) {
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val focused by interactions.collectIsFocusedAsState()
+    val surfaceColor by animateColorAsState(
+        if (pressed || focused) NovelSurfaceVariant else NovelSurface, label = "synopsis_press")
     Card(
-        colors = CardDefaults.cardColors(containerColor = NovelSurface),
+        colors = CardDefaults.cardColors(containerColor = surfaceColor),
         shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clickable(onClick = onToggleExpand)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(interactionSource = interactions, indication = null,
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = if (isExpanded) "Collapse synopsis" else "Expand synopsis",
+                onClick = onToggleExpand)
     ) {
         Column(
             modifier = Modifier

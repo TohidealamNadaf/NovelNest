@@ -47,7 +47,7 @@ class NovelPhoenixLiveSmokeTest {
 
         // 4. Read late chapter
         val chapterUrl = if (lateChapter.urlPath.startsWith("http")) lateChapter.urlPath else "https://novelphoenix.com${lateChapter.urlPath}"
-        val content = source.getChapterContent(chapterUrl)
+        val content = source.fetchChapterContent(chapterUrl)
         assertTrue("Chapter title should not be blank", content.title.isNotBlank())
         assertTrue("Paragraphs should be extracted", content.paragraphs.size >= 5)
 
@@ -57,7 +57,7 @@ class NovelPhoenixLiveSmokeTest {
         assertFalse("Next chapter URL should not be javascript", nextUrl!!.startsWith("javascript:"))
 
         // Verify next chapter loads cleanly
-        val nextContent = source.getChapterContent(nextUrl)
+        val nextContent = source.fetchChapterContent(nextUrl)
         assertTrue("Next chapter should have readable content", nextContent.paragraphs.isNotEmpty())
     }
 }

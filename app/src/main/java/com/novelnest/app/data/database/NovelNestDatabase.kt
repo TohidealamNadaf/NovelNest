@@ -19,7 +19,7 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
         SectionNovelCrossRef::class,
         com.novelnest.app.data.database.entity.ReadingProgressEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

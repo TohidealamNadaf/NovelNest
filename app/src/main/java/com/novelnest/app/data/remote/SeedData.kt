@@ -10,7 +10,7 @@ object SeedData {
     // --- NOVEL PHOENIX SEED DATA ---
     val novelPhoenixHeroSlides = listOf(
         Novel(
-            id = "np-1",
+            id = "np-shadow-slave",
             title = "Shadow Slave",
             coverUrl = "https://novelphoenix.com/server-1/shadow-slave.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -24,7 +24,7 @@ object SeedData {
             views = "5.2M"
         ),
         Novel(
-            id = "np-2",
+            id = "np-full-star-player-returns-as-a-godslayer",
             title = "Full-Star Player Returns as a Godslayer",
             coverUrl = "https://novelphoenix.com/server-1/full-star-player-returns-as-a-godslayer.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -38,7 +38,7 @@ object SeedData {
             views = "3.1M"
         ),
         Novel(
-            id = "np-3",
+            id = "np-genius-martial-arts-trainer",
             title = "Genius Martial Arts Trainer",
             coverUrl = "https://novelphoenix.com/server-1/genius-martial-arts-trainer.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -55,7 +55,7 @@ object SeedData {
 
     val novelPhoenixTrending = listOf(
         Novel(
-            id = "np-4",
+            id = "np-the-mine-lord-a-dwarven-survival-base-builder",
             title = "The Mine Lord: A Dwarven Survival Base-Builder",
             coverUrl = "https://novelphoenix.com/server-1/the-mine-lord-a-dwarven-survival-base-builder.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -68,7 +68,7 @@ object SeedData {
             status = "Ongoing"
         ),
         Novel(
-            id = "np-5",
+            id = "np-lord-of-the-mysteries",
             title = "Lord of the Mysteries",
             coverUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -81,7 +81,7 @@ object SeedData {
             status = "Completed"
         ),
         Novel(
-            id = "np-6",
+            id = "np-reverend-insanity",
             title = "Reverend Insanity",
             coverUrl = "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=600&q=80",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -94,7 +94,7 @@ object SeedData {
             status = "Ongoing"
         ),
         Novel(
-            id = "np-7",
+            id = "np-collecting-powerful-girlfriends-my-invincible-harem",
             title = "Collecting Powerful Girlfriends: My Invincible Harem",
             coverUrl = "https://novelphoenix.com/server-1/collecting-powerful-girlfriends-my-invincible-harem.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -110,7 +110,7 @@ object SeedData {
 
     val novelPhoenixLatest = listOf(
         Novel(
-            id = "np-8",
+            id = "np-tyrant-no-i-am-the-villain",
             title = "Tyrant? No, I am the Villain",
             coverUrl = "https://novelphoenix.com/server-1/tyrant-no-i-am-the-villain.jpg",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -123,7 +123,7 @@ object SeedData {
             status = "Ongoing"
         ),
         Novel(
-            id = "np-9",
+            id = "np-the-beginning-after-the-end",
             title = "The Beginning After the End",
             coverUrl = "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -136,7 +136,7 @@ object SeedData {
             status = "Ongoing"
         ),
         Novel(
-            id = "np-10",
+            id = "np-mother-of-learning",
             title = "Mother of Learning",
             coverUrl = "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=600&q=80",
             source = NovelSourceType.NOVEL_PHOENIX,
@@ -440,6 +440,30 @@ object SeedData {
         val all = (novelPhoenixHeroSlides + novelPhoenixTrending + novelPhoenixLatest +
                 fwnHeroSlides + fwnTrending +
                 asuraHeroSlides + asuraTrending + asuraLatest)
-        return all.find { it.id == id }
+
+        // 1. Exact match on ID
+        all.find { it.id == id }?.let { return it }
+
+        // 2. Legacy numeric ID mapping to real slug-based ID
+        val legacyMappedId = when (id) {
+            "np-1" -> "np-shadow-slave"
+            "np-2" -> "np-full-star-player-returns-as-a-godslayer"
+            "np-3" -> "np-genius-martial-arts-trainer"
+            "np-4" -> "np-the-mine-lord-a-dwarven-survival-base-builder"
+            "np-5" -> "np-lord-of-the-mysteries"
+            "np-6" -> "np-reverend-insanity"
+            "np-7" -> "np-collecting-powerful-girlfriends-my-invincible-harem"
+            "np-8" -> "np-tyrant-no-i-am-the-villain"
+            "np-9" -> "np-the-beginning-after-the-end"
+            "np-10" -> "np-mother-of-learning"
+            else -> null
+        }
+        if (legacyMappedId != null) {
+            all.find { it.id == legacyMappedId }?.let { return it }
+        }
+
+        // 3. Match by slug at end of sourceUrl
+        val cleanSlug = id.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
+        return all.find { it.sourceUrl.endsWith("/$cleanSlug") }
     }
 }

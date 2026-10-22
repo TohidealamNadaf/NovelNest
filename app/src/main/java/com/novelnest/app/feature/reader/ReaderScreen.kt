@@ -1,7 +1,7 @@
 package com.novelnest.app.feature.reader
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -36,6 +36,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelPrimary
+import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
@@ -83,19 +86,19 @@ fun ReaderScreen(
     // Navigation direction tracking: 1 for next chapter (slides up), -1 for previous chapter (slides down)
     var navDirection by remember { mutableIntStateOf(1) }
 
-    fun navigateToNextChapter() {
-        if (uiState.currentChapterIndex < uiState.chapters.size - 1) {
+    fun navigateToNextChapter(expectedIndex: Int) {
+        if (uiState.canNavigateFrom(expectedIndex) && uiState.currentChapterIndex < uiState.chapters.size - 1) {
             playHaptic(NovelNestHapticType.LIGHT_TICK)
             navDirection = 1
-            viewModel.nextChapter()
+            viewModel.nextChapter(expectedIndex)
         }
     }
 
-    fun navigateToPrevChapter() {
-        if (uiState.currentChapterIndex > 0) {
+    fun navigateToPrevChapter(expectedIndex: Int) {
+        if (uiState.canNavigateFrom(expectedIndex) && uiState.currentChapterIndex > 0) {
             playHaptic(NovelNestHapticType.LIGHT_TICK)
             navDirection = -1
-            viewModel.prevChapter()
+            viewModel.prevChapter(expectedIndex)
         }
     }
 
@@ -173,34 +176,45 @@ fun ReaderScreen(
                 },
                 label = "chapter_reading_transition"
             ) { chapterIndex ->
-                val chapter = uiState.chapters[chapterIndex]
+                val chapter = uiState.chapters.getOrNull(chapterIndex) ?: return@AnimatedContent
+                val restoredScroll = remember(chapterIndex) { viewModel.scrollPosition(chapterIndex) }
                 val listState = rememberLazyListState()
-
-                // Scroll to top on chapter change
-                LaunchedEffect(chapterIndex) {
-                    listState.scrollToItem(0)
+                var scrollRestored by remember(chapterIndex) { mutableStateOf(false) }
+                LaunchedEffect(chapterIndex, chapter.paragraphs.isNotEmpty()) {
+                    if (!scrollRestored && chapter.paragraphs.isNotEmpty()) {
+                        listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+                        scrollRestored = true
+                    }
+                }
+                LaunchedEffect(listState, chapterIndex, scrollRestored) {
+                    androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                        .collect { (item, offset) ->
+                            if (scrollRestored) viewModel.saveScrollPosition(chapterIndex, item, offset)
+                        }
                 }
 
                 // Interactive pull offset for swipe-up (bottom) and swipe-down (top) overscroll
-                val pullOffset = remember { Animatable(0f) }
+                var pullOffset by remember(chapterIndex) { mutableFloatStateOf(0f) }
+                var releasingPull by remember(chapterIndex) { mutableStateOf(false) }
+                val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex))
                 val thresholdPx = with(density) { 75.dp.toPx() }
 
                 // NestedScrollConnection detects overscroll at boundaries
                 val pullScrollConnection = remember(listState, hasPrevChapter, hasNextChapter, thresholdPx) {
                     object : NestedScrollConnection {
                         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                            if (source == NestedScrollSource.UserInput) {
-                                val current = pullOffset.value
+                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull) {
+                                val current = pullOffset
                                 // Pulling back up from downward pull
                                 if (current > 0f && available.y < 0f) {
                                     val consumed = available.y.coerceAtLeast(-current)
-                                    coroutineScope.launch { pullOffset.snapTo(current + consumed) }
+                                    pullOffset = current + consumed
                                     return Offset(0f, consumed)
                                 }
                                 // Pulling back down from upward pull
                                 if (current < 0f && available.y > 0f) {
                                     val consumed = available.y.coerceAtMost(-current)
-                                    coroutineScope.launch { pullOffset.snapTo(current + consumed) }
+                                    pullOffset = current + consumed
                                     return Offset(0f, consumed)
                                 }
                             }
@@ -212,20 +226,20 @@ fun ReaderScreen(
                             available: Offset,
                             source: NestedScrollSource
                         ): Offset {
-                            if (source == NestedScrollSource.UserInput) {
+                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull) {
                                 // 1. Swipe down at top of chapter -> pull previous chapter from above
                                 if (available.y > 0f && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && hasPrevChapter) {
                                     val delta = available.y * 0.45f
-                                    val newTarget = (pullOffset.value + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
-                                    coroutineScope.launch { pullOffset.snapTo(newTarget) }
+                                    val newTarget = (pullOffset + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
+                                    pullOffset = newTarget
                                     return Offset(0f, available.y)
                                 }
 
                                 // 2. Swipe up at end of chapter -> pull next chapter from below
                                 if (available.y < 0f && !listState.canScrollForward && hasNextChapter) {
                                     val delta = available.y * 0.45f
-                                    val newTarget = (pullOffset.value + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
-                                    coroutineScope.launch { pullOffset.snapTo(newTarget) }
+                                    val newTarget = (pullOffset + delta).coerceIn(-thresholdPx * 1.5f, thresholdPx * 1.5f)
+                                    pullOffset = newTarget
                                     return Offset(0f, available.y)
                                 }
                             }
@@ -233,22 +247,34 @@ fun ReaderScreen(
                         }
 
                         override suspend fun onPreFling(available: Velocity): Velocity {
-                            val current = pullOffset.value
-                            if (current >= thresholdPx && hasPrevChapter) {
-                                navigateToPrevChapter()
-                            } else if (current <= -thresholdPx && hasNextChapter) {
-                                navigateToNextChapter()
+                            if (!swipeEnabled || releasingPull || pullOffset == 0f) return Velocity.Zero
+                            val current = pullOffset
+                            releasingPull = true
+                            try {
+                                if (current >= thresholdPx && hasPrevChapter) {
+                                    pullOffset = 0f
+                                    navigateToPrevChapter(chapterIndex)
+                                } else if (current <= -thresholdPx && hasNextChapter) {
+                                    pullOffset = 0f
+                                    navigateToNextChapter(chapterIndex)
+                                } else {
+                                    animate(current, 0f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { value, _ ->
+                                        pullOffset = value
+                                    }
+                                }
+                            } finally {
+                                pullOffset = 0f
+                                releasingPull = false
                             }
-                            pullOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                            return Velocity.Zero
+                            return Velocity(0f, available.y)
                         }
                     }
                 }
 
                 // Fire haptic tick when crossing pull threshold
                 var hasFiredThresholdHaptic by remember { mutableStateOf(false) }
-                LaunchedEffect(pullOffset.value) {
-                    val currentAbs = kotlin.math.abs(pullOffset.value)
+                LaunchedEffect(pullOffset) {
+                    val currentAbs = kotlin.math.abs(pullOffset)
                     if (currentAbs >= thresholdPx && !hasFiredThresholdHaptic) {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         hasFiredThresholdHaptic = true
@@ -257,7 +283,7 @@ fun ReaderScreen(
                     }
                 }
 
-                val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 62.dp
+                val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 68.dp
 
                 Box(
                     modifier = Modifier
@@ -268,7 +294,7 @@ fun ReaderScreen(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { translationY = pullOffset.value }
+                            .graphicsLayer { translationY = pullOffset }
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
@@ -281,7 +307,7 @@ fun ReaderScreen(
                             bottom = 48.dp
                         )
                     ) {
-                        // Chapter Title Header
+                        // Chapter Title Header with generous breathing space below ReaderTopBar
                         item {
                             Text(
                                 text = chapter.title,
@@ -290,12 +316,15 @@ fun ReaderScreen(
                                 fontSize = (settings.fontSizeSp + 4f).sp,
                                 lineHeight = ((settings.fontSizeSp + 4f) * settings.lineHeightMultiplier).sp,
                                 color = textColor,
-                                modifier = Modifier.padding(bottom = 18.dp)
+                                modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
                             )
                         }
 
                         // Chapter Paragraphs
-                        items(chapter.paragraphs) { paragraph ->
+                        itemsIndexed(
+                            items = chapter.paragraphs,
+                            key = { index, _ -> readerParagraphKey(chapter.id, index) }
+                        ) { _, paragraph ->
                             Text(
                                 text = paragraph,
                                 fontFamily = settings.fontFamily.fontFamily,
@@ -306,21 +335,68 @@ fun ReaderScreen(
                             )
                         }
 
+                        // Chapter Loading Skeleton/Spinner when paragraphs are fetching
+                        if (chapter.paragraphs.isEmpty() && uiState.isChapterLoading) {
+                            item(key = "${chapter.id}_loading") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 48.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = NovelPrimary,
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Chapter Failure State with Retry button
+                        if (chapter.paragraphs.isEmpty() && !uiState.isChapterLoading && uiState.errorMessage != null) {
+                            item(key = "${chapter.id}_retry") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 36.dp, horizontal = 16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = uiState.errorMessage ?: "Failed to load chapter content.",
+                                        color = secondaryColor,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    androidx.compose.material3.Button(
+                                        onClick = { viewModel.retryCurrentChapter() },
+                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = NovelPrimary)
+                                    ) {
+                                        Text("Retry Chapter", color = NovelOnPrimary)
+                                    }
+                                }
+                            }
+                        }
+
                         // End-of-chapter cut section with '---' border space and Tap/Swipe Up caption
-                        item {
-                            ChapterCutSection(
-                                hasNextChapter = hasNextChapter,
-                                textColor = textColor,
-                                secondaryColor = secondaryColor,
-                                onNextChapter = { navigateToNextChapter() }
-                            )
+                        // Only show when chapter content is actually present or loaded to prevent anchor jumps
+                        if (chapter.paragraphs.isNotEmpty()) {
+                            item(key = "${chapter.id}_cut_section") {
+                                ChapterCutSection(
+                                    hasNextChapter = uiState.chapters.getOrNull(chapterIndex + 1) != null,
+                                    nextChapterTitle = uiState.chapters.getOrNull(chapterIndex + 1)?.title,
+                                    textColor = textColor,
+                                    secondaryColor = secondaryColor,
+                                    onNextChapter = { navigateToNextChapter(chapterIndex) }
+                                )
+                            }
                         }
                     }
 
                     // Pull Down Indicator (Previous Chapter Preview & Release state)
                     PullChapterIndicator(
                         isPullingDown = true,
-                        pullDistancePx = pullOffset.value.coerceAtLeast(0f),
+                        pullDistancePx = pullOffset.coerceAtLeast(0f),
                         thresholdPx = thresholdPx,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -330,7 +406,7 @@ fun ReaderScreen(
                     // Pull Up Indicator (Next Chapter Preview & Release state)
                     PullChapterIndicator(
                         isPullingDown = false,
-                        pullDistancePx = (-pullOffset.value).coerceAtLeast(0f),
+                        pullDistancePx = (-pullOffset).coerceAtLeast(0f),
                         thresholdPx = thresholdPx,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -343,7 +419,7 @@ fun ReaderScreen(
         // Properly placed Top Reading Control Header (Footer removed completely)
         ReaderTopBar(
             novelTitle = uiState.novel?.title ?: "NovelNest",
-            chapterTitle = if (uiState.chapters.isNotEmpty()) uiState.chapters[uiState.currentChapterIndex].title else "",
+            chapterTitle = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.title.orEmpty(),
             currentTheme = currentTheme,
             textColor = textColor,
             secondaryColor = secondaryColor,
@@ -367,7 +443,9 @@ fun ReaderScreen(
                 onDismiss = { viewModel.showQuickSettings(false) },
                 onSetTheme = { viewModel.setTheme(it) },
                 onSetFontSize = { viewModel.setFontSize(it) },
-                onSetLineHeight = { viewModel.setLineHeight(it) }
+                onSetLineHeight = { viewModel.setLineHeight(it) },
+                onSetFontFamily = { viewModel.setFontFamily(it) },
+                onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) }
             )
         }
     }

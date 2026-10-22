@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -38,6 +39,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelSurface
 import com.novelnest.app.core.designsystem.NovelSurfaceBorder
@@ -132,20 +134,19 @@ fun ReaderChaptersDrawer(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(chapters, key = { _, ch -> ch.id }) { index, chapter ->
+                itemsIndexed(chapters, key = { index, ch -> "${ch.id}:$index" }) { index, chapter ->
                     val isCurrent = index == currentChapterIndex
                     val isRead = readChapterIds.contains(chapter.id)
 
                     val cardBackground = when {
-                        isCurrent -> NovelPrimary.copy(alpha = 0.12f)
-                        isRead -> Color(0xFF13171D)
-                        else -> NovelSurfaceVariant.copy(alpha = 0.6f)
+                        isCurrent -> NovelSurfaceVariant
+                        isRead -> Color(0xFF12161C)
+                        else -> NovelSurfaceVariant.copy(alpha = 0.45f)
                     }
 
-                    val borderColor = when {
-                        isCurrent -> NovelPrimary.copy(alpha = 0.7f)
-                        isRead -> Color(0x3322C55E)
-                        else -> NovelSurfaceBorder.copy(alpha = 0.4f)
+                    val cardBorder = when {
+                        isCurrent -> NovelSurfaceBorder.copy(alpha = 0.8f)
+                        else -> NovelSurfaceBorder.copy(alpha = 0.35f)
                     }
 
                     Row(
@@ -153,7 +154,7 @@ fun ReaderChaptersDrawer(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(cardBackground)
-                            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+                            .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
                             .clickable(role = Role.Button) {
                                 onSelectChapter(index)
                                 onCloseDrawer()
@@ -161,40 +162,50 @@ fun ReaderChaptersDrawer(
                             .padding(horizontal = 10.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Square card with rounded corner for index number / green checkmark
-                        val squareBg = if (isRead) {
-                            Color(0x2E22C55E) // Subtle green tint
-                        } else {
-                            Color(0xFF1C222B)
+                        // Index card: green border/tint ONLY when read; solid NovelPrimary when current
+                        val indexBg = when {
+                            isCurrent -> NovelPrimary
+                            isRead -> Color(0x2222C55E)
+                            else -> Color(0xFF161B22)
                         }
 
-                        val squareBorder = if (isRead) {
-                            Color(0x6622C55E)
-                        } else {
-                            NovelSurfaceBorder
+                        val indexBorder = when {
+                            isCurrent -> NovelPrimary
+                            isRead -> Color(0x8822C55E)
+                            else -> NovelSurfaceBorder
                         }
 
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(squareBg)
-                                .border(1.dp, squareBorder, RoundedCornerShape(8.dp)),
+                                .background(indexBg)
+                                .border(1.dp, indexBorder, RoundedCornerShape(8.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             if (isRead) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Check,
-                                    contentDescription = "Read",
-                                    tint = Color(0xFF22C55E),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                // Tick mark inside a small circle
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x3322C55E))
+                                        .border(1.dp, Color(0xFF22C55E), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = "Read",
+                                        tint = Color(0xFF22C55E),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
                             } else {
                                 Text(
                                     text = "${index + 1}",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) NovelPrimary else NovelTextSecondary
+                                    color = if (isCurrent) NovelOnPrimary else NovelTextSecondary
                                 )
                             }
                         }

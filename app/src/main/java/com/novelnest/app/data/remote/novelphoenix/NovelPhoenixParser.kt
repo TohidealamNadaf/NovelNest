@@ -151,9 +151,19 @@ object NovelPhoenixParser {
     }
 
     /**
-     * Parses a paginated chapter list HTML page (e.g. /novel/{slug}/chapters?page=N).
+     * Result of parsing a paginated chapter list HTML page, including total pages parsed from the range dropdown.
      */
-    fun parseChapterList(html: String): List<PhoenixChapterItem> {
+    data class PhoenixChapterPageResult(
+        val chapters: List<PhoenixChapterItem>,
+        val totalPages: Int,
+        val currentPage: Int
+    )
+
+    /**
+     * Parses a paginated chapter list HTML page (e.g. /novel/{slug}/chapters?page=N), extracting both chapters
+     * and total page count from the <select aria-label="Chapter range"> dropdown.
+     */
+    fun parseChapterListPage(html: String, defaultPage: Int = 1): PhoenixChapterPageResult {
         if (NovelPhoenixUtils.isCloudflareChallenge(html)) {
             throw PhoenixException.SourceBlockedError(isCloudflareChallenge = true)
         }
@@ -196,7 +206,26 @@ object NovelPhoenixParser {
             )
         }
 
-        return chapters
+        // Extract total pages from chapter range dropdown options
+        val rangeOptions = doc.select("select[aria-label='Chapter range'] option, .chaprange select option")
+        val pageNumbers = rangeOptions.mapNotNull { opt ->
+            val v = opt.attr("value")
+            Regex("[?&]page=([0-9]+)").find(v)?.groupValues?.get(1)?.toIntOrNull()
+        }
+        val totalPages = (pageNumbers.maxOrNull() ?: rangeOptions.size).coerceAtLeast(1)
+
+        return PhoenixChapterPageResult(
+            chapters = chapters,
+            totalPages = totalPages,
+            currentPage = defaultPage
+        )
+    }
+
+    /**
+     * Parses a paginated chapter list HTML page (e.g. /novel/{slug}/chapters?page=N).
+     */
+    fun parseChapterList(html: String): List<PhoenixChapterItem> {
+        return parseChapterListPage(html).chapters
     }
 
     /**
@@ -224,9 +253,19 @@ object NovelPhoenixParser {
         }
 
         // Extract clean paragraphs
-        val paragraphs = contentContainer.select("p")
+        var paragraphs = contentContainer.select("p")
             .map { it.text().trim() }
             .filter { it.isNotBlank() }
+            .filterNot { it.contains("does not store any files", ignoreCase = true) }
+
+        if (paragraphs.isEmpty()) {
+            val rawHtml = contentContainer.html()
+                .replace("(?i)<br\\s*/?>".toRegex(), "\n")
+            paragraphs = rawHtml.split("\n")
+                .map { Jsoup.parse(it).text().trim() }
+                .filter { it.isNotBlank() }
+                .filterNot { it.contains("does not store any files", ignoreCase = true) }
+        }
 
         // Navigation links: Prev
         val prevEl = doc.selectFirst("a.prevchap")
@@ -339,12 +378,17 @@ object NovelPhoenixParser {
 
         for (item in items) {
             val titleEl = item.selectFirst(NovelPhoenixSelectors.LISTING_TITLE)
-            val title = titleEl?.text()?.ifBlank { titleEl.attr("title") }?.trim().orEmpty()
+            val title = item.selectFirst("h4.novel-title, h2.novel-title, h4, h2.title a")?.text()?.trim()
+                ?: item.selectFirst("a[href*='/novel/'][title]")?.attr("title")?.trim()?.takeIf { it.isNotBlank() }
+                ?: titleEl?.text()?.trim()?.ifBlank {
+                item.selectFirst("a[title]")?.attr("title")?.trim()
+            } ?: item.selectFirst("a[title]")?.attr("title")?.trim().orEmpty()
+
             val linkEl = item.selectFirst(NovelPhoenixSelectors.LISTING_LINK)
             val href = linkEl?.attr("href")?.trim().orEmpty()
             if (title.isBlank() || href.isBlank()) continue
 
-            val slug = href.trimEnd('/').substringAfterLast('/')
+            val slug = runCatching { java.net.URI(href).path }.getOrDefault(href).trimEnd('/').substringAfterLast('/')
 
             // Lazy loaded image: check data-src first, then src
             val imgEl = item.selectFirst("img")
@@ -354,12 +398,21 @@ object NovelPhoenixParser {
             }
             val coverUrl = NovelPhoenixUtils.resolveUrl(cover)
 
-            val latestCh = item.selectFirst(NovelPhoenixSelectors.LISTING_LATEST_CHAPTER)?.text()?.trim().orEmpty()
+            val allStats = item.select(".novel-stats")
+            val chapterStatsText = allStats.map { it.text().trim() }
+                .firstOrNull { it.contains("Chapter", ignoreCase = true) }
+            val latestCh = chapterStatsText
+                ?: item.selectFirst(NovelPhoenixSelectors.LISTING_LATEST_CHAPTER)?.text()?.trim().orEmpty()
+
             val ratingText = item.selectFirst(NovelPhoenixSelectors.LISTING_RATING_BADGE)?.text()
                 ?.replace(Regex("[^0-9.]"), "")
             val rating = ratingText?.toFloatOrNull() ?: 4.5f
 
-            val rankBadge = item.selectFirst(NovelPhoenixSelectors.LISTING_RANK_BADGE)?.text()?.trim()
+            // Clean rank extraction: check badge._bl, rank-counter, or stats with icon-crown/Rank
+            val rankBadgeRaw = item.selectFirst(".badge._bl, .rank-counter")?.text()?.trim()
+                ?: allStats.firstOrNull { it.text().contains("Rank", ignoreCase = true) || it.selectFirst(".icon-crown") != null }?.text()?.trim()
+            val rankDigits = rankBadgeRaw?.replace(Regex("[^0-9]"), "")
+            val rankBadge = if (!rankDigits.isNullOrBlank()) "R $rankDigits" else null
 
             results.add(
                 PhoenixListingItem(
@@ -373,7 +426,9 @@ object NovelPhoenixParser {
             )
         }
 
-        return results
+        return results.groupBy { it.slug }.values.map { duplicates ->
+            duplicates.minBy { it.title.length }
+        }
     }
 
     private fun selectFirstText(doc: Document, selectors: List<String>): String? {

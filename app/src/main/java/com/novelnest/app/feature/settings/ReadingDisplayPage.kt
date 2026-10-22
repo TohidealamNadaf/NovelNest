@@ -59,6 +59,7 @@ import com.novelnest.app.feature.settings.components.LiveReaderPreviewCard
 import com.novelnest.app.feature.settings.components.SettingsSectionHeader
 import com.novelnest.app.feature.settings.components.ThemeSelectorRow
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ReadingDisplayPage(
     readerSettings: ReaderSettings,
@@ -215,18 +216,20 @@ fun ReadingDisplayPage(
                             color = NovelTextPrimary,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        Row(
+                        androidx.compose.foundation.layout.FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .selectableGroup(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            maxItemsInEachRow = 2
                         ) {
                             ReaderFont.entries.forEach { font ->
                                 val isSelected = font == readerSettings.fontFamily
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .sizeIn(minHeight = 44.dp)
+                                        .height(44.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(if (isSelected) NovelPrimary else NovelSurfaceVariant)
                                         .border(
@@ -242,16 +245,12 @@ fun ReadingDisplayPage(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = when (font) {
-                                            ReaderFont.SYSTEM -> "System"
-                                            ReaderFont.SERIF -> "Serif"
-                                            ReaderFont.SANS_SERIF -> "Sans"
-                                            ReaderFont.MONOSPACE -> "Mono"
-                                        },
+                                        text = font.displayName,
                                         fontFamily = font.fontFamily,
                                         color = if (isSelected) NovelOnPrimary else NovelTextSecondary,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 12.sp
+                                        fontSize = 13.sp,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -292,6 +291,86 @@ fun ReadingDisplayPage(
                                             selected = isSelected,
                                             role = Role.Tab,
                                             onClick = { viewModel.setLineHeight(multiplier) }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) NovelOnPrimary else NovelTextSecondary,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            color = NovelSurfaceBorder.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+
+                        // Paragraph Padding / Spacing
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paragraph Padding",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = NovelTextPrimary
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(NovelSurfaceVariant)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "${readerSettings.paragraphSpacingDp.toInt()} dp",
+                                    color = NovelPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        Slider(
+                            value = readerSettings.paragraphSpacingDp,
+                            onValueChange = { viewModel.setParagraphSpacing(it) },
+                            valueRange = 4f..24f,
+                            steps = 9,
+                            colors = SliderDefaults.colors(
+                                thumbColor = NovelPrimary,
+                                activeTrackColor = NovelPrimary,
+                                inactiveTrackColor = NovelSurfaceBorder
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectableGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(8f to "Compact", 12f to "Normal", 16f to "Relaxed", 20f to "Spacious").forEach { (spacing, label) ->
+                                val isSelected = kotlin.math.abs(readerSettings.paragraphSpacingDp - spacing) < 1f
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .sizeIn(minHeight = 40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) NovelPrimary else NovelSurfaceVariant)
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) NovelPrimary else NovelSurfaceBorder,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .selectable(
+                                            selected = isSelected,
+                                            role = Role.Tab,
+                                            onClick = { viewModel.setParagraphSpacing(spacing) }
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {

@@ -2,94 +2,79 @@ package com.novelnest.app.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.novelnest.app.data.model.NovelSourceType
-import com.novelnest.app.data.repository.NovelRepository
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import com.novelnest.app.data.bookmark.BookmarkManager
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.NovelSourceType
+import com.novelnest.app.data.progress.NovelProgress
+import com.novelnest.app.data.progress.ReadingProgressManager
+import com.novelnest.app.data.repository.NovelRepository
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+/** Home resolves history from bookmarks and local metadata; it never requests source feeds. */
 class HomeViewModel(
-    private val repository: NovelRepository,
-    private val bookmarkManager: BookmarkManager? = null
+    private val bookmarkManager: BookmarkManager,
+    progressManager: ReadingProgressManager? = null,
+    private val repository: NovelRepository? = null
 ) : ViewModel() {
-
-    private val _uiState = MutableStateFlow(
-        HomeUiState(
-            bookmarkedNovels = bookmarkManager?.bookmarks?.value.orEmpty()
-        )
-    )
-    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
-
-    private var loadJob: Job? = null
+    private val _uiState = MutableStateFlow(HomeUiState(
+        bookmarkedNovels = bookmarkManager.bookmarks.value,
+        progress = progressManager?.progressMap?.value.orEmpty()
+    ))
+    val uiState = _uiState.asStateFlow()
+    private var historyMetadata: Map<String, Novel> = emptyMap()
 
     init {
-        observeBookmarks()
-        loadSectionsForSource(_uiState.value.selectedSource)
-    }
-
-    private fun observeBookmarks() {
-        if (bookmarkManager == null) return
         viewModelScope.launch {
-            bookmarkManager.bookmarks.collect { bookmarks ->
-                _uiState.update { it.copy(bookmarkedNovels = bookmarks) }
-            }
-        }
-    }
-
-    fun removeBookmark(novelId: String) {
-        bookmarkManager?.removeBookmark(novelId)
-    }
-
-    fun selectSource(source: NovelSourceType) {
-        if (_uiState.value.selectedSource == source && _uiState.value.sections.isNotEmpty()) {
-            return
-        }
-        _uiState.update { it.copy(selectedSource = source) }
-        loadSectionsForSource(source)
-    }
-
-    fun refresh() {
-        loadSectionsForSource(_uiState.value.selectedSource, forceRefresh = true)
-    }
-
-    private fun loadSectionsForSource(source: NovelSourceType, forceRefresh: Boolean = false) {
-        loadJob?.cancel()
-        loadJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isLoading = it.sections.isEmpty() || forceRefresh,
-                    isRefreshing = forceRefresh,
-                    errorMessage = null
-                )
-            }
-
-            repository.getHomeSections(source, forceRefresh).collect { result ->
-                result.fold(
-                    onSuccess = { sections ->
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                isRefreshing = false,
-                                sections = sections,
-                                errorMessage = null
-                            )
-                        }
-                    },
-                    onFailure = { throwable ->
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                isRefreshing = false,
-                                errorMessage = throwable.localizedMessage ?: "Failed to load novels"
-                            )
-                        }
+            combine(
+                bookmarkManager.bookmarks,
+                progressManager?.progressMap ?: MutableStateFlow<Map<String, NovelProgress>>(emptyMap())
+            ) { bookmarks, progress -> bookmarks to progress }
+                .collectLatest { (bookmarks, progress) ->
+                    _uiState.update { it.copy(bookmarkedNovels = bookmarks, progress = progress) }
+                    val byId = bookmarks.associateBy { it.id }
+                    val recent = progress.values.sortedByDescending { it.lastReadTimestamp }
+                        .groupBy { entry ->
+                            byId[entry.novelId]?.source ?: historyMetadata[entry.novelId]?.source ?: sourceFor(entry.novelId)
+                        }.values.flatMap { it.take(10) }
+                    val resolved = recent.map { entry ->
+                        val novel = byId[entry.novelId] ?: historyMetadata[entry.novelId]
+                            ?: localNovel(entry.novelId) ?: fallbackNovel(entry.novelId)
+                        HomeReadingEntry(novel, entry)
                     }
-                )
-            }
+                    // At most ten resolved history records per source, not a growing novel cache.
+                    historyMetadata = resolved.associate { it.progress.novelId to it.novel }
+                    _uiState.update { it.copy(readingHistory = resolved) }
+                }
         }
     }
+
+    private suspend fun localNovel(id: String): Novel? = try {
+        repository?.getNovelById(id)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun sourceFor(id: String) = when {
+        id.startsWith("fwn-") -> NovelSourceType.FREE_WEB_NOVEL
+        id.startsWith("asura-") -> NovelSourceType.ASURA_SCANS
+        else -> NovelSourceType.NOVEL_PHOENIX
+    }
+
+    private fun fallbackNovel(id: String): Novel {
+        val source = sourceFor(id)
+        val slug = id.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
+        val url = if (source == NovelSourceType.FREE_WEB_NOVEL)
+            runCatching { FreeWebNovelUrls.novelUrl(id) }.getOrDefault("")
+        else "${source.baseUrl}/novel/$slug"
+        return Novel(id, slug.split('-').joinToString(" ") { it.replaceFirstChar(Char::titlecase) },
+            "", source, url, latestChapter = "")
+    }
+
+    fun selectSource(source: NovelSourceType) { _uiState.update { it.copy(selectedSource = source) } }
+    fun removeBookmark(novelId: String) = bookmarkManager.removeBookmark(novelId)
 }

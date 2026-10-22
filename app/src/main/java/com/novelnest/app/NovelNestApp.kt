@@ -18,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,11 +34,24 @@ import com.novelnest.app.navigation.NovelNestNavHost
 
 @Composable
 fun NovelNestApp(
-    repository: NovelRepository
+    repository: NovelRepository,
+    sessionManager: com.novelnest.app.data.preferences.ReaderSessionManager? = null,
+    restoreReaderSession: Boolean = false
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val initialSession = remember { if (restoreReaderSession) sessionManager?.session else null }
+    LaunchedEffect(Unit) {
+        if (initialSession != null && navController.currentDestination?.route == NovelNestDestination.Home.route) {
+            navController.navigate(NovelNestDestination.Detail.createRoute(initialSession.novelId))
+            navController.navigate(NovelNestDestination.Reader.createRoute(initialSession.novelId, initialSession.chapterIndex))
+        }
+    }
+    LaunchedEffect(navBackStackEntry) {
+        val activeRoute = navController.currentDestination?.route
+        if (activeRoute != null && activeRoute != NovelNestDestination.Reader.route) sessionManager?.clear()
+    }
 
     val showBottomBar = currentRoute in listOf(
         NovelNestDestination.Home.route,
@@ -76,7 +90,14 @@ fun NovelNestApp(
         NovelNestNavHost(
             navController = navController,
             repository = repository,
+            onReaderPosition = { id, index ->
+                val entry = navController.currentBackStackEntry
+                if (entry?.destination?.route == NovelNestDestination.Reader.route && entry.arguments?.getString("novelId") == id) {
+                    sessionManager?.record(id, index)
+                }
+            },
             onNovelClick = { novel ->
+                repository.rememberNovel(novel)
                 // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
                 navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
             },

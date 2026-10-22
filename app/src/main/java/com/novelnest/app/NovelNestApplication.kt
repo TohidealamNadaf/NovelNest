@@ -28,6 +28,14 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.bookmark.BookmarkManager(this)
     }
 
+    val searchHistoryManager: com.novelnest.app.data.preferences.SearchHistoryManager by lazy {
+        com.novelnest.app.data.preferences.SearchHistoryManager(this)
+    }
+
+    val readerSessionManager by lazy {
+        com.novelnest.app.data.preferences.ReaderSessionManager(getSharedPreferences("reader_session", MODE_PRIVATE))
+    }
+
     val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager by lazy {
         com.novelnest.app.data.progress.ReadingProgressManager(database.readingProgressDao())
     }

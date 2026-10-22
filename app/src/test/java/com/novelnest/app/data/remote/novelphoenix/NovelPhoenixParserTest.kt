@@ -137,6 +137,25 @@ class NovelPhoenixParserTest {
         assertEquals("3221", last.chapterNumber)
     }
 
+    @Test
+    fun parseChapterListPage_extractsTotalPagesFromRangeDropdown() {
+        val htmlWithDropdown = """
+            <select aria-label="Chapter range">
+                <option value="http://novelphoenix.com/novel/shadow-slave/chapters?page=1" selected>1-100</option>
+                <option value="http://novelphoenix.com/novel/shadow-slave/chapters?page=2">101-200</option>
+                <option value="http://novelphoenix.com/novel/shadow-slave/chapters?page=33">3201-3221</option>
+            </select>
+            <ul class="chapter-list">
+                <li><a href="/novel/shadow-slave/chapter-1" title="Chapter 1"><span class="chapter-no">1</span><strong class="chapter-title">Chapter 1</strong><time class="chapter-update">1 day ago</time></a></li>
+            </ul>
+        """.trimIndent()
+
+        val pageResult = NovelPhoenixParser.parseChapterListPage(htmlWithDropdown)
+        assertEquals(33, pageResult.totalPages)
+        assertEquals(1, pageResult.chapters.size)
+        assertEquals("1", pageResult.chapters.first().chapterNumber)
+    }
+
     // --- Chapter Content & Reader Tests ---
 
     @Test
@@ -213,6 +232,19 @@ class NovelPhoenixParserTest {
         assertTrue(results.any { it.title.contains("Circle of Inevitability") })
     }
 
+    @Test
+    fun parseListingHtml_searchPageShadow() {
+        val html = loadFixture("search_page_shadow.html")
+        val results = NovelPhoenixParser.parseListingHtml(html)
+
+        assertTrue(results.isNotEmpty())
+        val first = results.first()
+        assertEquals("Shadow Slave", first.title)
+        assertEquals("shadow-slave", first.slug)
+        assertEquals("3221 Chapters", first.latestChapter)
+        assertEquals("1", first.rankBadge?.replace(Regex("[^0-9]"), ""))
+    }
+
     // --- Error & Blocked Response Tests ---
 
     @Test(expected = PhoenixException.SourceBlockedError::class)
@@ -248,5 +280,27 @@ class NovelPhoenixParserTest {
             NovelPhoenixUtils.resolveUrl("data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", "https://fallback.com/placeholder.jpg"))
         assertEquals("https://fallback.com/placeholder.jpg",
             NovelPhoenixUtils.resolveUrl("", "https://fallback.com/placeholder.jpg"))
+    }
+
+    @Test
+    fun parseChapterContent_brSeparatedFallback() {
+        val htmlWithoutP = """
+            <html>
+            <head><title>Chapter 10 - Test Novel - Novel Phoenix</title></head>
+            <body>
+                <div id="content">
+                    Line one of the story.<br><br>
+                    Line two of the story.<br>
+                    Line three of the story.
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val parsed = NovelPhoenixParser.parseChapterContent(htmlWithoutP)
+        assertEquals(3, parsed.paragraphs.size)
+        assertEquals("Line one of the story.", parsed.paragraphs[0])
+        assertEquals("Line two of the story.", parsed.paragraphs[1])
+        assertEquals("Line three of the story.", parsed.paragraphs[2])
     }
 }

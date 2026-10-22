@@ -49,11 +49,10 @@ fun SettingsCategoryTile(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    valueBadge: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(18.dp)
+    val cardShape = RoundedCornerShape(12.dp)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = NovelSurface),
@@ -64,7 +63,7 @@ fun SettingsCategoryTile(
             .fillMaxWidth()
             .clip(cardShape)
             .bounceClick(
-                scaleDown = BounceScale.Medium,
+                scaleDown = BounceScale.Small,
                 role = Role.Button,
                 onClick = onClick
             )
@@ -72,14 +71,14 @@ fun SettingsCategoryTile(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Solid, borderless icon container
+            // Compact standard icon container
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(NovelSurfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
@@ -87,51 +86,38 @@ fun SettingsCategoryTile(
                     imageVector = icon,
                     contentDescription = null,
                     tint = NovelPrimary,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = NovelTextPrimary
+                    fontSize = 14.sp,
+                    color = NovelTextPrimary,
+                    maxLines = 1
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = NovelTextSecondary,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    maxLines = 1
                 )
-                if (valueBadge != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(NovelSurfaceVariant)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = valueBadge,
-                            color = NovelSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                 contentDescription = null,
-                tint = NovelTextSecondary.copy(alpha = 0.45f),
-                modifier = Modifier.size(18.dp)
+                tint = NovelTextSecondary.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp)
             )
         }
     }

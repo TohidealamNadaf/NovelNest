@@ -120,7 +120,7 @@ fun NovelNestFooter(
     modifier: Modifier = Modifier
 ) {
     val playHaptic = rememberNovelNestHaptic()
-    val pillShape = RoundedCornerShape(32.dp)
+    val pillShape = RoundedCornerShape(29.dp)
 
     val shadowModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         Modifier.shadow(
@@ -160,15 +160,15 @@ fun NovelNestFooter(
                     color = NovelSurfaceBorder.copy(alpha = 0.65f),
                     shape = pillShape
                 )
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             val density = androidx.compose.ui.platform.LocalDensity.current
             val totalWidthPx = with(density) { maxWidth.toPx() }
-            val pillRestWidthPx = with(density) { 76.dp.toPx() }
-            val halfPillWidthPx = pillRestWidthPx / 2f
             val count = destinations.size.coerceAtLeast(1)
             val slotWidthPx = if (count > 0) totalWidthPx / count else totalWidthPx
+            val pillRestWidthPx = slotWidthPx - with(density) { 6.dp.toPx() }
+            val halfPillWidthPx = pillRestWidthPx / 2f
 
             fun getTargetLeft(index: Int): Float =
                 (slotWidthPx * (index + 0.5f)) - halfPillWidthPx
@@ -212,7 +212,7 @@ fun NovelNestFooter(
                             rightAnim.animateTo(
                                 targetValue = targetRight,
                                 animationSpec = spring(
-                                    dampingRatio = 0.85f,
+                                    dampingRatio = 0.88f,
                                     stiffness = Spring.StiffnessMedium
                                 )
                             )
@@ -221,8 +221,8 @@ fun NovelNestFooter(
                             leftAnim.animateTo(
                                 targetValue = targetLeft,
                                 animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
+                                    dampingRatio = 0.85f,
+                                    stiffness = Spring.StiffnessMediumLow
                                 )
                             )
                         }
@@ -232,7 +232,7 @@ fun NovelNestFooter(
                             leftAnim.animateTo(
                                 targetValue = targetLeft,
                                 animationSpec = spring(
-                                    dampingRatio = 0.85f,
+                                    dampingRatio = 0.88f,
                                     stiffness = Spring.StiffnessMedium
                                 )
                             )
@@ -241,20 +241,19 @@ fun NovelNestFooter(
                             rightAnim.animateTo(
                                 targetValue = targetRight,
                                 animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
+                                    dampingRatio = 0.85f,
+                                    stiffness = Spring.StiffnessMediumLow
                                 )
                             )
                         }
                     }
                 } else {
-                    // Non-adjacent switch: moves without stretching over intermediate icons,
-                    // retaining pill shape and settling with bounce feedback
+                    // Non-adjacent switch: smooth synchronized movement without excessive spring oscillation
                     launch {
                         leftAnim.animateTo(
                             targetValue = targetLeft,
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                dampingRatio = 0.88f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -263,7 +262,7 @@ fun NovelNestFooter(
                         rightAnim.animateTo(
                             targetValue = targetRight,
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                dampingRatio = 0.88f,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -280,6 +279,7 @@ fun NovelNestFooter(
             val indicatorWidthDp = with(density) { currentWidthPx.toDp() }
 
             // 1. Sliding/Stretching Solid Primary Indicator Pill (encloses icon AND text with breathing room)
+            // Perfectly concentric with outer pill: Outer radius 29dp - 4dp padding = 25dp inner radius
             if (isInitialized) {
                 Box(
                     modifier = Modifier
@@ -287,7 +287,7 @@ fun NovelNestFooter(
                         .width(indicatorWidthDp)
                         .fillMaxHeight()
                         .align(Alignment.CenterStart)
-                        .clip(RoundedCornerShape(26.dp))
+                        .clip(RoundedCornerShape(25.dp))
                         .background(NovelPrimary)
                 )
             }
@@ -325,7 +325,7 @@ private fun FooterNavItem(
     modifier: Modifier = Modifier
 ) {
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
-    val itemShape = RoundedCornerShape(26.dp)
+    val itemShape = RoundedCornerShape(25.dp)
 
     // Contrast-aware coloring:
     // Active icon & label on solid NovelPrimary indicator pill has crisp dark #0F1216 tint.
@@ -357,12 +357,13 @@ private fun FooterNavItem(
             areAnimationsDisabled = areAnimationsDisabled
         )
 
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(1.dp))
 
         Text(
             text = destination.label,
             color = contentColor,
-            fontSize = 11.sp,
+            fontSize = 10.5.sp,
+            lineHeight = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1
         )
@@ -371,9 +372,9 @@ private fun FooterNavItem(
 
 /**
  * Animated navigation icon preserving all signature interactive motions:
- * - Home: Bouncy vertical hop + scale pulse + filled transition
+ * - Home: Subtle vertical hop that returns smoothly to center + controlled scale pulse + filled transition
  * - Discover: 360-degree compass rotation + filled transition
- * - Settings: 90-degree gear rotation + filled transition
+ * - Settings: Controlled 60-degree mechanical rotation + filled transition
  */
 @Composable
 private fun AnimatedNavIcon(
@@ -383,51 +384,53 @@ private fun AnimatedNavIcon(
     areAnimationsDisabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // 1. Home vertical hop animation
-    var homeHopTrigger by remember { mutableFloatStateOf(0f) }
+    // 1. Home transient hop: springs up on tap and settles back to 0dp so it stays centered
+    val homeHopAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(isSelected) {
-        if (isSelected && destination.route.contains("home", ignoreCase = true)) {
-            homeHopTrigger = 1f
+        if (isSelected && destination.route.contains("home", ignoreCase = true) && !areAnimationsDisabled) {
+            homeHopAnim.snapTo(0f)
+            homeHopAnim.animateTo(
+                targetValue = -3f,
+                animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            )
+            homeHopAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.85f,
+                    stiffness = Spring.StiffnessMedium
+                )
+            )
         } else {
-            homeHopTrigger = 0f
+            homeHopAnim.snapTo(0f)
         }
     }
 
-    val hopOffset by animateDpAsState(
-        targetValue = if (homeHopTrigger == 1f && !areAnimationsDisabled) (-3).dp else 0.dp,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "home_hop_offset"
-    )
-
-    // 2. Discover & Settings rotation animation
+    // 2. Discover & Settings rotation animation (controlled, refined, no wild overshoot)
     val targetRotation = when {
         !isSelected -> 0f
         destination.route.contains("discover", ignoreCase = true) -> 360f
-        destination.route.contains("settings", ignoreCase = true) -> 90f
+        destination.route.contains("settings", ignoreCase = true) -> 60f
         else -> 0f
     }
 
     val iconRotation by animateFloatAsState(
         targetValue = if (areAnimationsDisabled) 0f else targetRotation,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            dampingRatio = 0.86f,
+            stiffness = Spring.StiffnessMedium
         ),
         label = "nav_icon_rotation"
     )
 
-    // 3. Subtle scale pulse on selection
+    // 3. Subtle, refined scale pulse on selection (restrained to 1.06f)
     val iconScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.10f else 1.0f,
+        targetValue = if (isSelected) 1.06f else 1.0f,
         animationSpec = if (areAnimationsDisabled) {
             snap()
         } else {
             spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMediumLow
+                dampingRatio = 0.85f,
+                stiffness = Spring.StiffnessMedium
             )
         },
         label = "nav_icon_scale"
@@ -441,7 +444,7 @@ private fun AnimatedNavIcon(
                 scaleX = iconScale
                 scaleY = iconScale
                 rotationZ = iconRotation
-                translationY = if (destination.route.contains("home", ignoreCase = true)) hopOffset.toPx() else 0f
+                translationY = homeHopAnim.value.dp.toPx()
             }
             .clearAndSetSemantics { }
     ) {

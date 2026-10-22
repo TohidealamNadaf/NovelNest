@@ -19,7 +19,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             NovelNestTheme {
-                NovelNestApp(repository = novelRepository)
+                NovelNestApp(repository = novelRepository,
+                    sessionManager = (application as NovelNestApplication).readerSessionManager,
+                    restoreReaderSession = savedInstanceState == null)
             }
         }
     }

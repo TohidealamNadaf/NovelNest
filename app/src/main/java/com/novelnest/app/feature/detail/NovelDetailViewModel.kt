@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.remote.SeedData
+import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.feature.reader.Chapter
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +46,8 @@ class NovelDetailViewModel(
         )
     )
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
+    private var chapterJob: Job? = null
+    private var detailJob: Job? = null
 
     init {
         loadNovelDetails()
@@ -79,17 +83,19 @@ class NovelDetailViewModel(
     fun toggleSortOrder() {
         _uiState.update { current ->
             val newAscending = !current.isAscending
-            val sorted = if (newAscending) {
-                current.chapters.sortedBy { it.id }
-            } else {
-                current.chapters.sortedByDescending { it.id }
-            }
+            val sorted = current.chapters.reversed()
             current.copy(
                 isAscending = newAscending,
                 chapters = sorted,
                 filteredChapters = filterChapters(sorted, current.chapterQuery)
             )
         }
+    }
+
+    fun readerChapterIndex(chapterId: String): Int {
+        val state = _uiState.value
+        val chapters = if (state.isAscending) state.chapters else state.chapters.asReversed()
+        return chapters.indexOfFirst { it.id == chapterId }.coerceAtLeast(0)
     }
 
     fun onChapterSearch(query: String) {
@@ -102,6 +108,8 @@ class NovelDetailViewModel(
     }
 
     fun resyncChapters() {
+        // Reset circuit breaker so manual retry always makes a fresh attempt
+        repository.resetSourceCircuitBreaker(_uiState.value.novel?.source ?: NovelSourceType.NOVEL_PHOENIX)
         loadChapters(forceRefresh = true)
     }
 
@@ -111,12 +119,63 @@ class NovelDetailViewModel(
         return chapters.filter { it.title.lowercase().contains(q) || it.id.lowercase().contains(q) }
     }
 
-    private fun loadNovelDetails() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+    fun retryLoadDetails() {
+        // Reset circuit breaker on explicit user retry
+        repository.resetSourceCircuitBreaker(_uiState.value.novel?.source ?: NovelSourceType.NOVEL_PHOENIX)
+        loadNovelDetails()
+    }
 
-            // 1. Initial fast resolution from SeedData
-            val initialNovel = SeedData.findNovelById(novelId) ?: run {
+    /**
+     * Constructs a reliable sourceUrl for the novel, ensuring it's always a valid full URL.
+     * This handles cases where the novel was loaded from bookmarks/cache with incomplete data or legacy IDs.
+     */
+    private fun resolveSourceUrl(novel: Novel): String {
+        if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
+            return FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id })
+        }
+        // 1. If sourceUrl is already a valid URL (contains "/novel/"), use it
+        if (novel.sourceUrl.isNotBlank() && novel.sourceUrl.contains("/novel/")) {
+            val url = novel.sourceUrl.trim()
+            return if (url.startsWith("http")) url else "${novel.source.baseUrl}${if (url.startsWith("/")) "" else "/"}$url"
+        }
+
+        // 2. Map legacy numeric IDs (np-1..np-10) or extract clean slug
+        val mappedSlug = mapLegacyIdToSlug(novelId) ?: mapLegacyIdToSlug(novel.id)
+        val slug = mappedSlug ?: novelId
+            .removePrefix("np-")
+            .removePrefix("fwn-")
+            .removePrefix("asura-")
+            .trimEnd('/')
+            .substringAfterLast('/')
+
+        val source = novel.source
+        return "${source.baseUrl}/novel/$slug"
+    }
+
+    private fun mapLegacyIdToSlug(id: String): String? = when (id) {
+        "np-1", "1" -> "shadow-slave"
+        "np-2", "2" -> "full-star-player-returns-as-a-godslayer"
+        "np-3", "3" -> "genius-martial-arts-trainer"
+        "np-4", "4" -> "the-mine-lord-a-dwarven-survival-base-builder"
+        "np-5", "5" -> "lord-of-the-mysteries"
+        "np-6", "6" -> "reverend-insanity"
+        "np-7", "7" -> "collecting-powerful-girlfriends-my-invincible-harem"
+        "np-8", "8" -> "tyrant-no-i-am-the-villain"
+        "np-9", "9" -> "the-beginning-after-the-end"
+        "np-10", "10" -> "mother-of-learning"
+        else -> null
+    }
+
+    private fun loadNovelDetails() {
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = it.novel == null, errorMessage = null) }
+
+            // 1. Initial resolution: Check repository/DB first, then BookmarkManager, then SeedData, then synthetic shell
+            val initialNovel = repository.getNovelById(novelId)
+                ?: bookmarkManager?.getBookmark(novelId)
+                ?: SeedData.findNovelById(novelId)
+                ?: run {
                 val formattedTitle = if (novelId.isNotBlank() && novelId != "sample") {
                     novelId.removePrefix("np-")
                         .replace("-", " ")
@@ -126,14 +185,20 @@ class NovelDetailViewModel(
                 } else {
                     "The Whispering Sanctuary"
                 }
-                val slug = novelId.removePrefix("np-")
+                val mappedSlug = mapLegacyIdToSlug(novelId)
+                val slug = mappedSlug ?: novelId.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
+                val src = when {
+                    novelId.startsWith("asura-") -> NovelSourceType.ASURA_SCANS
+                    novelId.startsWith("fwn-") -> NovelSourceType.FREE_WEB_NOVEL
+                    else -> NovelSourceType.NOVEL_PHOENIX
+                }
                 Novel(
                     id = novelId,
                     title = formattedTitle,
                     coverUrl = "https://novelphoenix.com/server-1/$slug.jpg",
                     author = "Author",
-                    source = if (novelId.startsWith("asura-")) NovelSourceType.ASURA_SCANS else NovelSourceType.NOVEL_PHOENIX,
-                    sourceUrl = "https://novelphoenix.com/novel/$slug",
+                    source = src,
+                    sourceUrl = "${src.baseUrl}/novel/$slug",
                     rating = 4.8f,
                     latestChapter = "Loading...",
                     views = "",
@@ -143,95 +208,129 @@ class NovelDetailViewModel(
                 )
             }
 
+            val hasFullDetails = initialNovel.synopsis.isNotBlank()
+            val bookmarked = bookmarkManager?.isBookmarked(novelId) == true || bookmarkManager?.isBookmarked(initialNovel.id) == true
             _uiState.update {
                 it.copy(
                     novel = initialNovel,
-                    isLoading = false
+                    isLoading = !hasFullDetails,
+                    isBookmarked = bookmarked
                 )
             }
 
-            // 2. Fetch live novel details in background
-            val source = initialNovel.source
-            val novelUrl = initialNovel.sourceUrl.ifBlank {
-                val slug = novelId.removePrefix("np-")
-                "${source.baseUrl}/novel/$slug"
-            }
-
-            val detailResult = runCatching { repository.getNovelDetails(source, novelUrl) }.getOrNull()
-            if (detailResult != null && detailResult.isSuccess) {
-                val liveNovel = detailResult.getOrThrow()
-                _uiState.update { it.copy(novel = liveNovel) }
-            }
-
-            // 3. Load chapter list
+            // Immediately kick off chapter fetching concurrently with details
             loadChapters(forceRefresh = false)
-        }
-    }
 
-    private fun loadChapters(forceRefresh: Boolean) {
-        viewModelScope.launch {
-            val currentNovel = _uiState.value.novel ?: return@launch
-            val source = currentNovel.source
-            val slugOrUrl = currentNovel.sourceUrl.ifBlank { novelId }
+            // 2. Fetch live novel details from remote source
+            val source = initialNovel.source
+            val novelUrl = resolveSourceUrl(initialNovel)
 
-            _uiState.update { it.copy(isChaptersLoading = true, chaptersErrorMessage = null) }
-
-            val result = repository.getChapters(source, slugOrUrl, forceRefresh = forceRefresh)
-            result.onSuccess { liveChapters ->
-                if (liveChapters.isNotEmpty()) {
-                    _uiState.update { current ->
-                        val sorted = if (current.isAscending) liveChapters else liveChapters.reversed()
-                        current.copy(
-                            chapters = sorted,
-                            filteredChapters = filterChapters(sorted, current.chapterQuery),
-                            isChaptersLoading = false,
-                            chaptersErrorMessage = null
+            val detailResult = repository.getNovelDetails(source, novelUrl)
+            detailResult.fold(
+                onSuccess = { liveNovel ->
+                    // Ensure liveNovel has a proper sourceUrl
+                    val novelWithUrl = if (liveNovel.sourceUrl.isBlank()) {
+                        liveNovel.copy(sourceUrl = novelUrl)
+                    } else {
+                        liveNovel
+                    }
+                    if (bookmarkManager?.isBookmarked(initialNovel.id) == true) {
+                        bookmarkManager.addBookmark(novelWithUrl)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            novel = novelWithUrl,
+                            isLoading = false,
+                            errorMessage = null
                         )
                     }
-                } else {
-                    // Empty live chapters: fallback to default chapters
-                    fallbackToDefaultChapters("No chapters available from source.")
+                },
+                onFailure = { err ->
+                    _uiState.update { current ->
+                        if (current.novel == null || current.novel.synopsis.isBlank()) {
+                            val msg = formatFriendlyError(err)
+                            current.copy(
+                                isLoading = false,
+                                errorMessage = "Unable to load details ($msg). Tap to retry."
+                            )
+                        } else {
+                            current.copy(isLoading = false)
+                        }
+                    }
                 }
-            }.onFailure { err ->
-                // Handled fallback: Keep or provide fallback chapters, but show retry error banner
-                fallbackToDefaultChapters("Failed to fetch live chapters (${err.message ?: "Network error"}).")
-            }
-        }
-    }
-
-    private fun fallbackToDefaultChapters(reason: String) {
-        val currentChapters = _uiState.value.chapters
-        val chaptersToUse = if (currentChapters.isNotEmpty()) {
-            currentChapters
-        } else {
-            val title = _uiState.value.novel?.title ?: "Novel"
-            (1..40).map { chNum ->
-                Chapter(
-                    id = "ch-$chNum",
-                    title = "Chapter $chNum: ${getChapterName(chNum, title)}",
-                    paragraphs = emptyList()
-                )
-            }
-        }
-
-        _uiState.update { current ->
-            current.copy(
-                chapters = chaptersToUse,
-                filteredChapters = filterChapters(chaptersToUse, current.chapterQuery),
-                isChaptersLoading = false,
-                chaptersErrorMessage = reason
             )
         }
     }
 
-    private fun getChapterName(chNum: Int, novelTitle: String): String {
-        return when (chNum) {
-            1 -> "The Awakening"
-            2 -> "Beyond the Mortal Veil"
-            3 -> "Trial of Obsidian Shadows"
-            4 -> "Celestial Archive"
-            5 -> "Echoes of the Forgotten"
-            else -> "Chapter $chNum"
+    private fun formatFriendlyError(err: Throwable): String {
+        val msg = err.message.orEmpty()
+        return when {
+            msg.contains("Circuit breaker", ignoreCase = true) -> "Service temporarily paused due to rate limits"
+            msg.contains("403") || msg.contains("429") || msg.contains("blocked", ignoreCase = true) -> "Source temporarily rate limited"
+            msg.contains("404") || msg.contains("not found", ignoreCase = true) -> "Novel not found at source"
+            msg.contains("timeout", ignoreCase = true) || msg.contains("timed out", ignoreCase = true) -> "Connection timed out"
+            msg.isNotBlank() -> msg
+            else -> "Network connection error"
+        }
+    }
+
+    private fun loadChapters(forceRefresh: Boolean) {
+        chapterJob?.cancel()
+        chapterJob = viewModelScope.launch {
+            val currentNovel = _uiState.value.novel
+                ?: repository.getNovelById(novelId)
+                ?: bookmarkManager?.getBookmark(novelId)
+                ?: SeedData.findNovelById(novelId)
+                ?: return@launch
+
+            val source = currentNovel.source
+
+            // Build a robust slug/URL for chapter fetching
+            val slugOrUrl = resolveSourceUrl(currentNovel)
+
+            _uiState.update { it.copy(isChaptersLoading = true, chaptersErrorMessage = null) }
+
+            repository.getChaptersFlow(source, slugOrUrl, forceRefresh = forceRefresh).collect { result ->
+                result.onSuccess { liveChapters ->
+                    if (liveChapters.isNotEmpty()) {
+                        _uiState.update { current ->
+                            val sorted = if (current.isAscending) liveChapters else liveChapters.reversed()
+                            current.copy(
+                                chapters = sorted,
+                                filteredChapters = filterChapters(sorted, current.chapterQuery),
+                                isChaptersLoading = false,
+                                chaptersErrorMessage = null
+                            )
+                        }
+                    } else if (_uiState.value.chapters.isEmpty()) {
+                        showChapterError("No chapters available from source.")
+                    } else {
+                        _uiState.update { it.copy(isChaptersLoading = false) }
+                    }
+                }.onFailure { err ->
+                    val friendlyMsg = formatFriendlyError(err)
+                    if (_uiState.value.chapters.isEmpty()) {
+                        showChapterError("Failed to fetch live chapters ($friendlyMsg).")
+                    } else {
+                        // Handled offline state: Keep existing chapters! Never clear them out!
+                        _uiState.update { current ->
+                            current.copy(
+                                isChaptersLoading = false,
+                                chaptersErrorMessage = "Offline / Showing cached chapters ($friendlyMsg)"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showChapterError(reason: String) {
+        _uiState.update { current ->
+            current.copy(
+                isChaptersLoading = false,
+                chaptersErrorMessage = reason
+            )
         }
     }
 }
