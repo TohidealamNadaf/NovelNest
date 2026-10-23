@@ -1,15 +1,22 @@
 package com.novelnest.app
 
-import android.os.Bundle
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.content.Intent
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import com.novelnest.app.data.notification.*
+import android.os.Bundle
+import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.novelnest.app.core.designsystem.NovelNestTheme
+import com.novelnest.app.data.notification.*
 import com.novelnest.app.data.repository.NovelRepository
 
 class MainActivity : ComponentActivity() {
@@ -30,10 +37,12 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         acceptNotification(intent)
     }
+
     override fun onResume() {
         super.onResume()
         (application as NovelNestApplication).notificationCoordinator.activityChanged(true)
     }
+
     override fun onStop() {
         (application as NovelNestApplication).notificationCoordinator.activityChanged(false)
         super.onStop()
@@ -44,20 +53,44 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The starting-window theme belongs to the system splash, not the Activity UI.
-        setTheme(R.style.Theme_NovelNest)
+        // Install AndroidX SplashScreen API before calling super.onCreate
+        val splashScreen = installSplashScreen()
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         acceptNotification(intent)
+
+        // Apply smooth exit animation directly to the Android system splash screen
+        splashScreen.setOnExitAnimationListener { splashScreenViewProvider ->
+            val splashView = splashScreenViewProvider.view
+            val iconView = splashScreenViewProvider.iconView
+
+            val scaleX = ObjectAnimator.ofFloat(iconView, View.SCALE_X, 1f, 1.16f)
+            val scaleY = ObjectAnimator.ofFloat(iconView, View.SCALE_Y, 1f, 1.16f)
+            val fadeOut = ObjectAnimator.ofFloat(splashView, View.ALPHA, 1f, 0f)
+
+            AnimatorSet().apply {
+                duration = 420L
+                interpolator = AccelerateDecelerateInterpolator()
+                playTogether(scaleX, scaleY, fadeOut)
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        splashScreenViewProvider.remove()
+                    }
+                })
+                start()
+            }
+        }
+
         val app = application as NovelNestApplication
         setContent {
             NovelNestTheme {
-                // Android owns the launch splash. Draw the app's first frame directly,
-                // without a second logo overlay or an artificial startup delay.
-                NovelNestApp(repository = novelRepository,
+                NovelNestApp(
+                    repository = novelRepository,
                     navigationPreferences = app.navigationPreferences,
                     notificationRequest = notificationOpen,
-                    onNotificationHandled = { notificationOpen = null })
+                    onNotificationHandled = { notificationOpen = null }
+                )
             }
         }
     }

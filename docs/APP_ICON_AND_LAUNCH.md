@@ -31,21 +31,14 @@ absolute M/L/C/Z path commands used by this mark.
 
 ## Launch sequence
 
-1. The launcher starts the existing MainActivity with Theme.NovelNest.Starting.
-   Android 12+ shows its native static logo splash; API 26–30 use a matching
-   starting-window drawable. Neither is held for a timer, network, or logo animation.
-2. MainActivity restores the normal theme before onCreate and immediately composes
-   the application, preserving active-task state, reading progress, and notification navigation.
-3. Android dismisses its splash when the first application frame is ready. There
-   is no second Compose launch overlay, fixed delay, or wait for network content.
-   Home can show its normal loading state while data arrives.
-
-Previously, MainActivity also mounted NovelNestLaunchReveal after the system
-splash. That independent timed logo animation caused the visible two-stage launch
-and extra composition/animation work during startup. It is no longer mounted.
-The standalone artwork component remains available but is not part of startup.
-Notification opens and Activity recreation follow their normal navigation paths;
-resuming an existing Activity does not replay an app-owned launch animation.
+1. The launcher starts MainActivity with `Theme.NovelNest.Starting` (inheriting from `Theme.SplashScreen`).
+   Android shows the circular emblem (`ic_novelnest_splash_logo`) with its amber-gold border and shining sunrays natively.
+2. In `MainActivity.onCreate`, `installSplashScreen()` is invoked before `super.onCreate()`, adhering to official Android guidance.
+3. The custom launch animation is applied directly to the Android system splash screen using `splashScreen.setOnExitAnimationListener`:
+   - `splashScreenViewProvider.iconView` smoothly scales up (1.0f -> 1.16f) with an `AccelerateDecelerateInterpolator`.
+   - `splashScreenViewProvider.view` fades out gracefully (1.0f -> 0f), seamlessly dissolving the system splash into the application UI.
+   - When the exit animation completes, `splashScreenViewProvider.remove()` dismisses the splash.
+4. There is no second Compose splash screen or in-app delay—the single Android system splash handles both the instantaneous cold-start display and the fluid reveal animation.
 
 Fresh launcher entry opens Home on the saved source tab, including after removal
 from Recents. An old persisted reader checkpoint never triggers navigation. Continue

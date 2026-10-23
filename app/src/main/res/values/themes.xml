@@ -5,8 +5,12 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
-    <style name="Theme.NovelNest.Starting" parent="Theme.NovelNest">
-        <item name="android:windowBackground">@drawable/novelnest_starting_window</item>
+
+    <style name="Theme.NovelNest.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/novelnest_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_novelnest_splash_logo</item>
+        <item name="windowSplashScreenAnimationDuration">800</item>
+        <item name="postSplashScreenTheme">@style/Theme.NovelNest</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
     </style>
