@@ -208,7 +208,8 @@ fun AudioNarrationPage(
                             Text(
                                 text = savedEndpoint,
                                 fontSize = 12.sp,
-                                color = NovelTextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NovelPrimary,
                                 maxLines = 1,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
@@ -353,12 +354,14 @@ fun AudioNarrationPage(
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = NovelPrimary,
-                                    contentColor = NovelOnPrimary
+                                    contentColor = NovelOnPrimary,
+                                    disabledContainerColor = NovelPrimary.copy(alpha = 0.35f),
+                                    disabledContentColor = NovelOnPrimary.copy(alpha = 0.6f)
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(46.dp)
+                                    .height(48.dp)
                             ) {
                                 if (isSaving) {
                                     CircularProgressIndicator(
@@ -367,7 +370,13 @@ fun AudioNarrationPage(
                                         strokeWidth = 2.dp
                                     )
                                 } else {
-                                    Text("Save Configuration", fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "Save Configuration",
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            color = NovelOnPrimary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -389,8 +398,15 @@ fun AudioNarrationPage(
                                     catch (e: Exception) { verificationMessage = e.message ?: "Endpoint check failed." }
                                     finally { isTesting = false }
                                 }
-                            }
-                        ) { Text(if (isTesting) "Checking…" else "Check Endpoint") }
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = NovelPrimary)
+                        ) {
+                            Text(
+                                text = if (isTesting) "Checking…" else "Check Endpoint",
+                                color = NovelPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         if (verificationMessage.isNotBlank()) Text(
                             verificationMessage, style = MaterialTheme.typography.bodySmall,
                             color = if (isVerified) NovelTextSecondary else MaterialTheme.colorScheme.error)

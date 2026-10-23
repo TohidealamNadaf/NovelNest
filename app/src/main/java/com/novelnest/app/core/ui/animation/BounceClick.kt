@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ object BounceScale {
  * - Supports keyboard and accessibility focus feedback.
  * - Respects system "remove animations" setting.
  */
+@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.bounceClick(
     scaleDown: Float = BounceScale.Small,
     enabled: Boolean = true,
@@ -93,9 +95,10 @@ fun Modifier.bounceClick(
 
     if (onLongClick != null) {
         @OptIn(ExperimentalFoundationApi::class)
+        val effectiveIndication = indication ?: ripple()
         baseModifier.combinedClickable(
             interactionSource = source,
-            indication = indication,
+            indication = effectiveIndication,
             enabled = enabled,
             onClickLabel = onClickLabel,
             onLongClickLabel = onLongClickLabel,
@@ -104,9 +107,10 @@ fun Modifier.bounceClick(
             onClick = onClick
         )
     } else {
+        val effectiveIndication = indication ?: ripple()
         baseModifier.clickable(
             interactionSource = source,
-            indication = indication,
+            indication = effectiveIndication,
             enabled = enabled,
             onClickLabel = onClickLabel,
             role = role,
@@ -170,7 +174,7 @@ fun Modifier.bounceSelectable(
         .selectable(
             selected = selected,
             interactionSource = source,
-            indication = indication,
+            indication = indication ?: ripple(),
             enabled = enabled,
             role = role,
             onClick = onClick

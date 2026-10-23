@@ -22,6 +22,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
@@ -250,8 +252,11 @@ fun ReaderQuickSettingsSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        DoubleChevronLeftIcon(
-                            tint = if (hasPrevChapter) textColor else secondaryColor.copy(alpha = 0.35f)
+                        Icon(
+                            imageVector = Icons.Rounded.FastRewind,
+                            contentDescription = "Previous chapter",
+                            tint = if (hasPrevChapter) textColor else secondaryColor.copy(alpha = 0.35f),
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -350,24 +355,27 @@ fun ReaderQuickSettingsSheet(
                             color = if (hasNextChapter) textColor else secondaryColor.copy(alpha = 0.35f)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        DoubleChevronRightIcon(
-                            tint = if (hasNextChapter) textColor else secondaryColor.copy(alpha = 0.35f)
+                        Icon(
+                            imageVector = Icons.Rounded.FastForward,
+                            contentDescription = "Next chapter",
+                            tint = if (hasNextChapter) textColor else secondaryColor.copy(alpha = 0.35f),
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
 
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Segmented Tab Selector (Theme & Font vs Sizing & Spacing)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(secondaryColor.copy(alpha = 0.08f))
-                    .border(1.dp, secondaryColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                    .border(1.dp, secondaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -376,8 +384,8 @@ fun ReaderQuickSettingsSheet(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(9.dp))
                         .background(if (isTab0) NovelPrimary else Color.Transparent)
                         .bounceClick(
                             scaleDown = BounceScale.Small,
@@ -393,12 +401,12 @@ fun ReaderQuickSettingsSheet(
                             imageVector = Icons.Rounded.Palette,
                             contentDescription = null,
                             tint = if (isTab0) NovelOnPrimary else secondaryColor,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(17.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
                         Text(
                             text = "Theme & Font",
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                             fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Medium,
                             color = if (isTab0) NovelOnPrimary else secondaryColor
                         )
@@ -410,8 +418,8 @@ fun ReaderQuickSettingsSheet(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(9.dp))
                         .background(if (isTab1) NovelPrimary else Color.Transparent)
                         .bounceClick(
                             scaleDown = BounceScale.Small,
@@ -427,12 +435,12 @@ fun ReaderQuickSettingsSheet(
                             imageVector = Icons.Rounded.FormatSize,
                             contentDescription = null,
                             tint = if (isTab1) NovelOnPrimary else secondaryColor,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(17.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
                         Text(
                             text = "Size & Spacing",
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                             fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
                             color = if (isTab1) NovelOnPrimary else secondaryColor
                         )
@@ -470,67 +478,68 @@ fun ReaderQuickSettingsSheet(
 
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.selectableGroup()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectableGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(ReaderTheme.entries) { theme ->
+                            ReaderTheme.entries.forEach { theme ->
                                 val isSelected = theme == settings.theme
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.bounceSelectable(
-                                        selected = isSelected,
-                                        scaleDown = BounceScale.Small,
-                                        onClick = { onSetTheme(theme) }
-                                    )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(68.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(theme.backgroundColor)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) NovelPrimary else if (theme.isDark) secondaryColor.copy(alpha = 0.22f) else Color(0xFFD6C8B4),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .bounceSelectable(
+                                            selected = isSelected,
+                                            scaleDown = BounceScale.Small,
+                                            onClick = { onSetTheme(theme) }
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 7.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 58.dp, height = 40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(theme.backgroundColor)
-                                            .border(
-                                                width = if (isSelected) 2.dp else 1.dp,
-                                                color = if (isSelected) NovelPrimary else secondaryColor.copy(alpha = 0.22f),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ),
-                                        contentAlignment = Alignment.Center
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(NovelPrimary)
+                                                .align(Alignment.TopEnd),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Check,
+                                                contentDescription = "Selected",
+                                                tint = NovelOnPrimary,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.align(Alignment.BottomStart)
                                     ) {
                                         Text(
                                             text = "Aa",
                                             color = theme.textColor,
-                                            fontSize = 13.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-
-                                        if (isSelected) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .padding(3.dp)
-                                                    .size(14.dp)
-                                                    .clip(CircleShape)
-                                                    .background(NovelPrimary)
-                                                    .align(Alignment.TopEnd),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Check,
-                                                    contentDescription = null,
-                                                    tint = NovelOnPrimary,
-                                                    modifier = Modifier.size(9.dp)
-                                                )
-                                            }
-                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = theme.displayName,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) theme.textColor else theme.secondaryTextColor,
+                                            maxLines = 1
+                                        )
                                     }
-
-                                    Spacer(modifier = Modifier.height(3.dp))
-
-                                    Text(
-                                        text = theme.displayName,
-                                        fontSize = 10.sp,
-                                        color = if (isSelected) NovelPrimary else secondaryColor,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
                                 }
                             }
                         }
@@ -760,67 +769,5 @@ fun ReaderQuickSettingsSheet(
                 }
             }
         }
-    }
-}
-
-/**
- * Outline double-chevron pointing left (<<), matching reference design.
- */
-@Composable
-private fun DoubleChevronLeftIcon(
-    tint: Color,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier.size(16.dp)) {
-        val strokeWidthPx = 2.1.dp.toPx()
-        val cap = StrokeCap.Round
-        val join = StrokeJoin.Round
-
-        // Outer Left Chevron
-        val path1 = Path().apply {
-            moveTo(size.width * 0.44f, size.height * 0.24f)
-            lineTo(size.width * 0.16f, size.height * 0.50f)
-            lineTo(size.width * 0.44f, size.height * 0.76f)
-        }
-        drawPath(path1, color = tint, style = Stroke(width = strokeWidthPx, cap = cap, join = join))
-
-        // Inner Right Chevron
-        val path2 = Path().apply {
-            moveTo(size.width * 0.78f, size.height * 0.24f)
-            lineTo(size.width * 0.50f, size.height * 0.50f)
-            lineTo(size.width * 0.78f, size.height * 0.76f)
-        }
-        drawPath(path2, color = tint, style = Stroke(width = strokeWidthPx, cap = cap, join = join))
-    }
-}
-
-/**
- * Outline double-chevron pointing right (>>), matching reference design.
- */
-@Composable
-private fun DoubleChevronRightIcon(
-    tint: Color,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier.size(16.dp)) {
-        val strokeWidthPx = 2.1.dp.toPx()
-        val cap = StrokeCap.Round
-        val join = StrokeJoin.Round
-
-        // Inner Left Chevron
-        val path1 = Path().apply {
-            moveTo(size.width * 0.22f, size.height * 0.24f)
-            lineTo(size.width * 0.50f, size.height * 0.50f)
-            lineTo(size.width * 0.22f, size.height * 0.76f)
-        }
-        drawPath(path1, color = tint, style = Stroke(width = strokeWidthPx, cap = cap, join = join))
-
-        // Outer Right Chevron
-        val path2 = Path().apply {
-            moveTo(size.width * 0.56f, size.height * 0.24f)
-            lineTo(size.width * 0.84f, size.height * 0.50f)
-            lineTo(size.width * 0.56f, size.height * 0.76f)
-        }
-        drawPath(path2, color = tint, style = Stroke(width = strokeWidthPx, cap = cap, join = join))
     }
 }
