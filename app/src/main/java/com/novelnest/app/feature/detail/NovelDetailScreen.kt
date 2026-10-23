@@ -71,9 +71,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
-import com.novelnest.app.core.ui.ReadingProgressBar
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import com.novelnest.app.data.progress.NovelProgress
+import com.novelnest.app.data.progress.ReadingCompletion
 import com.novelnest.app.data.progress.readingCompletion
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -203,8 +208,20 @@ fun NovelDetailScreen(
 
                 item(key = "detail:progress", contentType = "progress") {
                     val completion = remember(novel, uiState.readingProgress) { novel.readingCompletion(uiState.readingProgress) }
-                    ReadingProgressBar(completion,
-                        Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    val targetIndex = remember(uiState.readingProgress, uiState.chapters) {
+                        val lastReadIndex = uiState.readingProgress?.lastReadChapterIndex ?: 0
+                        if (uiState.chapters.isNotEmpty()) {
+                            lastReadIndex.coerceIn(0, uiState.chapters.lastIndex)
+                        } else {
+                            lastReadIndex.coerceAtLeast(0)
+                        }
+                    }
+                    NovelReadingProgressCard(
+                        completion = completion,
+                        progress = uiState.readingProgress,
+                        onContinueReading = { onStartReading(novel.id, targetIndex) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
                 }
 
                 // 2. SYNOPSIS / SUMMARY SECTION
@@ -859,6 +876,193 @@ private fun NovelDetailHeroHeader(
                             onToggle = { onToggleBookmark() }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Modern Reading Progress Card reflecting application and detail page theme.
+ */
+@Composable
+private fun NovelReadingProgressCard(
+    completion: ReadingCompletion,
+    progress: NovelProgress?,
+    onContinueReading: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val focused by interactions.collectIsFocusedAsState()
+    val surfaceColor by animateColorAsState(
+        targetValue = if (pressed || focused) NovelSurfaceVariant else NovelSurface,
+        label = "progress_card_press"
+    )
+
+    val animatedFraction by animateFloatAsState(
+        targetValue = completion.fraction,
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "progress_fraction"
+    )
+
+    val percent = (completion.fraction * 100).toInt()
+    val hasStarted = completion.read > 0 || (progress != null && progress.lastReadChapterIndex >= 0)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = surfaceColor),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = interactions,
+                indication = null,
+                role = Role.Button,
+                onClickLabel = if (hasStarted) "Continue reading" else "Start reading",
+                onClick = onContinueReading
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            // Header: Icon + Title/Subtitle + Percentage Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Book Icon in theme accent container
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(NovelPrimary.copy(alpha = 0.14f))
+                        .border(1.dp, NovelPrimary.copy(alpha = 0.28f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoStories,
+                        contentDescription = null,
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Reading Progress",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NovelTextPrimary
+                    )
+
+                    val subtitleText = when {
+                        progress != null && progress.lastReadChapterTitle.isNotBlank() ->
+                            "Last: ${progress.lastReadChapterTitle}"
+                        hasStarted ->
+                            "${completion.read} chapters completed"
+                        else ->
+                            "Not started yet"
+                    }
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NovelTextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Percentage Badge Pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (percent > 0) NovelPrimary.copy(alpha = 0.15f)
+                            else NovelSurfaceVariant
+                        )
+                        .border(
+                            1.dp,
+                            if (percent > 0) NovelPrimary.copy(alpha = 0.45f)
+                            else NovelSurfaceBorder,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$percent%",
+                        color = if (percent > 0) NovelPrimary else NovelTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Sleek Gradient Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(NovelSurfaceVariant)
+            ) {
+                if (animatedFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(animatedFraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(NovelPrimary, NovelGold)
+                                )
+                            )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Footer: Chapter count & Action prompt
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = completion.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NovelTextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (hasStarted) "Continue" else "Start Reading",
+                        color = NovelPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = null,
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }

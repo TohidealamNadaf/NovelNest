@@ -2,9 +2,17 @@ package com.novelnest.app.feature.reader.components
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -20,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
@@ -32,7 +39,6 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -126,7 +132,7 @@ fun ReaderQuickSettingsSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 4.dp),
+                    .padding(top = 10.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -134,65 +140,9 @@ fun ReaderQuickSettingsSheet(
                         .width(36.dp)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(secondaryColor.copy(alpha = 0.3f))
+                        .background(secondaryColor.copy(alpha = 0.35f))
                 )
             }
-
-            // Quick Menu Header Bar (Title on left, Close on right)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(NovelPrimary.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Tune,
-                            contentDescription = null,
-                            tint = NovelPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Column {
-                        Text(
-                            text = "Quick Menu",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = textColor,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = if (currentChapter != null) currentChapter.title else "Reader Controls",
-                            fontSize = 10.sp,
-                            color = secondaryColor,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                NovelNestIconButton(
-                    icon = Icons.Rounded.Close,
-                    contentDescription = "Close quick menu",
-                    tint = secondaryColor,
-                    iconSize = 18.dp,
-                    onClick = onDismiss
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
 
             // ─── STREAMLINED QUICK ACTION BAR ───
             // [ ❐ Copy ]  [ << Prev ]  ( ▶ Play )  [ Next >> ]
@@ -368,93 +318,144 @@ fun ReaderQuickSettingsSheet(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Segmented Tab Selector (Theme & Font vs Sizing & Spacing)
-            Row(
+            // Segmented Tab Selector with Sliding Pill Indicator
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(secondaryColor.copy(alpha = 0.08f))
                     .border(1.dp, secondaryColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(3.dp)
             ) {
-                // Tab 0: Style & Theme
-                val isTab0 = selectedTab == 0
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(if (isTab0) NovelPrimary else Color.Transparent)
-                        .bounceClick(
-                            scaleDown = BounceScale.Small,
-                            onClick = { selectedTab = 0 }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Palette,
-                            contentDescription = null,
-                            tint = if (isTab0) NovelOnPrimary else secondaryColor,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(modifier = Modifier.width(7.dp))
-                        Text(
-                            text = "Theme & Font",
-                            fontSize = 13.sp,
-                            fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isTab0) NovelOnPrimary else secondaryColor
-                        )
-                    }
-                }
+                val tabWidth = maxWidth / 2
+                val indicatorOffset by animateDpAsState(
+                    targetValue = if (selectedTab == 0) 0.dp else tabWidth,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "tab_pill_offset"
+                )
 
-                // Tab 1: Sizing & Spacing
-                val isTab1 = selectedTab == 1
+                // Sliding Active Pill Background
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .offset(x = indicatorOffset)
+                        .width(tabWidth)
                         .height(42.dp)
                         .clip(RoundedCornerShape(9.dp))
-                        .background(if (isTab1) NovelPrimary else Color.Transparent)
-                        .bounceClick(
-                            scaleDown = BounceScale.Small,
-                            onClick = { selectedTab = 1 }
-                        ),
-                    contentAlignment = Alignment.Center
+                        .background(NovelPrimary)
+                )
+
+                // Tab Items Row
+                Row(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    val tab0Color by animateColorAsState(
+                        targetValue = if (selectedTab == 0) NovelOnPrimary else secondaryColor,
+                        animationSpec = tween(200),
+                        label = "tab0_color"
+                    )
+                    val tab1Color by animateColorAsState(
+                        targetValue = if (selectedTab == 1) NovelOnPrimary else secondaryColor,
+                        animationSpec = tween(200),
+                        label = "tab1_color"
+                    )
+
+                    // Tab 0: Theme & Font
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .bounceClick(
+                                scaleDown = BounceScale.Small,
+                                onClick = { selectedTab = 0 }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FormatSize,
-                            contentDescription = null,
-                            tint = if (isTab1) NovelOnPrimary else secondaryColor,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(modifier = Modifier.width(7.dp))
-                        Text(
-                            text = "Size & Spacing",
-                            fontSize = 13.sp,
-                            fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isTab1) NovelOnPrimary else secondaryColor
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Palette,
+                                contentDescription = null,
+                                tint = tab0Color,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(7.dp))
+                            Text(
+                                text = "Theme & Font",
+                                fontSize = 13.sp,
+                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                color = tab0Color
+                            )
+                        }
+                    }
+
+                    // Tab 1: Size & Spacing
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .bounceClick(
+                                scaleDown = BounceScale.Small,
+                                onClick = { selectedTab = 1 }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FormatSize,
+                                contentDescription = null,
+                                tint = tab1Color,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(7.dp))
+                            Text(
+                                text = "Size & Spacing",
+                                fontSize = 13.sp,
+                                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                color = tab1Color
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Animated Tab Content (Naturally sized to content, comfortably occupying bottom half)
+            // Animated Tab Content with smooth sliding transitions
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(140))
+                    if (targetState > initialState) {
+                        (slideInHorizontally(
+                            animationSpec = tween(280, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> (fullWidth * 0.35f).toInt() }
+                        ) + fadeIn(animationSpec = tween(220))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                                targetOffsetX = { fullWidth -> -(fullWidth * 0.35f).toInt() }
+                            ) + fadeOut(animationSpec = tween(180))
+                        )
+                    } else {
+                        (slideInHorizontally(
+                            animationSpec = tween(280, easing = FastOutSlowInEasing),
+                            initialOffsetX = { fullWidth -> -(fullWidth * 0.35f).toInt() }
+                        ) + fadeIn(animationSpec = tween(220))).togetherWith(
+                            slideOutHorizontally(
+                                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                                targetOffsetX = { fullWidth -> (fullWidth * 0.35f).toInt() }
+                            ) + fadeOut(animationSpec = tween(180))
+                        )
+                    }.using(SizeTransform(clip = false))
                 },
                 modifier = Modifier.fillMaxWidth(),
                 label = "QuickMenuTabTransition"
