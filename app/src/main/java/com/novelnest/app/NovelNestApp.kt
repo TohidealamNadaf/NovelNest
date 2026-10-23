@@ -5,6 +5,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -19,6 +23,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelnest.app.data.narration.NarrationStatus
+import com.novelnest.app.core.ui.NarrationMiniPlayer
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,21 +48,18 @@ import com.novelnest.app.navigation.NovelNestNavHost
 @Composable
 fun NovelNestApp(
     repository: NovelRepository,
-    sessionManager: com.novelnest.app.data.preferences.ReaderSessionManager? = null,
-    restoreReaderSession: Boolean = false,
+    navigationPreferences: com.novelnest.app.data.preferences.NavigationPreferences? = null,
     notificationRequest: com.novelnest.app.data.notification.NotificationOpen? = null,
     onNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val initialSession = remember { if (restoreReaderSession && notificationRequest == null) sessionManager?.session else null }
-    LaunchedEffect(Unit) {
-        if (initialSession != null && navController.currentDestination?.route == NovelNestDestination.Home.route) {
-            navController.navigate(NovelNestDestination.Detail.createRoute(initialSession.novelId))
-            navController.navigate(NovelNestDestination.Reader.createRoute(initialSession.novelId, initialSession.chapterIndex))
-        }
-    }
+    val hasNarration by remember {
+        NarrationStatus.state.map { it.novelId.isNotBlank() }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    var playerHeightPx by remember { mutableIntStateOf(0) }
+    val playerPadding = if (hasNarration) with(LocalDensity.current) { playerHeightPx.toDp() } else 0.dp
     LaunchedEffect(notificationRequest) {
         notificationRequest?.let { request ->
             if (request.novelId != null) {
@@ -63,10 +73,6 @@ fun NovelNestApp(
             }
             onNotificationHandled()
         }
-    }
-    LaunchedEffect(navBackStackEntry) {
-        val activeRoute = navController.currentDestination?.route
-        if (activeRoute != null && activeRoute != NovelNestDestination.Reader.route) sessionManager?.clear()
     }
 
     val showBottomBar = currentRoute in listOf(
@@ -106,13 +112,8 @@ fun NovelNestApp(
         NovelNestNavHost(
             navController = navController,
             repository = repository,
-            onReaderPosition = { id, index ->
-                val entry = navController.currentBackStackEntry
-                if (entry?.destination?.route == NovelNestDestination.Reader.route && entry.arguments?.getString("novelId") == id) {
-                    sessionManager?.record(id, index)
-                }
-            },
             onNovelClick = { novel ->
+                navigationPreferences?.selectSource(novel.source)
                 repository.rememberNovel(novel)
                 // Open full Novel Detail & Chapter List screen directly (bottom sheet removed)
                 navController.navigate(NovelNestDestination.Detail.createRoute(novel.id))
@@ -120,12 +121,17 @@ fun NovelNestApp(
             modifier = Modifier.fillMaxSize()
         )
 
+        Column(Modifier.align(Alignment.BottomCenter)) {
+        if (hasNarration) NarrationMiniPlayer(
+            Modifier.onSizeChanged { playerHeightPx = it.height }
+                .then(if (!showBottomBar) Modifier.navigationBarsPadding() else Modifier)
+        )
         // Floating Capsule Footer Dock (shown on Home, Discover, Settings)
         AnimatedVisibility(
             visible = showBottomBar,
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier
         ) {
             NovelNestFooter(
                 destinations = footerDestinations,
@@ -148,6 +154,7 @@ fun NovelNestApp(
                     }
                 }
             )
+        }
         }
     }
 }

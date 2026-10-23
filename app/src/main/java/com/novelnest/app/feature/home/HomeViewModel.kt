@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.bookmark.BookmarkManager
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
+import com.novelnest.app.data.preferences.NavigationPreferences
 import com.novelnest.app.data.progress.NovelProgress
 import com.novelnest.app.data.progress.ReadingProgressManager
 import com.novelnest.app.data.repository.NovelRepository
@@ -17,9 +18,11 @@ import kotlinx.coroutines.launch
 class HomeViewModel(
     private val bookmarkManager: BookmarkManager,
     progressManager: ReadingProgressManager? = null,
-    private val repository: NovelRepository? = null
+    private val repository: NovelRepository? = null,
+    private val navigationPreferences: NavigationPreferences? = null
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState(
+        selectedSource = navigationPreferences?.lastSource ?: NovelSourceType.NOVEL_PHOENIX,
         bookmarkedNovels = bookmarkManager.bookmarks.value,
         progress = progressManager?.progressMap?.value.orEmpty()
     ))
@@ -75,6 +78,10 @@ class HomeViewModel(
             "", source, url, latestChapter = "")
     }
 
-    fun selectSource(source: NovelSourceType) { _uiState.update { it.copy(selectedSource = source) } }
+    fun selectSource(source: NovelSourceType) {
+        navigationPreferences?.selectSource(source)
+        if (_uiState.value.selectedSource == source) return
+        _uiState.update { it.copy(selectedSource = source) }
+    }
     fun removeBookmark(novelId: String) = bookmarkManager.removeBookmark(novelId)
 }

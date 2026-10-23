@@ -210,7 +210,11 @@ fun NotificationScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
                                 ) {
-                                    Text("Show All Notifications", fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "Show All Notifications",
+                                        color = NovelOnPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

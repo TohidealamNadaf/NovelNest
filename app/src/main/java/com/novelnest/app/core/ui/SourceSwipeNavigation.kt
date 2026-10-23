@@ -1,7 +1,7 @@
 package com.novelnest.app.core.ui
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,14 +30,22 @@ import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.model.NovelSourceType
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
-/** Adjacent source navigation from unclaimed touches in inset side gutters.
- * Uses the existing screen and ViewModel; no offscreen pages are composed or fetched.
- */
+private class SourceSwipeMotion {
+    // Read only in the graphics layer: finger movement does not recompose the list.
+    var offset by mutableFloatStateOf(0f)
+    var busy = false
+    var committedSource: NovelSourceType? = null
+    var job: Job? = null
+}
+
+/** Apply to the persistent content viewport below the search bar, never the screen root. */
 @Composable
 fun Modifier.sourceSwipeNavigation(
     selectedSource: NovelSourceType,
@@ -50,84 +59,122 @@ fun Modifier.sourceSwipeNavigation(
     val minimumInset = with(density) { 24.dp.toPx() }
     val leftInset = max(minimumInset, systemGestures.getLeft(density, layoutDirection) + edgePadding)
     val rightInset = max(minimumInset, systemGestures.getRight(density, layoutDirection) + edgePadding)
-    val gutter = with(density) { 32.dp.toPx() }
-    val threshold = with(density) { 48.dp.toPx() }
-    val travel = with(density) { 36.dp.toPx() }
+    val maximumGutter = with(density) { 112.dp.toPx() }
+    val threshold = with(density) { 40.dp.toPx() }
     val reducedMotion = rememberAreAnimationsDisabled()
     val onSelect by rememberUpdatedState(onSourceSelected)
+    val currentSource by rememberUpdatedState(selectedSource)
     val scope = rememberCoroutineScope()
     val playHaptic = rememberNovelNestHaptic()
-    val translation = remember { Animatable(0f) }
+    val motion = remember { SourceSwipeMotion() }
     var previousSource by remember { mutableStateOf(selectedSource) }
-    var switching by remember { mutableStateOf(false) }
 
-    // Tab taps and swipes use the same incoming transition without duplicating page state.
+    suspend fun moveTo(target: Float, duration: Int) {
+        if (reducedMotion) motion.offset = target
+        else animate(motion.offset, target, animationSpec = tween(duration, easing = FastOutSlowInEasing)) { value, _ ->
+            motion.offset = value
+        }
+    }
+
+    fun settle(target: NovelSourceType?, direction: Int) {
+        motion.busy = true
+        motion.job = scope.launch {
+            try {
+                if (target == null) {
+                    moveTo(0f, 160)
+                } else {
+                    // Switch only when the outgoing list is fully outside the viewport.
+                    // The old short-distance snap could occur while content was still visible.
+                    if (!reducedMotion) moveTo(-direction.toFloat(), 140)
+                    motion.committedSource = target
+                    playHaptic(NovelNestHapticType.LIGHT_TICK)
+                    onSelect(target)
+                    if (!reducedMotion) {
+                        motion.offset = direction.toFloat()
+                        moveTo(0f, 240)
+                    }
+                }
+            } finally {
+                motion.offset = 0f
+                motion.busy = false
+            }
+        }
+    }
+
+    // A tab tap can supersede a swipe. Swipes already own their incoming animation.
     LaunchedEffect(selectedSource, reducedMotion, orderSign) {
-        val direction = selectedSource.ordinal.compareTo(previousSource.ordinal)
+        val direction = selectedSource.ordinal.compareTo(previousSource.ordinal) * orderSign
         previousSource = selectedSource
-        try {
-            if (direction != 0 && !reducedMotion) {
-                translation.snapTo(direction * orderSign * travel)
-                switching = true
-                translation.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
-            } else translation.snapTo(0f)
-        } finally {
-            switching = false
+        if (motion.committedSource == selectedSource) {
+            motion.committedSource = null
+            return@LaunchedEffect
+        }
+        if (direction != 0) {
+            motion.job?.cancelAndJoin()
+            motion.busy = true
+            motion.job = scope.launch {
+                try {
+                    if (!reducedMotion) motion.offset = direction.toFloat()
+                    moveTo(0f, 240)
+                } finally {
+                    motion.offset = 0f
+                    motion.busy = false
+                }
+            }
         }
     }
 
     return clipToBounds()
-        .pointerInput(selectedSource, leftInset, rightInset, gutter, threshold, reducedMotion, orderSign) {
+        .pointerInput(leftInset, rightInset, maximumGutter, threshold, reducedMotion, orderSign) {
             awaitEachGesture {
-                // Clickable cards, text fields and buttons keep their touches.
-                val down = awaitFirstDown(requireUnconsumed = true)
-                if (switching) return@awaitEachGesture
+                // A clickable card consumes down, but a horizontal drag can still cancel
+                // its click. Consumed movement (carousels/vertical scrolling) keeps priority.
+                val down = awaitFirstDown(requireUnconsumed = false)
+                if (motion.busy) return@awaitEachGesture
+                val sourceAtDown = currentSource
+                val gutter = min(maximumGutter, (size.width - leftInset - rightInset).coerceAtLeast(0f) * 0.4f)
                 val fromLeft = down.position.x in leftInset..(leftInset + gutter)
                 val fromRight = down.position.x in (size.width - rightInset - gutter)..(size.width - rightInset)
                 if (!fromLeft && !fromRight) return@awaitEachGesture
                 val direction = if (fromRight) 1 else -1
-                val target = NovelSourceType.entries.getOrNull(selectedSource.ordinal + direction * orderSign)
+                val target = NovelSourceType.entries.getOrNull(sourceAtDown.ordinal + direction * orderSign)
                     ?: return@awaitEachGesture
                 var distance = Offset.Zero
                 var claimed = false
-                while (true) {
-                    val event = awaitPointerEvent()
-                    if (event.changes.size != 1) return@awaitEachGesture
-                    val change = event.changes.first()
-                    if (change.id != down.id || change.isConsumed) return@awaitEachGesture
-                    distance += change.positionChange()
-                    if (!claimed) {
-                        // Vertical scrolling and outward/system gestures always win.
-                        if (abs(distance.y) > viewConfiguration.touchSlop && abs(distance.y) >= abs(distance.x)) return@awaitEachGesture
-                        if (abs(distance.x) > viewConfiguration.touchSlop) {
-                            if (distance.x * direction >= 0f) return@awaitEachGesture
-                            claimed = true
-                        }
-                    }
-                    if (claimed) change.consume()
-                    if (!change.pressed) {
-                        if (claimed && -distance.x * direction >= threshold) {
-                            switching = true
-                            scope.launch {
-                                try {
-                                    if (!reducedMotion) translation.animateTo(-direction * travel, tween(100))
-                                    playHaptic(NovelNestHapticType.LIGHT_TICK)
-                                    onSelect(target)
-                                } catch (cancelled: CancellationException) {
-                                    // A tab tap can supersede the outgoing animation.
-                                    // Its incoming transition owns the layer from this point.
-                                    switching = false
-                                    throw cancelled
-                                }
+                var settling = false
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (currentSource != sourceAtDown || event.changes.size != 1) return@awaitEachGesture
+                        val change = event.changes.first()
+                        if (change.id != down.id || change.isConsumed) return@awaitEachGesture
+                        distance += change.positionChange()
+                        if (!claimed) {
+                            if (abs(distance.y) > viewConfiguration.touchSlop && abs(distance.y) >= abs(distance.x)) return@awaitEachGesture
+                            if (abs(distance.x) > viewConfiguration.touchSlop && abs(distance.x) > abs(distance.y) * 1.35f) {
+                                if (distance.x * direction >= 0f) return@awaitEachGesture
+                                claimed = true
+                                motion.busy = true
                             }
                         }
-                        return@awaitEachGesture
+                        if (claimed) {
+                            if (!reducedMotion) motion.offset = (distance.x / size.width.coerceAtLeast(1)).coerceIn(-0.9f, 0.9f)
+                            change.consume()
+                        }
+                        if (!change.pressed) {
+                            if (claimed) {
+                                settling = true
+                                settle(target.takeIf { -distance.x * direction >= threshold }, direction)
+                            }
+                            return@awaitEachGesture
+                        }
                     }
+                } finally {
+                    if (claimed && !settling && currentSource == sourceAtDown) settle(null, direction)
                 }
             }
         }
         .graphicsLayer {
-            translationX = translation.value
-            alpha = 1f - (abs(translation.value) / travel).coerceIn(0f, 1f) * 0.25f
+            translationX = motion.offset * size.width
         }
 }

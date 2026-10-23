@@ -66,8 +66,7 @@ fun BrowseScreen(
         }
     }
 
-    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
-        .fillMaxSize().background(NovelBackground)) {
+    Column(modifier.fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = "Browse",
             subtitle = state.selectedSource.displayName,
@@ -107,7 +106,8 @@ fun BrowseScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             state = currentGridState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth()
+                .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource),
             contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = bottomPadding),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)

@@ -44,7 +44,6 @@ fun NovelNestNavHost(
     navController: NavHostController,
     repository: NovelRepository,
     onNovelClick: (Novel) -> Unit,
-    onReaderPosition: (String, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -63,10 +62,13 @@ fun NovelNestNavHost(
             enterTransition = { fadeIn(animationSpec = tween(300)) },
             exitTransition = { fadeOut(animationSpec = tween(300)) }
         ) {
-            val homeViewModel: HomeViewModel = viewModel(factory = screenFactory { HomeViewModel(app.bookmarkManager, app.readingProgressManager, repository) })
+            val homeViewModel: HomeViewModel = viewModel(factory = screenFactory {
+                HomeViewModel(app.bookmarkManager, app.readingProgressManager, repository, app.navigationPreferences)
+            })
             HomeScreen(
                 viewModel = homeViewModel,
                 onContinueReading = { novel, chapterIndex ->
+                    app.navigationPreferences.selectSource(novel.source)
                     repository.rememberNovel(novel)
                     navController.navigate(NovelNestDestination.Reader.createRoute(novel.id, chapterIndex.coerceAtLeast(0)))
                 },
@@ -98,7 +100,7 @@ fun NovelNestNavHost(
             exitTransition = { fadeOut(animationSpec = tween(300)) }
         ) {
             val discoverViewModel: DiscoverViewModel = viewModel(factory = screenFactory {
-                DiscoverViewModel(repository, NovelSourceType.fromOrdinal(requestedDiscoverSource ?: 0))
+                DiscoverViewModel(repository, NovelSourceType.fromOrdinal(requestedDiscoverSource ?: 0), app.navigationPreferences)
             })
             LaunchedEffect(requestedDiscoverSource) {
                 requestedDiscoverSource?.let { discoverViewModel.selectSource(NovelSourceType.fromOrdinal(it)) }
@@ -119,7 +121,9 @@ fun NovelNestNavHost(
             arguments = listOf(navArgument("sourceOrdinal") { type = NavType.IntType; defaultValue = 0 })
         ) { entry ->
             val source = NovelSourceType.fromOrdinal(entry.arguments?.getInt("sourceOrdinal") ?: 0)
-            val browseViewModel: BrowseViewModel = viewModel(factory = screenFactory { BrowseViewModel(repository, source) })
+            val browseViewModel: BrowseViewModel = viewModel(factory = screenFactory {
+                BrowseViewModel(repository, source, app.navigationPreferences)
+            })
             BrowseScreen(
                 viewModel = browseViewModel,
                 onBack = { navController.popBackStack() },
@@ -173,7 +177,8 @@ fun NovelNestNavHost(
             val sourceOrdinal = backStackEntry.arguments?.getInt("sourceOrdinal") ?: 0
             val source = NovelSourceType.fromOrdinal(sourceOrdinal)
             val searchViewModel = remember(source) {
-                SearchViewModel(repository, initialSource = source, historyManager = app.searchHistoryManager)
+                SearchViewModel(repository, initialSource = source, historyManager = app.searchHistoryManager,
+                    navigationPreferences = app.navigationPreferences)
             }
 
             SearchScreen(
@@ -224,6 +229,7 @@ fun NovelNestNavHost(
                 viewModel = detailViewModel,
                 onBack = { navController.popBackStack() },
                 onStartReading = { id, chapterIndex ->
+                    detailViewModel.uiState.value.novel?.source?.let(app.navigationPreferences::selectSource)
                     navController.navigate(NovelNestDestination.Reader.createRoute(id, chapterIndex))
                 }
             )
@@ -299,9 +305,11 @@ fun NovelNestNavHost(
             )
 
             val readerState by readerViewModel.uiState.collectAsState()
-            LaunchedEffect(novelId, readerState.currentChapterIndex, readerState.isLoading) {
-                if (!readerState.isLoading && readerState.currentChapterIndex in readerState.chapters.indices) {
-                    onReaderPosition(novelId, readerState.currentChapterIndex)
+            LaunchedEffect(readerState.novel?.source) {
+                // Save the actual source even for restored/deep-linked reader entries.
+                // An outgoing reader composition must not overwrite a newer source choice.
+                if (navController.currentBackStackEntry == backStackEntry) {
+                    readerState.novel?.source?.let(app.navigationPreferences::selectSource)
                 }
             }
             ReaderScreen(

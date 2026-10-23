@@ -173,15 +173,16 @@ class ReadingAndIdentityTest {
         } finally { store.clear(); Dispatchers.resetMain() }
     }
 
-    @Test fun readerSessionSurvivesNewManagerAndClearsWhenLeavingReader() {
+    @Test fun startupRetainsOnlySourceAndRetiresTheOldReaderRoute() {
         val prefs = preferences()
-        ReaderSessionManager(prefs).record("np-genetic-ascension", 42)
-        val restarted = ReaderSessionManager(prefs)
-        assertEquals(ReaderSession("np-genetic-ascension", 42), restarted.session)
-        restarted.record("../invalid", -1)
-        assertEquals(42, restarted.session!!.chapterIndex)
-        restarted.clear()
-        assertNull(ReaderSessionManager(prefs).session)
+        prefs.edit().putString("reader_session", "fwn-shadow-slave|42").apply()
+        val migrated = NavigationPreferences(prefs)
+        assertEquals(NovelSourceType.FREE_WEB_NOVEL, migrated.lastSource)
+        assertFalse(prefs.contains("reader_session"))
+        migrated.selectSource(NovelSourceType.ASURA_SCANS)
+        assertEquals(NovelSourceType.ASURA_SCANS, NavigationPreferences(prefs).lastSource)
+        prefs.edit().putString("last_source", "unknown-source").apply()
+        assertEquals(NovelSourceType.NOVEL_PHOENIX, NavigationPreferences(prefs).lastSource)
     }
 
     private fun preferenceContext(): ContextWrapper {
@@ -195,6 +196,7 @@ class ReadingAndIdentityTest {
         val editor = Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)) { proxy, method, args ->
             when {
                 method.name.startsWith("put") -> { values[args[0] as String] = args[1]; proxy }
+                method.name == "remove" -> { values.remove(args[0] as String); proxy }
                 method.name == "apply" -> null
                 method.name == "commit" -> true
                 else -> error(method.name)
@@ -203,6 +205,7 @@ class ReadingAndIdentityTest {
         return Proxy.newProxyInstance(SharedPreferences::class.java.classLoader, arrayOf(SharedPreferences::class.java)) { _, method, args ->
             when {
                 method.name.startsWith("get") -> values[args[0] as String] ?: args[1]
+                method.name == "contains" -> values.containsKey(args[0] as String)
                 method.name == "edit" -> editor
                 else -> error(method.name)
             }

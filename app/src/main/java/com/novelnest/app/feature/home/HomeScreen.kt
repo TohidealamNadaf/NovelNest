@@ -68,8 +68,7 @@ fun HomeScreen(
     }
 
     BackHandler(enabled = selected != null) { selected = null }
-    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
-        .fillMaxSize().background(NovelBackground)) {
+    Column(modifier.fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = if (selected != null) "Remove Bookmark" else "Novel Nest",
             icon = Icons.Rounded.AutoStories,
@@ -95,8 +94,13 @@ fun HomeScreen(
                         )
                     }
                     NovelNestIconButton(Icons.Rounded.NotificationsNone, "Notifications", onClick = onNavigateToNotifications)
-                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile", onClick = onNavigateToProfile,
-                        imageUri = profile.photoUri)
+                    NovelNestIconButton(
+                        icon = Icons.Rounded.Person,
+                        contentDescription = "Profile",
+                        onClick = onNavigateToProfile,
+                        imageUri = profile.photoUri,
+                        isAvatar = true
+                    )
                 }
             }
         )
@@ -115,7 +119,8 @@ fun HomeScreen(
             }
         }
         val bottomPadding = rememberFooterBottomPadding()
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()
+            .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)) {
             val cardWidth = (maxWidth - 32.dp - 24.dp) / 3
             LazyVerticalGrid(columns = GridCells.Fixed(3),
                 state = gridStates.getValue(state.selectedSource),

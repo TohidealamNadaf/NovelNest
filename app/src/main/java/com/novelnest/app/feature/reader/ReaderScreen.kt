@@ -85,6 +85,8 @@ fun ReaderScreen(
     val uiState by viewModel.uiState.collectAsState()
     val settings by viewModel.readerSettings.collectAsState()
     val playHaptic = rememberNovelNestHaptic()
+    val narrationState by com.novelnest.app.data.narration.NarrationStatus.state.collectAsState()
+    val hasActiveNarration = narrationState.novelId.isNotBlank()
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -321,10 +323,10 @@ fun ReaderScreen(
                             }
                             .graphicsLayer { translationY = pullOffset },
                         contentPadding = PaddingValues(
-                            start = 20.dp,
+                            start = 22.dp, // Subtly pushed by 2dp ("two salt grains") from 20.dp
                             end = 20.dp,
                             top = topPadding,
-                            bottom = 48.dp
+                            bottom = if (hasActiveNarration) 115.dp else 48.dp
                         )
                     ) {
                         // Chapter Title Header with generous breathing space below ReaderTopBar
@@ -333,14 +335,15 @@ fun ReaderScreen(
                                 text = chapter.title,
                                 fontFamily = settings.fontFamily.fontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = (settings.fontSizeSp + 4f).sp,
-                                lineHeight = ((settings.fontSizeSp + 4f) * settings.lineHeightMultiplier).sp,
+                                fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
+                                lineHeight = (((settings.fontSizeSp + 4f) * 0.975f) * settings.lineHeightMultiplier).sp,
+                                letterSpacing = 0.15.sp,
                                 color = textColor,
                                 modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
                             )
                         }
 
-                        // Chapter Paragraphs
+                        // Chapter Paragraphs calibrated to match Capacitor web typography
                         itemsIndexed(
                             items = chapter.paragraphs,
                             key = { index, _ -> readerParagraphKey(chapter.id, index) }
@@ -348,8 +351,9 @@ fun ReaderScreen(
                             Text(
                                 text = paragraph,
                                 fontFamily = settings.fontFamily.fontFamily,
-                                fontSize = settings.fontSizeSp.sp,
-                                lineHeight = (settings.fontSizeSp * settings.lineHeightMultiplier).sp,
+                                fontSize = (settings.fontSizeSp * 0.975f).sp,
+                                lineHeight = ((settings.fontSizeSp * 0.975f) * settings.lineHeightMultiplier).sp,
+                                letterSpacing = 0.2.sp,
                                 color = textColor,
                                 modifier = Modifier.padding(bottom = settings.paragraphSpacingDp.dp)
                             )
@@ -463,6 +467,11 @@ fun ReaderScreen(
                 settings = settings,
                 textColor = textColor,
                 secondaryColor = secondaryColor,
+                reader = uiState,
+                hasPrevChapter = uiState.currentChapterIndex > 0,
+                hasNextChapter = uiState.currentChapterIndex < uiState.chapters.size - 1,
+                onPrevChapter = { navigateToPrevChapter(uiState.currentChapterIndex) },
+                onNextChapter = { navigateToNextChapter(uiState.currentChapterIndex) },
                 onDismiss = { viewModel.showQuickSettings(false) },
                 onSetTheme = { viewModel.setTheme(it) },
                 onSetFontSize = { viewModel.setFontSize(it) },

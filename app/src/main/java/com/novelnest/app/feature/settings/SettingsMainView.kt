@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
@@ -123,6 +124,19 @@ fun SettingsMainView(
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         onNavigateTo(SettingsSubPage.READING_BEHAVIOR)
+                    }
+                )
+            }
+
+            // 3. Audio Narration Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "Audio Narration",
+                    subtitle = "Cloudflare Worker TTS, credentials & cache",
+                    icon = Icons.Rounded.Headphones,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.AUDIO_NARRATION)
                     }
                 )
             }

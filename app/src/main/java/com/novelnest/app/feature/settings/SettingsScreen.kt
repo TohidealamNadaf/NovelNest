@@ -49,6 +49,7 @@ enum class SettingsSubPage {
     MAIN,
     READING_DISPLAY,
     READING_BEHAVIOR,
+    AUDIO_NARRATION,
     APP_EXPERIENCE,
     NOTIFICATIONS,
     STORAGE_CACHE
@@ -125,6 +126,12 @@ fun SettingsScreen(
                     ReadingBehaviorPage(
                         readerSettings = readerSettings,
                         viewModel = viewModel,
+                        onBack = { currentSubPage = SettingsSubPage.MAIN }
+                    )
+                }
+
+                SettingsSubPage.AUDIO_NARRATION -> {
+                    AudioNarrationPage(
                         onBack = { currentSubPage = SettingsSubPage.MAIN }
                     )
                 }

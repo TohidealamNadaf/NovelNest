@@ -9,6 +9,8 @@ import com.novelnest.app.data.preferences.ReaderPreferencesManager
 import com.novelnest.app.data.preferences.ReaderScrollMode
 import com.novelnest.app.data.preferences.ReaderSettings
 import com.novelnest.app.data.preferences.ReaderTheme
+import com.novelnest.app.data.narration.NarrationCache
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,14 +56,21 @@ class SettingsViewModel(
 
     fun clearCache() {
         viewModelScope.launch(Dispatchers.IO) {
-            context?.let { ctx ->
-                try {
-                    val cacheDir = ctx.cacheDir
-                    deleteDir(cacheDir)
-                } catch (_: Exception) {}
+            val ctx = context ?: run {
+                _clearCacheSuccessMessage.value = "Cache storage unavailable"
+                return@launch
             }
-            _cacheSizeFormatted.value = "0 KB"
-            _clearCacheSuccessMessage.value = "Cache cleared successfully"
+            try {
+                val cleared = deleteDir(ctx.cacheDir, NarrationCache.directory(ctx))
+                val audio = NarrationCache.clear(ctx)
+                _cacheSizeFormatted.value = formatBytes(getFolderSize(ctx.cacheDir))
+                _clearCacheSuccessMessage.value = when {
+                    audio.playbackProtected -> "Other cache cleared; active narration cache preserved"
+                    !cleared || audio.failed > 0 -> "Some cache files could not be removed"
+                    else -> "Cache cleared successfully"
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _clearCacheSuccessMessage.value = "Could not clear all cache files" }
         }
     }
 
@@ -84,11 +93,16 @@ class SettingsViewModel(
         return size
     }
 
-    private fun deleteDir(dir: File): Boolean {
-        dir.listFiles()?.forEach { child ->
-            if (child.isDirectory) deleteDir(child) else child.delete()
+    private fun deleteDir(dir: File, excluded: File): Boolean {
+        val children = dir.listFiles() ?: return !dir.exists()
+        var success = true
+        children.forEach { child ->
+            if (child != excluded) {
+                val removed = if (child.isDirectory) deleteDir(child, excluded) else child.delete() || !child.exists()
+                if (!removed) success = false
+            }
         }
-        return true
+        return success
     }
 
     private fun formatBytes(bytes: Long): String {

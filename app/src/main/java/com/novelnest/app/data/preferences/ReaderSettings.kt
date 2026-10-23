@@ -88,7 +88,7 @@ data class ReaderSettings(
     val fontSizeSp: Float = 17f,
     val fontFamily: ReaderFont = ReaderFont.SERIF,
     val lineHeightMultiplier: Float = 1.6f,
-    val paragraphSpacingDp: Float = 12f,
+    val paragraphSpacingDp: Float = 16f,
     val theme: ReaderTheme = ReaderTheme.DARK,
     val textBrightness: Float = 1.0f,
     val scrollMode: ReaderScrollMode = ReaderScrollMode.CONTINUOUS,

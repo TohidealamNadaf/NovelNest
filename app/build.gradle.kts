@@ -43,7 +43,9 @@ android {
     }
     splits {
         abi {
-            isEnable = true
+            // Normal development needs one installable APK, not five repackaged copies.
+            // Opt in for distribution with -PsplitApks=true (all ABIs plus universal).
+            isEnable = providers.gradleProperty("splitApks").map(String::toBoolean).getOrElse(false)
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = true

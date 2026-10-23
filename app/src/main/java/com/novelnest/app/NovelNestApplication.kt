@@ -35,8 +35,12 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.preferences.SearchHistoryManager(this)
     }
 
-    val readerSessionManager by lazy {
-        com.novelnest.app.data.preferences.ReaderSessionManager(getSharedPreferences("reader_session", MODE_PRIVATE))
+    val navigationPreferences by lazy {
+        com.novelnest.app.data.preferences.NavigationPreferences(
+            // Reuse the existing preference file for a one-time legacy-key cleanup.
+            getSharedPreferences("reader_session", MODE_PRIVATE),
+            com.novelnest.app.data.model.NovelSourceType.fromOrdinal(preferencesManager.appSettings.value.defaultSourceOrdinal)
+        )
     }
 
     val profileManager by lazy {

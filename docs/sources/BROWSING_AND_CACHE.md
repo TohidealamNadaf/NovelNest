@@ -47,11 +47,13 @@ ReadingProgressManager merges stored history with updates received during startu
 
 Search deduplicates both database and remote records by source and canonical detail URL. Old IDs and tracking parameters cannot create extra cards for the same URL. NovelPhoenix listing titles prefer heading/title attributes; ranking labels stay separate. Valid empty remote searches stay empty.
 
-The reader uses the navigation entry SavedStateHandle for its current chapter and scroll position. Scroll restoration waits for paragraphs and ignores outgoing chapter callbacks. A small SharedPreferences reader session retains the active novel/chapter when the device discards normal task state. Navigating away clears that checkpoint; backgrounding the reader retains it. Normal resumes do not trigger a Home navigation or a forced reload. This adds recovery for activity/task recreation; the original device background event could not be reproduced without a connected device.
+The reader uses the navigation entry SavedStateHandle for its current chapter and scroll position. Scroll restoration waits for paragraphs and ignores outgoing chapter callbacks. Normal background resumes and Activity recreation retain this task state without forcing Home or reloading the reader. Fresh launcher entry, including after removal from Recents, opens Home instead of automatically navigating to the last reader.
+
+NavigationPreferences persists only the last-used source enum name and initializes Home before its first frame. Tab actions across Home, Discover, Browse, and Search, plus novel/reader entry, record the source; unchanged values skip writes. The former reader_session checkpoint is removed once, migrating only a recognized source prefix when there is no valid saved source. No database migration, network fetch, per-chapter navigation write, or task-removal callback is involved. Room reading history and reader content caches remain independent; Continue Reading uses the saved chapter as before.
 
 The synopsis uses pressed/focused surface feedback clipped to its rounded card instead of an expanding circular ripple; content expansion remains animated.
 
-ReadingAndIdentityTest adds regressions for distinct read counts, startup/write ordering, canonical search identity, nested listing markup, valid empty results, reader SavedStateHandle recreation and durable session clearing. These are JVM tests; actual Android task recreation, scrolling and touch appearance still require device verification.
+ReadingAndIdentityTest includes distinct read counts, startup/write ordering, canonical search identity, nested listing markup, valid empty results, reader SavedStateHandle recreation, and legacy-checkpoint/source-preference behavior. These are JVM tests; actual Android task recreation, scrolling and touch appearance still require device verification.
 
 
 ## Reader closure investigation

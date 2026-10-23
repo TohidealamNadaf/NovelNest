@@ -44,15 +44,18 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The starting-window theme belongs to the system splash, not the Activity UI.
+        setTheme(R.style.Theme_NovelNest)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         acceptNotification(intent)
-
+        val app = application as NovelNestApplication
         setContent {
             NovelNestTheme {
+                // Android owns the launch splash. Draw the app's first frame directly,
+                // without a second logo overlay or an artificial startup delay.
                 NovelNestApp(repository = novelRepository,
-                    sessionManager = (application as NovelNestApplication).readerSessionManager,
-                    restoreReaderSession = savedInstanceState == null,
+                    navigationPreferences = app.navigationPreferences,
                     notificationRequest = notificationOpen,
                     onNotificationHandled = { notificationOpen = null })
             }

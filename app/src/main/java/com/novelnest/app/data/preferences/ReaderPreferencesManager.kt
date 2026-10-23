@@ -26,7 +26,7 @@ class ReaderPreferencesManager(context: Context) {
         val fontSize = prefs.getFloat(KEY_FONT_SIZE, 17f)
         val fontName = prefs.getString(KEY_FONT_FAMILY, ReaderFont.SERIF.name) ?: ReaderFont.SERIF.name
         val lineHeight = prefs.getFloat(KEY_LINE_HEIGHT, 1.6f)
-        val paragraphSpacing = prefs.getFloat(KEY_PARAGRAPH_SPACING, 12f)
+        val paragraphSpacing = prefs.getFloat(KEY_PARAGRAPH_SPACING, 16f).coerceIn(14f, 28f)
         val themeName = prefs.getString(KEY_THEME, ReaderTheme.DARK.name) ?: ReaderTheme.DARK.name
         val textBrightness = prefs.getFloat(KEY_TEXT_BRIGHTNESS, 1.0f)
         val scrollModeName = prefs.getString(KEY_SCROLL_MODE, ReaderScrollMode.CONTINUOUS.name) ?: ReaderScrollMode.CONTINUOUS.name

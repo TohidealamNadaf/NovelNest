@@ -72,8 +72,7 @@ fun DiscoverScreen(
         label = "refresh_rotation"
     )
 
-    Column(modifier.sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)
-        .fillMaxSize().background(NovelBackground)) {
+    Column(modifier.fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
             title = "Novel Nest",
             subtitle = "Discover",
@@ -135,36 +134,39 @@ fun DiscoverScreen(
                 SearchBarTrigger(currentSource = state.selectedSource, onClick = { onNavigateToSearch(state.selectedSource) })
             }
         }
-        when {
-            state.isLoading && state.sections.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = NovelPrimary)
-            }
-            state.sections.isEmpty() -> Column(Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(state.errorMessage ?: "No novels available yet.", color = NovelTextSecondary)
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = viewModel::refresh) { Text("Retry") }
-            }
-            else -> {
-                val bottomPadding = rememberFooterBottomPadding()
-                LazyColumn(state = listStates.getValue(state.selectedSource),
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    if (state.errorMessage != null) item {
-                        Text(state.errorMessage.orEmpty(), color = NovelTextSecondary,
-                            modifier = Modifier.padding(horizontal = 16.dp))
-                    }
-                    items(state.sections, key = { it.id }) { section ->
-                        if (section.type == SectionType.HERO_SLIDER) {
-                            HeroCarousel(novels = section.novels, onNovelClick = onNovelClick,
-                                onNovelVisibility = viewModel::ratingVisibility,
-                                isVisible = section.id in visibleSections)
-                        } else {
-                            NovelSectionRow(section = section, onNovelClick = onNovelClick,
-                                onSeeAllClick = { onBrowse(state.selectedSource) },
-                                onNovelVisibility = viewModel::ratingVisibility,
-                                isSectionVisible = section.id in visibleSections)
+        Box(Modifier.weight(1f).fillMaxWidth()
+            .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)) {
+            when {
+                state.isLoading && state.sections.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = NovelPrimary)
+                }
+                state.sections.isEmpty() -> Column(Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(state.errorMessage ?: "No novels available yet.", color = NovelTextSecondary)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = viewModel::refresh) { Text("Retry") }
+                }
+                else -> {
+                    val bottomPadding = rememberFooterBottomPadding()
+                    LazyColumn(state = listStates.getValue(state.selectedSource),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        if (state.errorMessage != null) item {
+                            Text(state.errorMessage.orEmpty(), color = NovelTextSecondary,
+                                modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                        items(state.sections, key = { it.id }) { section ->
+                            if (section.type == SectionType.HERO_SLIDER) {
+                                HeroCarousel(novels = section.novels, onNovelClick = onNovelClick,
+                                    onNovelVisibility = viewModel::ratingVisibility,
+                                    isVisible = section.id in visibleSections)
+                            } else {
+                                NovelSectionRow(section = section, onNovelClick = onNovelClick,
+                                    onSeeAllClick = { onBrowse(state.selectedSource) },
+                                    onNovelVisibility = viewModel::ratingVisibility,
+                                    isSectionVisible = section.id in visibleSections)
+                            }
                         }
                     }
                 }

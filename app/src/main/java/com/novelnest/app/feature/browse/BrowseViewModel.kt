@@ -3,6 +3,7 @@ package com.novelnest.app.feature.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.NovelSourceType
+import com.novelnest.app.data.preferences.NavigationPreferences
 import com.novelnest.app.data.repository.NovelRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,7 +13,8 @@ import kotlinx.coroutines.launch
 
 class BrowseViewModel(
     private val repository: NovelRepository,
-    initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX
+    initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
+    private val navigationPreferences: NavigationPreferences? = null
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(BrowseUiState(selectedSource = initialSource))
     val uiState = _uiState.asStateFlow()
@@ -21,6 +23,7 @@ class BrowseViewModel(
     init { load() }
 
     fun selectSource(source: NovelSourceType) {
+        navigationPreferences?.selectSource(source)
         if (_uiState.value.selectedSource == source) return
         _uiState.value = BrowseUiState(selectedSource = source)
         load()

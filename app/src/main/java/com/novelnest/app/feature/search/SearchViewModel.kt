@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.preferences.SearchHistoryManager
+import com.novelnest.app.data.preferences.NavigationPreferences
 import com.novelnest.app.data.repository.NovelRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,7 +18,8 @@ import kotlinx.coroutines.launch
 class SearchViewModel(
     private val repository: NovelRepository,
     initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
-    private val historyManager: SearchHistoryManager? = null
+    private val historyManager: SearchHistoryManager? = null,
+    private val navigationPreferences: NavigationPreferences? = null
 ) : ViewModel() {
     private val sessionHistory = mutableMapOf<NovelSourceType, List<String>>()
     private val _uiState = MutableStateFlow(SearchUiState(
@@ -71,6 +73,7 @@ class SearchViewModel(
     }
 
     fun selectSource(source: NovelSourceType) {
+        navigationPreferences?.selectSource(source)
         if (_uiState.value.selectedSource == source) return
         searchJob?.cancel()
         _uiState.update { it.copy(selectedSource = source, results = emptyList(), errorMessage = null,

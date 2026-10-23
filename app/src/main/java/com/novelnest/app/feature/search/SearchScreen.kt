@@ -139,7 +139,6 @@ fun SearchScreen(
 
     Column(
         modifier = modifier
-            .sourceSwipeNavigation(uiState.selectedSource, viewModel::selectSource)
             .fillMaxSize()
             .background(NovelBackground)
     ) {
@@ -247,6 +246,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
+                .sourceSwipeNavigation(uiState.selectedSource, viewModel::selectSource)
         ) {
             when {
                 uiState.isSearching -> {

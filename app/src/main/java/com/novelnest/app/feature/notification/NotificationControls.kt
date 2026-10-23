@@ -64,28 +64,41 @@ fun NotificationControls(modifier: Modifier = Modifier) {
                 settings.enabled -> "Bookmark confirmations arrive when saved. Chapter checks and reading reminders run in the background."
                 else -> "Choose which reading updates you want."
             }, style = MaterialTheme.typography.bodySmall, color = NovelTextSecondary)
-            if (!settings.enabled || !allowed) Button(onClick = {
-                when {
-                    Build.VERSION.SDK_INT >= 33 &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
-                        {
-                            val activity = context as? android.app.Activity
-                            if (app.notificationStore.permissionRequested &&
-                                (activity == null || !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS))) {
-                                awaitingSettings = true
-                                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                            } else {
-                                app.notificationStore.permissionRequested = true
-                                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            if (!settings.enabled || !allowed) Button(
+                onClick = {
+                    when {
+                        Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ->
+                            {
+                                val activity = context as? android.app.Activity
+                                if (app.notificationStore.permissionRequested &&
+                                    (activity == null || !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS))) {
+                                    awaitingSettings = true
+                                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                                } else {
+                                    app.notificationStore.permissionRequested = true
+                                    launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
                             }
+                        !NotificationManagerCompat.from(context).areNotificationsEnabled() -> {
+                            awaitingSettings = true
+                            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
                         }
-                    !NotificationManagerCompat.from(context).areNotificationsEnabled() -> {
-                        awaitingSettings = true
-                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                        else -> { allowed = true; app.notificationCoordinator.configure(enabled = true) }
                     }
-                    else -> { allowed = true; app.notificationCoordinator.configure(enabled = true) }
-                }
-            }) { Text(if (!allowed) "Allow notifications" else "Enable notifications") }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NovelPrimary,
+                    contentColor = NovelOnPrimary
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = if (!allowed) "Allow notifications" else "Enable notifications",
+                    color = NovelOnPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
                     Text("Bookmark confirmations", color = NovelTextPrimary)

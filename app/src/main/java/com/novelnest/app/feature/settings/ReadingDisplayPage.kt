@@ -336,10 +336,10 @@ fun ReadingDisplayPage(
                         }
 
                         Slider(
-                            value = readerSettings.paragraphSpacingDp,
+                            value = readerSettings.paragraphSpacingDp.coerceIn(14f, 28f),
                             onValueChange = { viewModel.setParagraphSpacing(it) },
-                            valueRange = 4f..24f,
-                            steps = 9,
+                            valueRange = 14f..28f,
+                            steps = 13,
                             colors = SliderDefaults.colors(
                                 thumbColor = NovelPrimary,
                                 activeTrackColor = NovelPrimary,
@@ -354,7 +354,7 @@ fun ReadingDisplayPage(
                                 .selectableGroup(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf(8f to "Compact", 12f to "Normal", 16f to "Relaxed", 20f to "Spacious").forEach { (spacing, label) ->
+                            listOf(14f to "Compact", 18f to "Normal", 22f to "Relaxed", 28f to "Spacious").forEach { (spacing, label) ->
                                 val isSelected = kotlin.math.abs(readerSettings.paragraphSpacingDp - spacing) < 1f
                                 Box(
                                     modifier = Modifier

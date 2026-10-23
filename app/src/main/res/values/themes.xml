@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.NovelNest" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/novelnest_launcher_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <style name="Theme.NovelNest.Starting" parent="Theme.NovelNest">
+        <item name="android:windowBackground">@drawable/novelnest_starting_window</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

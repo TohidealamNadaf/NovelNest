@@ -3,6 +3,7 @@ package com.novelnest.app.core.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.indication
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,8 +29,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -56,7 +60,8 @@ import com.novelnest.app.data.model.ratingLabel
 import com.novelnest.app.data.model.hasRating
 import com.novelnest.app.data.model.chapterCountLabel
 import com.novelnest.app.data.progress.ReadingCompletion
-import androidx.compose.material3.LinearProgressIndicator
+import kotlin.math.ceil
+import kotlin.math.sqrt
 import com.novelnest.app.data.model.NovelSourceType
 
 import androidx.compose.foundation.shape.CircleShape
@@ -238,10 +243,11 @@ fun NovelCard(
                 )
             }
             if (readingCompletion != null) {
-                LinearProgressIndicator(progress = { readingCompletion.fraction },
+                PosterReadingProgress(
+                    completion = readingCompletion,
+                    cornerRadius = cardCornerRadius,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
-                    color = NovelPrimary, trackColor = NovelSurfaceBorder,
-                    gapSize = 0.dp, drawStopIndicator = {})
+                )
             }
         }
 
@@ -286,6 +292,39 @@ fun NovelCard(
             }
         }
     }
+}
+
+/** Measure the fill against the visible track, rather than the part hidden by poster corners. */
+@Composable
+private fun PosterReadingProgress(
+    completion: ReadingCompletion,
+    cornerRadius: Dp,
+    modifier: Modifier = Modifier
+) {
+    val fraction = completion.fraction
+    Spacer(modifier.progressSemantics(fraction).drawWithCache {
+        val radius = cornerRadius.toPx().coerceIn(0f, size.width / 2f)
+        val fill = Path().apply {
+            moveTo(0f, 0f)
+            // The poster clips this strip into its two bottom corner arcs. At each
+            // height, use the remaining visible width so small percentages survive.
+            // Cache the path; scrolling does not rebuild it or scan chapter history.
+            val steps = ceil(size.height.toDouble()).toInt().coerceAtLeast(1)
+            for (step in 0..steps) {
+                val y = size.height * step / steps
+                val fromCenter = (radius - size.height + y).coerceIn(0f, radius)
+                val inset = radius - sqrt((radius * radius - fromCenter * fromCenter).coerceAtLeast(0f))
+                lineTo(inset + (size.width - 2f * inset) * fraction, y)
+            }
+            lineTo(0f, size.height)
+            close()
+        }
+        onDrawBehind {
+            drawRect(NovelSurfaceBorder)
+            if (fraction >= 1f) drawRect(NovelPrimary)
+            else if (fraction > 0f) drawPath(fill, NovelPrimary)
+        }
+    })
 }
 
 @Preview(name = "NovelCard - Standard", showBackground = true, backgroundColor = 0xFF0F1216)

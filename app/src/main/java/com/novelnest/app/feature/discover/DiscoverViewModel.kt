@@ -3,6 +3,7 @@ package com.novelnest.app.feature.discover
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.*
+import com.novelnest.app.data.preferences.NavigationPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.sync.Semaphore
@@ -17,7 +18,8 @@ import kotlinx.coroutines.launch
 
 class DiscoverViewModel(
     private val repository: NovelRepository,
-    initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX
+    initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
+    private val navigationPreferences: NavigationPreferences? = null
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(DiscoverUiState(selectedSource = initialSource))
     val uiState = _uiState.asStateFlow()
@@ -113,6 +115,7 @@ class DiscoverViewModel(
     init { loadDiscover() }
 
     fun selectSource(source: NovelSourceType) {
+        navigationPreferences?.selectSource(source)
         if (_uiState.value.selectedSource == source) return
         _uiState.update { it.copy(selectedSource = source, sections = emptyList(), errorMessage = null) }
         loadDiscover()

@@ -1,0 +1,76 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp"
+    android:height="72dp"
+    android:viewportWidth="72"
+    android:viewportHeight="72">
+<path android:fillColor="#0F1216" android:pathData="M0,0 H72 V72 H0 Z"/>
+<group android:translateX="-18" android:translateY="-18">
+    <!-- Subtle Ambient Glow -->
+    <path
+        android:fillColor="#15E2A765"
+        android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
+
+    <!-- Hardcover Book Base -->
+    <path
+        android:fillColor="#70441E"
+        android:pathData="M54,67 L24,53 L24,57 L54,71 Z" />
+    <path
+        android:fillColor="#5A3716"
+        android:pathData="M54,67 L84,53 L84,57 L54,71 Z" />
+
+    <!-- Left Book Pages -->
+    <path
+        android:fillColor="#B87B3D"
+        android:pathData="M54,64 L26,50 L26,45 L54,59 Z" />
+    <path
+        android:fillColor="#D89953"
+        android:pathData="M54,61 L27,47 L27,41 L54,55 Z" />
+    <path
+        android:fillColor="#E2A765"
+        android:pathData="M54,37 C44,37 35,33 28,34 L28,51 C36,49 45,52 54,58 Z" />
+
+    <!-- Right Book Pages -->
+    <path
+        android:fillColor="#C78C4B"
+        android:pathData="M54,64 L82,50 L82,45 L54,59 Z" />
+    <path
+        android:fillColor="#E2A765"
+        android:pathData="M54,61 L81,47 L81,41 L54,55 Z" />
+    <path
+        android:fillColor="#F1C68F"
+        android:pathData="M54,37 C64,37 73,33 80,34 L80,51 C72,49 63,52 54,58 Z" />
+
+    <!-- Center Spine Crease -->
+    <path
+        android:fillColor="#4A2E12"
+        android:pathData="M53.2,37 L54.8,37 L54.8,67 L53.2,67 Z" />
+
+    <!-- Bookmark Ribbon with Chevron Tail -->
+    <path
+        android:fillColor="#FFE0B2"
+        android:pathData="M51.5,41 L56.5,41 L56.5,75 L54,72 L51.5,75 Z" />
+    <path
+        android:fillColor="#E2A765"
+        android:pathData="M51.5,41 L54,41 L54,72 L51.5,75 Z" />
+
+    <!-- Celestial Reading Star -->
+    <path
+        android:fillColor="#FFE0B2"
+        android:pathData="M54,17 C54.3,22.5 56,24.2 61.5,24.5 C56,24.8 54.3,26.5 54,32 C53.7,26.5 52,24.8 46.5,24.5 C52,24.2 53.7,22.5 54,17 Z" />
+
+    <!-- Star Core Highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,21.5 C54.2,23.5 55,24.2 57,24.5 C55,24.8 54.2,25.5 54,27.5 C53.8,25.5 53,24.8 51,24.5 C53,24.2 53.8,23.5 54,21.5 Z" />
+
+    <!-- Left Sparkle -->
+    <path
+        android:fillColor="#F1C68F"
+        android:pathData="M38,22 C38.2,23.8 39,24.5 40.8,24.7 C39,24.9 38.2,25.6 38,27.4 C37.8,25.6 37,24.9 35.2,24.7 C37,24.5 37.8,23.8 38,22 Z" />
+
+    <!-- Right Sparkle -->
+    <path
+        android:fillColor="#F1C68F"
+        android:pathData="M70,22 C70.2,23.8 71,24.5 72.8,24.7 C71,24.9 70.2,25.6 70,27.4 C69.8,25.6 69,24.9 67.2,24.7 C69,24.5 69.8,23.8 70,22 Z" />
+</group>
+</vector>
