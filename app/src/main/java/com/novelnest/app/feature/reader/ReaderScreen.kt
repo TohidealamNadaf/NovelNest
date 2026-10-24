@@ -74,6 +74,7 @@ import com.novelnest.app.feature.reader.components.PullChapterIndicator
 import com.novelnest.app.feature.reader.components.ReaderQuickSettingsSheet
 import com.novelnest.app.feature.reader.components.ReaderNavigationBar
 import com.novelnest.app.feature.reader.components.ReaderTopBar
+import com.novelnest.app.feature.reader.components.ReaderFastScroller
 import kotlinx.coroutines.launch
 
 @Composable
@@ -209,6 +210,7 @@ fun ReaderScreen(
                 // Interactive pull offset for swipe-up (bottom) and swipe-down (top) overscroll
                 var pullOffset by remember(chapterIndex) { mutableFloatStateOf(0f) }
                 var releasingPull by remember(chapterIndex) { mutableStateOf(false) }
+                var fastScrolling by remember(chapterIndex) { mutableStateOf(false) }
                 val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex))
                 val thresholdPx = with(density) { 75.dp.toPx() }
 
@@ -216,7 +218,7 @@ fun ReaderScreen(
                 val pullScrollConnection = remember(listState, hasPrevChapter, hasNextChapter, thresholdPx) {
                     object : NestedScrollConnection {
                         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull) {
+                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull && !fastScrolling) {
                                 val current = pullOffset
                                 // Pulling back up from downward pull
                                 if (current > 0f && available.y < 0f) {
@@ -239,7 +241,7 @@ fun ReaderScreen(
                             available: Offset,
                             source: NestedScrollSource
                         ): Offset {
-                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull) {
+                            if (source == NestedScrollSource.UserInput && swipeEnabled && !releasingPull && !fastScrolling) {
                                 // 1. Swipe down at top of chapter -> pull previous chapter from above
                                 if (available.y > 0f && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && hasPrevChapter) {
                                     val delta = available.y * 0.45f
@@ -260,7 +262,7 @@ fun ReaderScreen(
                         }
 
                         override suspend fun onPreFling(available: Velocity): Velocity {
-                            if (!swipeEnabled || releasingPull || pullOffset == 0f) return Velocity.Zero
+                            if (!swipeEnabled || releasingPull || fastScrolling || pullOffset == 0f) return Velocity.Zero
                             val current = pullOffset
                             releasingPull = true
                             try {
@@ -416,6 +418,21 @@ fun ReaderScreen(
                             }
                         }
                     }
+
+                    ReaderFastScroller(
+                        listState = listState,
+                        enabled = scrollRestored && swipeEnabled && chapter.paragraphs.isNotEmpty() &&
+                            !uiState.showQuickSettingsSheet &&
+                            drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
+                            drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed,
+                        color = textColor,
+                        onDraggingChanged = { dragging ->
+                            fastScrolling = dragging
+                            if (dragging) pullOffset = 0f
+                        },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                            .padding(top = topPadding + 8.dp, bottom = if (hasActiveNarration) 115.dp else 48.dp)
+                    )
 
                     // Pull Down Indicator (Previous Chapter Preview & Release state)
                     PullChapterIndicator(
