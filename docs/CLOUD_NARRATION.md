@@ -88,7 +88,14 @@ First version deliberately stops at chapter end. Auto-next-chapter, sleep timers
 
 Quick Settings keeps its Play action and dismisses the sheet after a successful playback command. The progress card is mounted once in `NovelNestApp`, across Home, Discover, Browse, Search, Settings, novel details, and the reader. It sits above the footer where present, and respects system navigation insets elsewhere. Its measured height is reserved from page content so it does not cover the last list item or reader text. Dialogs and modal sheets may temporarily cover it; the media notification still controls the same service.
 
-The mini-player provides pause/resume, previous/next **audio passage**, speed selection, seeking within the current MP3, and a cross labeled Stop narration and close player. Closing sends the service's Stop action, saves the checkpoint, cancels outstanding work, removes the notification, and releases playback resources. Pause preserves the player. Normal navigation never starts a second player or restarts audio, and no floating-window/overlay permission is needed.
+The mini-player provides pause/resume, previous/next **audio passage**, speed selection, seeking within the current MP3, and a cross labeled Stop narration and close player. Closing stops the existing service, saves the checkpoint, cancels outstanding work, removes the notification, and releases playback resources. System media Stop uses the same shutdown lifecycle. Pause preserves the player. Normal navigation never starts a second player or restarts audio, and no floating-window/overlay permission is needed.
+
+Progress fill and drag-thumb animation are drawn in Canvas; time labels derive
+whole seconds and cache their formatted strings. This removes progress-driven
+composition work on every animation frame. Thermal/frame-time improvements still
+require device measurement. General Settings cache clearing uses live HTTP/image
+cache APIs and the shared reader-cache lock; it preserves the narration cache
+while a narration session owns it.
 
 Position snapshots reuse the media session's existing 5-second checkpoint updates. Only the seek-bar leaf interpolates progress while the UI is started; backgrounding cancels that animation. The app root observes only session visibility, so position updates do not recompose the navigation host. No per-page timers, audio fetching, or additional synthesis are introduced. After prolonged pause, resuming promotes the service and reopens the cached passage at the saved offset. Android may still kill a background paused service; it does not auto-resume after process death or force-stop.
 
@@ -101,3 +108,84 @@ Clearing the disposable cache does not remove credentials or disable narration. 
 Redeploy the Worker after these changes. It requests the model's raw response, normalizes binary and JSON/base64 envelopes, verifies MP3/WAV signatures, and labels the actual audio format. Invalid output is returned as a structured error, never mislabeled as an MP3. The Android client checks cached/downloaded headers before playback and replaces invalid cached files. Decoder failures evict the offending file, expose numeric player error codes, and release the player. Asynchronous local-player preparation has a bounded 15-second timeout. User retries remain explicit; there are no automatic synthesis loops.
 
 A successful `MediaPlayer.start()` establishes the playing session; the UI no longer permanently labels it Paused because an immediate native `isPlaying` query lagged startup. Full device playback and live model output still require a connected device/deployed Worker to verify. A non-sensitive `NovelNestNarration` warning records the failure stage, never credentials or chapter text.
+
+### Stop crash investigation — 2026-10-24
+
+The reported sequence was three or four passages playing, a subsequent cloud
+request stalling, and an immediate app closure when the mini-player cross was
+pressed. Code inspection found `NarrationService.onDestroy()` calling
+`NarrationAudio.close()` synchronously on Android's main thread. That method
+evicted HTTPS connections; [OkHttp 4.12 closes idle sockets synchronously during
+eviction](https://github.com/square/okhttp/blob/parent-4.12.0/okhttp/src/main/kotlin/okhttp3/internal/connection/RealConnectionPool.kt#L110-L126).
+TLS shutdown can perform network I/O, which can raise
+[NetworkOnMainThreadException](https://developer.android.com/reference/android/os/NetworkOnMainThreadException)
+outside the service's coroutine/control error handlers. This is a concrete crash
+risk matching Stop after network playback. The device exception remains
+unconfirmed because ADB reported no attached phone.
+
+The Android changes address that path as follows:
+
+- Client shutdown (dispatcher cancellation, TLS eviction, and executor shutdown) runs on an IO scope
+  independent of the cancelled playback scope. Each audio client closes once;
+  a cleanup failure does not skip the remaining cleanup steps.
+- The cross stops the existing service directly. Stop is processed before any
+  foreground promotion, and repeated Stop calls are safe. Checkpoints, pending
+  requests, decoder, focus, receiver, media session, and notification are released.
+  Notification removal also covers a notification detached after a long pause.
+- Late player callbacks require the current player/session identity. Stopped
+  sessions reject control and status updates. Focus, completion, seek, and
+  decoder callbacks use the control error handler.
+- Prefetch tracks its target passage and actual connection/download phase. On
+  passage handoff the mini-player displays that phase while awaiting the same
+  request. Transport exception classes and failed HTTP status codes are logged
+  under `NovelNestNarration`, without chapter text, addresses, or access tokens.
+
+The cloud stall has not been reproduced here. Initial cached passages can play
+before the first missing passage needs the network; a successful health check
+does not prove model availability or quota. The existing Worker permits 12
+requests/minute and returns structured limit/provider errors, but no evidence
+establishes that a limit caused this incident. Requests retain bounded timeouts
+and explicit user retries. Clearing disposable audio requires generation again
+for missing passages and should not itself crash Stop.
+
+`:app:assembleDebug --offline --max-workers=1` succeeded during the investigation.
+No automated tests, live synthesis requests, or on-device reproduction were run
+for this change. The new APK must be installed to exercise the corrected Close
+path; this Android change does not require redeploying the Worker. Remaining
+device checks are Stop while playing, waiting for cloud audio, paused after the
+60-second grace period, repeated Stop/Play, and HTTP/decoder failures. Capture
+`AndroidRuntime` and `NovelNestNarration` logcat output if closure or the stall
+persists.
+
+### Manual Next passage investigation — 2026-10-24
+
+The user narrowed the sequence to pressing Next while a passage was playing,
+waiting for cloud generation, then pressing Close. They confirmed this happened
+on the earlier APK, before the shutdown fix above was installed.
+
+Code inspection found a separate request ownership bug: `skip()` called
+`invalidate()`, which cancelled and discarded the next-passage prefetch even
+when it was precisely the selected destination. `resume()` then requested that
+same text again. This also threw away an already completed prefetch handle
+(although its completed disk file could be reused). Natural passage completion
+already awaited the existing prefetch; manual Next used the destructive path.
+
+Cancelling the Android request does not establish that cloud inference stopped:
+[OkHttp cancellation terminates the local exchange or connection](https://github.com/square/okhttp/blob/parent-4.12.0/okhttp/src/main/kotlin/okhttp3/internal/connection/RealCall.kt#L117-L133),
+and our Worker does not propagate a client abort signal into `AI.run`. Repeating
+requests can therefore restart the wait and leave overlapping remote work,
+potentially encountering the existing busy/rate limits. No live response proves
+which provider condition caused this incident.
+
+The service now keeps a passage request object with its own destination, phase,
+and Deferred. Manual Next preserves that object when the destination matches,
+while invalidating the outgoing decoder's callbacks separately. Both automatic
+completion and manual Next await the same request/result. Its phase callbacks
+remain valid across this handoff, and callbacks from replaced requests are
+ignored by identity. Previous, another chapter, Pause, and Stop cancel requests
+that are no longer retained. Skips beyond the first/last passage are no-ops.
+
+This is a client fix; the new APK includes both the prefetch handoff and shutdown
+repairs. On-device verification remains pending for Next during prefetch,
+cached Next, provider failure, Close while waiting, and rapid controls. No
+phone was attached for crash-log inspection.

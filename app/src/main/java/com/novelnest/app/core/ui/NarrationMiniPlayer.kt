@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -33,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -458,7 +462,16 @@ private fun NarrationScrubbableProgressBar(
         }
     }
 
-    val currentFraction = (draggingFraction ?: progress.value).coerceIn(0f, 1f)
+    // Only the draw phase observes every animation frame. Labels invalidate at
+    // their displayed-second boundary, rather than formatting strings at 60/120Hz.
+    val elapsedSeconds by remember(timeline.durationMs) {
+        derivedStateOf {
+            (((draggingFraction ?: progress.value).coerceIn(0f, 1f) * timeline.durationMs).toLong() / 1000L)
+        }
+    }
+    val elapsedLabel = remember(elapsedSeconds) { formatDuration(elapsedSeconds * 1000L) }
+    val durationLabel = remember(timeline.durationMs) { formatDuration(timeline.durationMs) }
+    val fillBrush = remember { Brush.horizontalGradient(listOf(NovelPrimary, NovelPrimary.copy(alpha = 0.85f))) }
     val canSeek = timeline.canSeek && timeline.durationMs > 0L
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -495,44 +508,19 @@ private fun NarrationScrubbableProgressBar(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // Track Background
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(NovelSurfaceBorder.copy(alpha = 0.5f))
-            ) {
-                // Active Fill (Single continuous amber line, zero stop dots!)
-                if (currentFraction > 0.002f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction = currentFraction)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(NovelPrimary, NovelPrimary.copy(alpha = 0.85f))
-                                )
-                            )
-                    )
+            Canvas(Modifier.fillMaxSize()) {
+                val fraction = (draggingFraction ?: progress.value).coerceIn(0f, 1f)
+                val height = 3.dp.toPx()
+                val top = (size.height - height) / 2f
+                val radius = CornerRadius(1.5.dp.toPx())
+                drawRoundRect(NovelSurfaceBorder.copy(alpha = 0.5f), Offset(0f, top), Size(size.width, height), radius)
+                if (fraction > 0.002f) {
+                    drawRoundRect(fillBrush, Offset(0f, top), Size(size.width * fraction, height), radius)
                 }
-            }
-
-            // Glow thumb indicator when actively dragging
-            if (draggingFraction != null && currentFraction in 0.01f..0.99f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction = currentFraction)
-                        .align(Alignment.CenterStart)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(NovelPrimary)
-                    )
+                if (draggingFraction != null && fraction in 0.01f..0.99f) {
+                    val thumbRadius = 4.dp.toPx()
+                    drawCircle(NovelPrimary, thumbRadius,
+                        Offset((size.width * fraction - thumbRadius).coerceAtLeast(thumbRadius), size.height / 2f))
                 }
             }
         }
@@ -545,15 +533,14 @@ private fun NarrationScrubbableProgressBar(
                     .padding(horizontal = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val currentPositionMs = ((draggingFraction ?: currentFraction) * timeline.durationMs).toLong()
                 Text(
-                    text = formatDuration(currentPositionMs),
+                    text = elapsedLabel,
                     fontSize = 9.5.sp,
                     color = NovelTextSecondary.copy(alpha = 0.7f),
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = formatDuration(timeline.durationMs),
+                    text = durationLabel,
                     fontSize = 9.5.sp,
                     color = NovelTextSecondary.copy(alpha = 0.7f),
                     fontWeight = FontWeight.Medium

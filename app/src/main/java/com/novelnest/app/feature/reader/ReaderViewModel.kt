@@ -323,7 +323,9 @@ class ReaderViewModel(
                 // The detail page can continue loading later pages while the first chapter is read.
                 snapshots.collect { incoming ->
                     _uiState.update { state ->
-                        if (incoming.isEmpty() || incoming.size < state.chapters.size) return@update state
+                        // Repository snapshots retain partial refreshes; a smaller snapshot
+                        // now represents a completed refresh, not a temporary first page.
+                        if (incoming.isEmpty()) return@update state
                         val currentId = state.chapters.getOrNull(state.currentChapterIndex)?.id
                         val known = state.chapters.associateBy { it.id }
                         val merged = incoming.map { item ->

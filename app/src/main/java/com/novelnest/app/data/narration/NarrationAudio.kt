@@ -6,6 +6,7 @@ import java.security.MessageDigest
 import java.text.BreakIterator
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.net.InetSocketAddress
 import java.net.Proxy
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,7 @@ internal fun narrationPassages(paragraphs: List<String>): List<String> {
 /** Only one service uses this cache; no raw PCM or chapter-sized audio in memory. */
 internal class NarrationAudio(private val directory: File, private val store: NarrationStore) {
     private var cleaned = false
+    private val closed = AtomicBoolean(false)
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(75, TimeUnit.SECONDS).callTimeout(90, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false)
@@ -63,6 +65,7 @@ internal class NarrationAudio(private val directory: File, private val store: Na
         } }.build()
 
     suspend fun get(text: String, onPhase: (NarrationPhase) -> Unit = {}): File = withContext(Dispatchers.IO) {
+        check(!closed.get()) { "Narration session is closed." }
         onPhase(NarrationPhase.CHECKING_CACHE)
         val (endpoint, token) = store.credentials()
         val key = audioHash("melotts-en-v1|$endpoint|$text")
@@ -92,6 +95,8 @@ internal class NarrationAudio(private val directory: File, private val store: Na
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
+                    if (!call.isCanceled()) android.util.Log.w("NovelNestNarration",
+                        "Audio transport failed: ${e.javaClass.simpleName}")
                     val message = when (e) {
                         is java.net.SocketTimeoutException, is java.io.InterruptedIOException -> "Cloud audio request timed out. Tap Play to retry."
                         is java.net.UnknownHostException -> "Cannot reach the Worker. Check your internet connection and endpoint."
@@ -103,7 +108,10 @@ internal class NarrationAudio(private val directory: File, private val store: Na
                     val temporary = File(directory, "$key.${java.util.UUID.randomUUID()}.tmp")
                     val result = runCatching {
                         response.use {
-                            if (!it.isSuccessful) throw IOException(responseError(it))
+                            if (!it.isSuccessful) {
+                                android.util.Log.w("NovelNestNarration", "Audio response failed: HTTP ${it.code}")
+                                throw IOException(responseError(it))
+                            }
                             if (it.header("Content-Type")?.startsWith("audio/") != true) throw IOException("Invalid audio response.")
                             val body = it.body ?: throw IOException("Empty audio response.")
                             onPhase(NarrationPhase.DOWNLOADING)
@@ -123,6 +131,10 @@ internal class NarrationAudio(private val directory: File, private val store: Na
                         }
                     }
                     temporary.delete()
+                    result.onFailure { error ->
+                        if (!call.isCanceled()) android.util.Log.w("NovelNestNarration",
+                            "Audio download failed: ${error.javaClass.simpleName}")
+                    }
                     if (continuation.isActive) continuation.resumeWith(result)
                 }
             })
@@ -132,9 +144,7 @@ internal class NarrationAudio(private val directory: File, private val store: Na
     private class AudioProgress(val update: (NarrationPhase) -> Unit)
 
     fun close() {
-        client.dispatcher.cancelAll()
-        client.connectionPool.evictAll()
-        client.dispatcher.executorService.shutdown()
+        if (closed.compareAndSet(false, true)) NarrationNetworkCleanup.release(client)
     }
 
     private fun isAudio(file: File): Boolean = runCatching {

@@ -4,6 +4,7 @@ import com.novelnest.app.data.cache.ReaderCacheStore
 import com.novelnest.app.data.cache.MutexPool
 import com.novelnest.app.feature.reader.Chapter
 import com.novelnest.app.data.cache.MemoryLruCache
+import com.novelnest.app.data.cache.ChapterSnapshotStore
 import com.novelnest.app.data.database.NovelNestDatabase
 import com.novelnest.app.data.database.entity.NovelEntity
 import com.novelnest.app.data.database.entity.SectionEntity
@@ -28,11 +29,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
@@ -63,12 +66,12 @@ class NovelRepositoryImpl(
     private val lastSyncTimestamps = ConcurrentHashMap<NovelSourceType, Long>()
 
     // Persistent in-memory chapter cache across the entire application lifecycle
-    private val memoryChapterCache = ConcurrentHashMap<String, List<com.novelnest.app.feature.reader.Chapter>>()
+    private val memoryChapterCache = MemoryLruCache<String, List<Chapter>>(16)
 
     // Progressive navigation snapshots are separate from the cache of complete lists.
-    private val chapterSnapshots = ConcurrentHashMap<String, MutableStateFlow<List<com.novelnest.app.feature.reader.Chapter>>>()
-    private val prefetchedNovels = ConcurrentHashMap.newKeySet<String>()
-    private val memoryNovels = ConcurrentHashMap<String, Novel>()
+    private val chapterSnapshots = ChapterSnapshotStore(16)
+    private val prefetchedNovels = MemoryLruCache<String, Boolean>(64)
+    private val memoryNovels = MemoryLruCache<String, Novel>(256)
     private val popularCache = ConcurrentHashMap<NovelSourceType, Pair<Long, List<Novel>>>()
 
     private val readerContent = MemoryLruCache<String, Chapter>(8)
@@ -141,7 +144,7 @@ class NovelRepositoryImpl(
         runCatching { novel.id == FreeWebNovelUrls.novelId(novel.sourceUrl) }.getOrDefault(false)
 
     private fun chapterSnapshot(source: NovelSourceType, novelSlugOrUrl: String) =
-        chapterSnapshots.getOrPut(buildChapterCacheKey(source, novelSlugOrUrl)) { MutableStateFlow(emptyList()) }
+        chapterSnapshots.get(buildChapterCacheKey(source, novelSlugOrUrl))
 
     override fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.feature.reader.Chapter>> =
         chapterSnapshot(source, novelSlugOrUrl).asStateFlow()
@@ -242,7 +245,7 @@ class NovelRepositoryImpl(
         }
 
         // Check local DB first for matches to reduce scraper stress
-        var cachedMatches = NovelIdentity.distinct(memoryNovels.values.toList()).filter {
+        var cachedMatches = NovelIdentity.distinct(memoryNovels.valuesSnapshot()).filter {
             it.source == source && it.title.contains(q, ignoreCase = true) &&
                 (source != NovelSourceType.FREE_WEB_NOVEL || isLiveFreeWebNovel(it))
         }
@@ -405,22 +408,36 @@ class NovelRepositoryImpl(
             return@flow
         }
 
+        val snapshot = chapterSnapshot(source, novelSlugOrUrl)
         var storedCatalogSize = 0
         if (!forceRefresh) {
             val stored = readerCache?.read("catalog:" + cacheKey)
             if (!stored.isNullOrEmpty()) {
                 storedCatalogSize = stored.size
-                chapterSnapshot(source, novelSlugOrUrl).value = stored
-                emit(Result.success(stored))
+                snapshot.update { mergePartialCatalog(it, stored) }
+                emit(Result.success(snapshot.value))
+            } else if (snapshot.value.isNotEmpty()) {
+                emit(Result.success(snapshot.value))
             }
         }
 
-        remoteSource.getChaptersFlow(novelSlugOrUrl, forceRefresh).collect { result ->
-            result.onSuccess { chapters ->
+        var latestRemote: List<Chapter>? = null
+        var failed = false
+        var lastWriteNanos = 0L
+        remoteSource.getChaptersFlow(novelSlugOrUrl, forceRefresh).catch { error ->
+            if (error is CancellationException) throw error
+            emit(Result.failure(error))
+        }.collect { result ->
+            if (result.isFailure) {
+                failed = true
+                emit(result)
+            } else {
+                val chapters = result.getOrThrow()
+                latestRemote = chapters
                 if (chapters.isNotEmpty()) {
-                    chapterSnapshot(source, novelSlugOrUrl).value = chapters
+                    snapshot.update { mergePartialCatalog(it, chapters) }
                     val firstChapter = chapters.first()
-                    if (warmFirstChapter && source in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL) && firstChapter.url.isNotBlank() && prefetchedNovels.add(cacheKey)) {
+                    if (warmFirstChapter && source in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL) && firstChapter.url.isNotBlank() && prefetchedNovels.putIfAbsent(cacheKey, true) == null) {
                         // Warm one chapter while details are visible; selecting it uses the same source cache.
                         repositoryScope.launch {
                             getChapterContent(source, firstChapter.url, forceRefresh = false).onFailure {
@@ -432,18 +449,39 @@ class NovelRepositoryImpl(
                     if (remoteSource is NovelPhoenixSource) {
                         remoteSource.resetCircuitBreaker()
                     }
-                    if (useRepositoryCache) memoryChapterCache[cacheKey] = chapters
                 }
-            }
-            emit(result)
-            result.getOrNull()?.takeIf { it.isNotEmpty() }?.let {
-                // A refreshing first page must not replace a more complete persisted catalog.
-                if (it.size >= storedCatalogSize) {
-                    readerCache?.write("catalog:" + cacheKey, it, includeText = false)
-                    storedCatalogSize = it.size
+                emit(Result.success(snapshot.value))
+                val now = System.nanoTime()
+                // Checkpoint useful growth, without serializing the whole catalog on every emission.
+                if (snapshot.value.size > storedCatalogSize &&
+                    (lastWriteNanos == 0L || now - lastWriteNanos >= 1_000_000_000L)) {
+                    readerCache?.write("catalog:" + cacheKey, snapshot.value, includeText = false)
+                    storedCatalogSize = snapshot.value.size
+                    lastWriteNanos = now
                 }
             }
         }
+        // Flow cancellation (e.g. first()) never reaches this point. Only a normally
+        // completed, successful source refresh may remove chapters from the old list.
+        val complete = latestRemote
+        if (!failed && !complete.isNullOrEmpty()) {
+            snapshot.value = complete
+            if (useRepositoryCache) memoryChapterCache[cacheKey] = complete
+            emit(Result.success(complete))
+            readerCache?.write("catalog:" + cacheKey, complete, includeText = false)
+        } else if (!failed && complete != null && snapshot.value.isNotEmpty()) {
+            emit(Result.failure(IOException("Source returned no chapters; keeping the cached catalog.")))
+        }
+    }
+
+    private fun mergePartialCatalog(existing: List<Chapter>, incoming: List<Chapter>): List<Chapter> {
+        if (existing.isEmpty()) return incoming
+        if (incoming.isEmpty()) return existing
+        val fresh = incoming.associateBy { it.id }
+        val known = existing.mapTo(HashSet()) { it.id }
+        return existing.map { old -> fresh[old.id]?.let { updated ->
+            if (old.paragraphs.isNotEmpty()) updated.copy(paragraphs = old.paragraphs) else updated
+        } ?: old } + incoming.filter { it.id !in known }
     }
 
     override suspend fun getChapterContent(

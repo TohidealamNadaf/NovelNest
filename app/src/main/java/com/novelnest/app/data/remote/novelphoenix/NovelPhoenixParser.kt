@@ -16,6 +16,7 @@ import org.jsoup.nodes.Element
  * - Throw [PhoenixException.ResourceNotFoundError] when a 404 page is returned.
  */
 object NovelPhoenixParser {
+    internal const val MAX_CHAPTER_PAGES = 1_000
 
     /**
      * Parses the novel detail page.
@@ -202,9 +203,13 @@ object NovelPhoenixParser {
         val rangeOptions = doc.select("select[aria-label='Chapter range'] option, .chaprange select option")
         val pageNumbers = rangeOptions.mapNotNull { opt ->
             val v = opt.attr("value")
-            Regex("[?&]page=([0-9]+)").find(v)?.groupValues?.get(1)?.toIntOrNull()
+            Regex("[?&]page=([0-9]+)").find(v)?.groupValues?.get(1)?.let { number ->
+                number.toIntOrNull() ?: throw PhoenixException.ParseError("totalPages", "Invalid chapter page count.")
+            }
         }
         val totalPages = (pageNumbers.maxOrNull() ?: rangeOptions.size).coerceAtLeast(1)
+        if (totalPages > MAX_CHAPTER_PAGES) throw PhoenixException.ParseError(
+            "totalPages", "Chapter pagination exceeds the supported limit ($MAX_CHAPTER_PAGES).")
 
         return PhoenixChapterPageResult(
             chapters = chapters,

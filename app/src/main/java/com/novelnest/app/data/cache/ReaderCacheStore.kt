@@ -20,6 +20,19 @@ class ReaderCacheStore(
     private val maxEntries: Int = 96
 ) {
     private val lock = Mutex()
+
+    /** Same lock as readers/writers: never remove a file under an atomic replacement. */
+    suspend fun clear(): Boolean = withContext(Dispatchers.IO) {
+        lock.withLock {
+            if (!directory.exists()) return@withLock true
+            val files = directory.listFiles() ?: return@withLock false
+            var cleared = true
+            for (entry in files) {
+                if (!entry.isFile || (!entry.delete() && entry.exists())) cleared = false
+            }
+            cleared
+        }
+    }
     private fun file(key: String): File {
         val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
             .joinToString("") { "%02x".format(it) }

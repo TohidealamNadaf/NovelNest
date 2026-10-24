@@ -41,14 +41,22 @@ class NarrationService : Service() {
     private var publishedMediaId = ""
     private var publishedDuration = -1L
     private var work: Job? = null
-    private var prefetch: Deferred<File>? = null
-    private var nextFile: File? = null
+    // The request identity survives a manual jump to its passage. Decoder epochs
+    // still invalidate the old player's callbacks without restarting synthesis.
+    private class PassageRequest(val index: Int) {
+        var phase = NarrationPhase.CHECKING_CACHE
+        lateinit var download: Deferred<File>
+    }
+    private var prefetch: PassageRequest? = null
     private var currentFile: File? = null
     private var checkpointJob: Job? = null
     private var idleJob: Job? = null
     private var epoch = 0
     private var wanted = false
     private var foreground = false
+    private var stopping = false
+    private var noisyRegistered = false
+    private var cacheOwned = false
     private var resumeOnFocus = false
     private var novelId = ""
     private var chapterUrl = ""
@@ -60,7 +68,7 @@ class NarrationService : Service() {
     private var offsetMs = 0
 
     private val noisy = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) { pause() }
+        override fun onReceive(context: Context?, intent: Intent?) { control { pause() } }
     }
 
     override fun onCreate() {
@@ -68,6 +76,7 @@ class NarrationService : Service() {
         store = NarrationStore(this)
         audio = NarrationAudio(NarrationCache.directory(this), store)
         NarrationCache.playbackStarted()
+        cacheOwned = true
         audioManager = getSystemService(AudioManager::class.java)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Chapter narration", NotificationManager.IMPORTANCE_LOW))
@@ -83,6 +92,7 @@ class NarrationService : Service() {
             isActive = true
         }
         ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED)
+        noisyRegistered = true
         scope.launch {
             NarrationSpeed.load(applicationContext)
             NarrationSpeed.values.filterNotNull().collect { speed ->
@@ -101,13 +111,16 @@ class NarrationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) { stopSelf(); return START_NOT_STICKY }
-        // Promote before content/network work, including when starting from a media notification.
-        if (!promote()) { stopSelf(); return START_NOT_STICKY }
+        // Stopping/pausing/seeking never starts or promotes foreground playback.
+        if (intent.action == STOP) { stopSession(); return START_NOT_STICKY }
+        if (stopping) { stopSelf(); return START_NOT_STICKY }
+        val startsPlayback = intent.action in listOf(START, PLAY, NEXT, PREVIOUS)
+        if (startsPlayback && !promote()) { stopSelf(); return START_NOT_STICKY }
+        if (!startsPlayback && novelId.isBlank()) { stopSelf(); return START_NOT_STICKY }
         control { when (intent.action) {
             START -> startChapter(intent)
             PLAY -> resume()
             PAUSE -> pause()
-            STOP -> stopSession()
             NEXT -> skip(1)
             PREVIOUS -> skip(-1)
             SEEK -> if (intent.getStringExtra("mediaId") == currentMediaId()) {
@@ -119,10 +132,13 @@ class NarrationService : Service() {
     }
 
     private fun control(block: () -> Unit) {
+        if (stopping) return
         try { block() } catch (error: RuntimeException) {
             android.util.Log.w("NovelNestNarration", "Control failure: ${error.javaClass.simpleName} during ${phase.name}")
-            releasePlayer()
-            fail("Narration controls were interrupted. Tap Play to retry.")
+            runCatching {
+                releasePlayer()
+                fail("Narration controls were interrupted. Tap Play to retry.")
+            }.onFailure { stopSession() }
         }
     }
 
@@ -185,7 +201,7 @@ class NarrationService : Service() {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setWillPauseWhenDucked(true)
             .setOnAudioFocusChangeListener { change ->
-                when (change) {
+                control { when (change) {
                     AudioManager.AUDIOFOCUS_LOSS -> pause()
                     AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                         val shouldResume = wanted
@@ -193,7 +209,7 @@ class NarrationService : Service() {
                         resumeOnFocus = shouldResume
                     }
                     AudioManager.AUDIOFOCUS_GAIN -> if (resumeOnFocus) { resumeOnFocus = false; resume() }
-                }
+                } }
             }.build()
         if (audioManager.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return false
         focus = request
@@ -201,6 +217,7 @@ class NarrationService : Service() {
     }
 
     private fun resume() {
+        if (stopping) return
         // Repeated media Play events must not restart a pending chapter/audio request.
         if (wanted && (work?.isActive == true || (player != null && !prepared))) return
         if (passages.isEmpty()) {
@@ -229,15 +246,15 @@ class NarrationService : Service() {
         publish(loading = true, newPhase = NarrationPhase.CHECKING_CACHE)
         work = scope.launch {
             try {
-                val pending = prefetch
-                if (pending != null && !pending.isCompleted) publish(loading = true, newPhase = NarrationPhase.WAITING_FOR_AUDIO)
-                val file = nextFile ?: pending?.await() ?: audio.get(passages[index]) { progress ->
+                val pending = prefetch?.takeIf { it.index == index }
+                if (pending != null && !pending.download.isCompleted) publish(loading = true, newPhase = pending.phase)
+                val file = pending?.download?.await() ?: audio.get(passages[index]) { progress ->
                     scope.launch {
                         if (generation == epoch && wanted && player == null) publish(loading = true, newPhase = progress)
                     }
                 }
-                prefetch = null; nextFile = null
                 if (generation != epoch || !wanted) return@launch
+                if (prefetch === pending) prefetch = null
                 currentFile = file
                 audio.trim(setOf(file.absolutePath))
                 if (generation != epoch || !wanted) return@launch
@@ -248,7 +265,7 @@ class NarrationService : Service() {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 media.setWakeMode(this@NarrationService, PowerManager.PARTIAL_WAKE_LOCK)
                 media.setOnPreparedListener {
-                    if (generation != epoch || !wanted) return@setOnPreparedListener
+                    if (stopping || generation != epoch || !wanted || player !== media) return@setOnPreparedListener
                     prepareTimeout?.cancel(); prepareTimeout = null
                     prepared = true
                     runCatching {
@@ -264,24 +281,30 @@ class NarrationService : Service() {
                 media.setOnSeekCompleteListener {
                     // Seek is asynchronous. Persist and publish the resulting position, not
                     // the old position returned immediately after calling seekTo().
-                    if (generation == epoch && player === media && prepared) {
-                        save()
-                        publish()
+                    control {
+                        if (generation == epoch && player === media && prepared) {
+                            save()
+                            publish()
+                        }
                     }
                 }
                 media.setOnCompletionListener {
-                    if (generation == epoch && wanted) {
-                        checkpointJob?.cancel(); releasePlayer(); offsetMs = 0
-                        if (index < passages.lastIndex) { index++; save(); work = null; resume() }
-                        else { save(); pause(); publish(message = "Chapter complete. Select the next chapter to continue.", newPhase = NarrationPhase.COMPLETED) }
+                    control {
+                        if (generation == epoch && wanted && player === media) {
+                            checkpointJob?.cancel(); releasePlayer(); offsetMs = 0
+                            if (index < passages.lastIndex) { index++; save(); work = null; resume() }
+                            else { save(); pause(); publish(message = "Chapter complete. Select the next chapter to continue.", newPhase = NarrationPhase.COMPLETED) }
+                        }
                     }
                 }
                 media.setOnErrorListener { _, what, extra ->
-                    if (generation == epoch) {
-                        val invalid = currentFile
-                        releasePlayer()
-                        scope.launch(Dispatchers.IO) { invalid?.delete() }
-                        fail("Device could not decode cloud audio ($what/$extra). Invalid cache removed; tap Play to retry.")
+                    control {
+                        if (generation == epoch && player === media) {
+                            val invalid = currentFile
+                            releasePlayer()
+                            scope.launch(Dispatchers.IO) { invalid?.delete() }
+                            fail("Device could not decode cloud audio ($what/$extra). Invalid cache removed; tap Play to retry.")
+                        }
                     }
                     true
                 }
@@ -301,20 +324,31 @@ class NarrationService : Service() {
     }
 
     private fun schedulePrefetch() {
-        if (!wanted || index >= passages.lastIndex || prefetch != null || nextFile != null) return
-        val generation = epoch
-        val text = passages[index + 1]
-        prefetch = scope.async {
-            val file = audio.get(text)
-            if (generation == epoch) {
+        if (stopping || !wanted || index >= passages.lastIndex || prefetch != null) return
+        val pending = PassageRequest(index + 1)
+        val text = passages[pending.index]
+        prefetch = pending
+        // Assign the handle before starting, including when the audio is cached.
+        pending.download = scope.async(start = CoroutineStart.LAZY) {
+            val file = audio.get(text) { progress ->
+                scope.launch {
+                    if (!stopping && prefetch === pending) {
+                        pending.phase = progress
+                        if (wanted && index == pending.index && player == null) publish(loading = true, newPhase = progress)
+                    }
+                }
+            }
+            if (!stopping && prefetch === pending) {
                 audio.trim(setOfNotNull(currentFile?.absolutePath, file.absolutePath))
             }
             file
         }
+        pending.download.start()
         // async errors are consumed at transition, never crash the service or retry in a loop.
     }
 
     private fun pause(abandonFocus: Boolean = true) {
+        if (stopping) return
         wanted = false; resumeOnFocus = false
         playbackStarted = false
         checkpointJob?.cancel()
@@ -325,7 +359,7 @@ class NarrationService : Service() {
         else releasePlayer()
         save()
         work?.cancel(); work = null
-        prefetch?.cancel(); prefetch = null; nextFile = null
+        cancelPrefetch()
         if (player == null) epoch++
         if (abandonFocus) { focus?.let { audioManager.abandonAudioFocusRequest(it) }; focus = null }
         publish()
@@ -349,11 +383,18 @@ class NarrationService : Service() {
 
     private fun skip(delta: Int) {
         if (passages.isEmpty()) return
-        save(); invalidate(); index = (index + delta).coerceIn(passages.indices); offsetMs = 0
+        val targetIndex = (index + delta).coerceIn(passages.indices)
+        if (targetIndex == index) return
+        save()
+        // A manual Next has the same destination as the existing prefetch. Keep
+        // that request/result; cancelling it cannot reliably stop remote inference.
+        invalidate(keepPrefetchFor = targetIndex)
+        index = targetIndex; offsetMs = 0
         save(); resume()
     }
 
     private fun fail(message: String) {
+        if (stopping) return
         android.util.Log.w("NovelNestNarration", "Narration stopped during ${phase.name}")
         pause(); publish(message = message.take(240), newPhase = NarrationPhase.FAILED)
     }
@@ -408,13 +449,21 @@ class NarrationService : Service() {
         player?.let { runCatching { it.release() } }
         player = null; prepared = false; playbackStarted = false; actualSpeed = 1f; durationMs = 0L; currentFile = null
     }
-    private fun invalidate() {
+    private fun cancelPrefetch() {
+        val pending = prefetch
+        prefetch = null
+        pending?.download?.cancel()
+    }
+
+    private fun invalidate(keepPrefetchFor: Int? = null) {
         epoch++; wanted = false; resumeOnFocus = false
-        work?.cancel(); work = null; prefetch?.cancel(); prefetch = null; nextFile = null
+        work?.cancel(); work = null
+        if (keepPrefetchFor == null || prefetch?.index != keepPrefetchFor) cancelPrefetch()
         checkpointJob?.cancel(); releasePlayer()
     }
 
     private fun publish(loading: Boolean = false, message: String = "", newPhase: NarrationPhase? = null) {
+        if (stopping) return
         val playing = wanted && prepared && playbackStarted && !loading
         phase = newPhase ?: when { playing -> NarrationPhase.PLAYING; loading -> phase; else -> NarrationPhase.PAUSED }
         NarrationStatus.mutable.value = NarrationState(novelId, chapterTitle, playing, loading,
@@ -474,23 +523,43 @@ class NarrationService : Service() {
     }
 
     private fun stopSession() {
-        save(); invalidate(); idleJob?.cancel()
-        focus?.let { audioManager.abandonAudioFocusRequest(it) }; focus = null
+        if (stopping) { stopSelf(); return }
+        stopping = true
+        cleanup("checkpoint") { save() }
+        invalidate(); idleJob?.cancel()
+        cleanup("focus") { focus?.let { audioManager.abandonAudioFocusRequest(it) } }; focus = null
         NarrationStatus.mutable.value = NarrationState()
         NarrationStatus.mutableTimeline.value = NarrationTimeline()
-        session.isActive = false
-        stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; stopSelf()
+        cleanup("session") { session.isActive = false }
+        cleanup("foreground") { stopForeground(STOP_FOREGROUND_REMOVE) }
+        foreground = false; stopSelf()
     }
     override fun onTaskRemoved(rootIntent: Intent?) { if (!wanted) stopSession() }
     override fun onDestroy() {
-        save(); invalidate(); scope.cancel()
-        audio.close()
-        focus?.let { audioManager.abandonAudioFocusRequest(it) }
-        unregisterReceiver(noisy); session.release()
-        NarrationCache.playbackStopped()
+        if (!stopping) cleanup("checkpoint") { save() }
+        stopping = true
+        invalidate(); idleJob?.cancel(); scope.cancel()
+        if (::audio.isInitialized) audio.close() // Schedules TLS cleanup on IO; never blocks this callback.
+        cleanup("focus") { focus?.let { audioManager.abandonAudioFocusRequest(it) } }; focus = null
+        if (noisyRegistered) cleanup("receiver") { unregisterReceiver(noisy) }
+        noisyRegistered = false
+        if (::session.isInitialized) cleanup("session") { session.release() }
+        cleanup("notification") {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            // A notification detached after a long pause survives service destruction.
+            getSystemService(NotificationManager::class.java).cancel(ID)
+        }
+        foreground = false
+        if (cacheOwned) { NarrationCache.playbackStopped(); cacheOwned = false }
         NarrationStatus.mutable.value = NarrationState()
         NarrationStatus.mutableTimeline.value = NarrationTimeline()
         super.onDestroy()
+    }
+
+    private fun cleanup(step: String, block: () -> Unit) {
+        try { block() } catch (error: Exception) {
+            android.util.Log.w("NovelNestNarration", "Service cleanup $step failed: ${error.javaClass.simpleName}")
+        }
     }
 
     companion object {
@@ -504,11 +573,22 @@ class NarrationService : Service() {
         const val PREVIOUS = "narration.PREVIOUS"
         const val SEEK = "narration.SEEK"
         fun seek(context: Context, positionMs: Long, mediaId: String) {
-            ContextCompat.startForegroundService(context, Intent(context, NarrationService::class.java).setAction(SEEK)
+            if (NarrationStatus.state.value.novelId.isBlank()) return
+            context.startService(Intent(context, NarrationService::class.java).setAction(SEEK)
                 .putExtra("positionMs", positionMs).putExtra("mediaId", mediaId))
         }
         fun command(context: Context, action: String) {
-            ContextCompat.startForegroundService(context, Intent(context, NarrationService::class.java).setAction(action))
+            val intent = Intent(context, NarrationService::class.java).setAction(action)
+            if (action == STOP) {
+                // Do not create/promote a new service just to close it. onDestroy saves
+                // position, cancels requests, clears UI/session state and releases resources.
+                if (!context.stopService(intent)) {
+                    NarrationStatus.mutable.value = NarrationState()
+                    NarrationStatus.mutableTimeline.value = NarrationTimeline()
+                    context.getSystemService(NotificationManager::class.java).cancel(ID)
+                }
+            } else if (action == PAUSE) context.startService(intent)
+            else ContextCompat.startForegroundService(context, intent)
         }
         fun start(context: Context, novelId: String, chapterId: String, chapterUrl: String, title: String) {
             ContextCompat.startForegroundService(context, Intent(context, NarrationService::class.java).setAction(START)

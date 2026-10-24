@@ -1,6 +1,9 @@
 package com.novelnest.app.feature.settings
 
 import android.content.Context
+import coil.imageLoader
+import com.novelnest.app.NovelNestApplication
+import com.novelnest.app.data.remote.network.HttpFactory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.preferences.GeneralAppSettings
@@ -12,6 +15,7 @@ import com.novelnest.app.data.preferences.ReaderTheme
 import com.novelnest.app.data.narration.NarrationCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +35,7 @@ class SettingsViewModel(
 
     private val _clearCacheSuccessMessage = MutableStateFlow<String?>(null)
     val clearCacheSuccessMessage: StateFlow<String?> = _clearCacheSuccessMessage.asStateFlow()
+    private var clearCacheJob: Job? = null
 
     init {
         calculateCacheSize()
@@ -54,19 +59,32 @@ class SettingsViewModel(
     fun setHapticFeedback(enabled: Boolean) = preferencesManager.updateHapticFeedback(enabled)
     fun setReducedMotion(enabled: Boolean) = preferencesManager.updateReducedMotion(enabled)
 
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
     fun clearCache() {
-        viewModelScope.launch(Dispatchers.IO) {
+        if (clearCacheJob?.isActive == true) return
+        clearCacheJob = viewModelScope.launch(Dispatchers.IO) {
             val ctx = context ?: run {
                 _clearCacheSuccessMessage.value = "Cache storage unavailable"
                 return@launch
             }
             try {
-                val cleared = deleteDir(ctx.cacheDir, NarrationCache.directory(ctx))
+                var cleared = true
+                suspend fun clearOwnedCache(operation: suspend () -> Boolean) {
+                    try { if (!operation()) cleared = false }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { cleared = false }
+                }
+                clearOwnedCache { HttpFactory.clearCache(); true }
+                clearOwnedCache { ctx.imageLoader.diskCache?.clear(); true }
+                clearOwnedCache { ctx.imageLoader.memoryCache?.clear(); true }
+                clearOwnedCache {
+                    (ctx.applicationContext as? NovelNestApplication)?.readerCacheStore?.clear() ?: false
+                }
                 val audio = NarrationCache.clear(ctx)
                 _cacheSizeFormatted.value = formatBytes(getFolderSize(ctx.cacheDir))
                 _clearCacheSuccessMessage.value = when {
-                    audio.playbackProtected -> "Other cache cleared; active narration cache preserved"
                     !cleared || audio.failed > 0 -> "Some cache files could not be removed"
+                    audio.playbackProtected -> "Other cache cleared; active narration cache preserved"
                     else -> "Cache cleared successfully"
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -91,18 +109,6 @@ class SettingsViewModel(
             size += if (child.isDirectory) getFolderSize(child) else child.length()
         }
         return size
-    }
-
-    private fun deleteDir(dir: File, excluded: File): Boolean {
-        val children = dir.listFiles() ?: return !dir.exists()
-        var success = true
-        children.forEach { child ->
-            if (child != excluded) {
-                val removed = if (child.isDirectory) deleteDir(child, excluded) else child.delete() || !child.exists()
-                if (!removed) success = false
-            }
-        }
-        return success
     }
 
     private fun formatBytes(bytes: Long): String {

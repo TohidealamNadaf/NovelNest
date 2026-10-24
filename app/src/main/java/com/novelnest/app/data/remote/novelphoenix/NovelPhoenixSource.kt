@@ -11,18 +11,17 @@ import com.novelnest.app.data.remote.network.HostRateLimiter
 import com.novelnest.app.data.remote.network.HttpFactory
 import com.novelnest.app.data.remote.awaitTextResponse
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -292,56 +291,29 @@ class NovelPhoenixSource(
 
         // 3. Optimized concurrent progressive fetch for remaining batches (pages 2..totalPages)
         val totalPages = firstPage.totalPages
-        val semaphore = Semaphore(3) // 3 concurrent requests max to remain polite and fast
-        val remainingBatches = java.util.concurrent.ConcurrentHashMap<Int, List<PhoenixChapterItem>>()
-        val failedPages = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+        val remainingBatches = mutableMapOf<Int, List<PhoenixChapterItem>>()
+        val failedPages = mutableSetOf<Int>()
 
-        coroutineScope {
-            val channel = kotlinx.coroutines.channels.Channel<Pair<Int, List<PhoenixChapterItem>>>(capacity = totalPages)
+        var lastEmitTime = System.currentTimeMillis()
+        var completedCount = 0
 
-            val workers = (2..totalPages).map { pageNum ->
-                launch(Dispatchers.IO) {
-                    semaphore.withPermit {
-                        delay(120L)
-                        val pageUrl = "${sourceType.baseUrl}/novel/$slug/chapters?page=$pageNum"
-                        val result = runCatching {
-                            val html = executePoliteGet(pageUrl)
-                            NovelPhoenixParser.parseChapterList(html)
-                        }
-                        result.onFailure { failedPages += pageNum }
-                        result.onSuccess { batch ->
-                            if (batch.isEmpty()) failedPages += pageNum
-                            else remainingBatches[pageNum] = batch
-                        }
-                        channel.send(pageNum to result.getOrDefault(emptyList()))
-                    }
+        remainingChapterPages(slug, totalPages).collect { (pageNum, result) ->
+            val batch = result.getOrNull()
+            if (batch.isNullOrEmpty()) failedPages += pageNum else remainingBatches[pageNum] = batch
+            completedCount++
+
+            val currentTime = System.currentTimeMillis()
+            // Emit progressive updates periodically (every 750ms) as pages complete.
+            if (currentTime - lastEmitTime >= 750L || completedCount == totalPages - 1) {
+                lastEmitTime = currentTime
+                val progressList = ArrayList<PhoenixChapterItem>(firstPage.chapters)
+                for (p in 2..totalPages) {
+                    // Keep indices stable while pages finish out of order.
+                    val page = remainingBatches[p] ?: break
+                    progressList.addAll(page)
                 }
-            }
-
-            launch {
-                workers.forEach { it.join() }
-                channel.close()
-            }
-
-            var lastEmitTime = System.currentTimeMillis()
-            var completedCount = 0
-
-            for ((pageNum, batch) in channel) {
-                completedCount++
-
-                val currentTime = System.currentTimeMillis()
-                // Emit progressive updates periodically (every 750ms) as pages complete
-                if (currentTime - lastEmitTime >= 750L || completedCount == totalPages - 1) {
-                    lastEmitTime = currentTime
-                    val progressList = ArrayList<PhoenixChapterItem>(firstPage.chapters)
-                    for (p in 2..totalPages) {
-                        // Keep indices stable while pages finish out of order.
-                        val page = remainingBatches[p] ?: break
-                        progressList.addAll(page)
-                    }
-                    if (progressList.size > firstPage.chapters.size) {
-                        emit(Result.success(progressList.map { it.toDomainChapter() }))
-                    }
+                if (progressList.size > firstPage.chapters.size) {
+                    emit(Result.success(progressList.map { it.toDomainChapter() }))
                 }
             }
         }
@@ -383,7 +355,7 @@ class NovelPhoenixSource(
      * Optimized chapter fetching:
      * - Fetches Page 1 immediately to determine total pages and yield initial 100 chapters.
      * - When [fetchAll] is true, fetches remaining pages (2..totalPages) concurrently using
-     *   a polite semaphore-bounded worker pool, caching all chapters permanently.
+     *   a fixed worker pool with bounded queues, caching validated complete lists.
      */
     suspend fun getChapters(
         novelSlug: String,
@@ -407,8 +379,7 @@ class NovelPhoenixSource(
             return emptyList()
         }
 
-        val allChapters = ArrayList<PhoenixChapterItem>(page1Result.chapters.size * page1Result.totalPages.coerceAtLeast(1))
-        allChapters.addAll(page1Result.chapters)
+        val allChapters = ArrayList<PhoenixChapterItem>(page1Result.chapters)
 
         if (!fetchAll || page1Result.totalPages <= 1) {
             if (fetchAll) chapterListCache[cacheKey] = Pair(now, allChapters.toList())
@@ -417,30 +388,12 @@ class NovelPhoenixSource(
 
         // 2. Fetch remaining pages concurrently
         val totalPages = page1Result.totalPages
-        val semaphore = Semaphore(3)
         val remainingBatches = mutableMapOf<Int, List<PhoenixChapterItem>>()
 
-        coroutineScope {
-            val deferredList = (2..totalPages).map { pageNum ->
-                async(Dispatchers.IO) {
-                    semaphore.withPermit {
-                        delay(120L)
-                        val pageUrl = "${sourceType.baseUrl}/novel/$novelSlug/chapters?page=$pageNum"
-                        val result = runCatching {
-                            val html = executePoliteGet(pageUrl)
-                            NovelPhoenixParser.parseChapterList(html)
-                        }
-                        pageNum to result
-                    }
-                }
-            }
-
-            for (deferred in deferredList) {
-                val (pageNum, result) = deferred.await()
-                val batch = result.getOrElse { throw IOException("Failed to fetch NovelPhoenix chapter page $pageNum", it) }
-                if (batch.isEmpty()) throw IOException("NovelPhoenix chapter page $pageNum returned no chapters")
-                remainingBatches[pageNum] = batch
-            }
+        remainingChapterPages(novelSlug, totalPages).collect { (pageNum, result) ->
+            val batch = result.getOrElse { throw IOException("Failed to fetch NovelPhoenix chapter page $pageNum", it) }
+            if (batch.isEmpty()) throw IOException("NovelPhoenix chapter page $pageNum returned no chapters")
+            remainingBatches[pageNum] = batch
         }
 
         val fullList = ArrayList<PhoenixChapterItem>(page1Result.chapters)
@@ -453,6 +406,32 @@ class NovelPhoenixSource(
         }
         return fullList
     }
+
+    /** Three workers and bounded queues, irrespective of the number of chapter pages. */
+    private fun remainingChapterPages(
+        slug: String,
+        totalPages: Int
+    ): Flow<Pair<Int, Result<List<PhoenixChapterItem>>>> = channelFlow {
+        require(totalPages in 1..NovelPhoenixParser.MAX_CHAPTER_PAGES)
+        val pages = Channel<Int>(3)
+        launch {
+            try { for (page in 2..totalPages) pages.send(page) }
+            finally { pages.close() }
+        }
+        repeat(minOf(3, totalPages - 1)) {
+            launch(Dispatchers.IO) {
+                for (page in pages) {
+                    delay(120L)
+                    val result = try {
+                        val html = executePoliteGet("${sourceType.baseUrl}/novel/$slug/chapters?page=$page")
+                        Result.success(NovelPhoenixParser.parseChapterList(html))
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (error: Exception) { Result.failure(error) }
+                    send(page to result)
+                }
+            }
+        }
+    }.buffer(3)
 
     private fun PhoenixChapterItem.toDomainChapter() = com.novelnest.app.feature.reader.Chapter(
         id = id,

@@ -27,7 +27,10 @@ interface NovelRepository {
 
     suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.feature.reader.Chapter>>
 
-    /** Already fetched chapters for navigation; a snapshot does not imply all pages are loaded. */
+    /**
+     * Already fetched chapters for navigation; a snapshot does not imply all pages are loaded.
+     * Partial refreshes preserve known chapters; removals require successful full completion.
+     */
     fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.feature.reader.Chapter>> =
         MutableStateFlow(emptyList())
 

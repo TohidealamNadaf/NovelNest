@@ -16,9 +16,12 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         NovelNestDatabase.getInstance(this)
     }
 
+    val readerCacheStore by lazy {
+        com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume"))
+    }
+
     val novelRepository: NovelRepository by lazy {
-        NovelRepositoryImpl(database = database,
-            readerCache = com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume")))
+        NovelRepositoryImpl(database = database, readerCache = readerCacheStore)
     }
 
     val preferencesManager: com.novelnest.app.data.preferences.ReaderPreferencesManager by lazy {
