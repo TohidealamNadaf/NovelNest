@@ -1,6 +1,8 @@
 package com.novelnest.app.core.ui
 
 import android.os.SystemClock
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -79,6 +81,12 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
         }
     }
 
+    val borderColor by animateColorAsState(
+        targetValue = if (state.playing) NovelPrimary.copy(alpha = 0.38f) else NovelSurfaceBorder.copy(alpha = 0.65f),
+        animationSpec = tween(250),
+        label = "mini_player_border"
+    )
+
     Surface(
         modifier = modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -89,7 +97,7 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
         shadowElevation = 8.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = if (state.playing) NovelPrimary.copy(alpha = 0.38f) else NovelSurfaceBorder.copy(alpha = 0.65f)
+            color = borderColor
         )
     ) {
         Column(
@@ -111,24 +119,34 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                         .border(1.dp, NovelPrimary.copy(alpha = 0.28f), RoundedCornerShape(11.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    when {
-                        state.loading -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = NovelPrimary,
-                                strokeWidth = 2.dp
-                            )
-                        }
-                        state.playing -> {
-                            AnimatedEqualizer(isPlaying = true)
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Rounded.Headphones,
-                                contentDescription = null,
-                                tint = NovelPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                    Crossfade(
+                        targetState = when {
+                            state.loading && !state.playing -> "loading"
+                            state.playing -> "playing"
+                            else -> "idle"
+                        },
+                        animationSpec = tween(180),
+                        label = "mini_player_badge_crossfade"
+                    ) { target ->
+                        when (target) {
+                            "loading" -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = NovelPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                            "playing" -> {
+                                AnimatedEqualizer(isPlaying = true)
+                            }
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Rounded.Headphones,
+                                    contentDescription = null,
+                                    tint = NovelPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -156,35 +174,51 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Live Pulse Dot
+                        val dotColor by animateColorAsState(
+                            targetValue = when {
+                                state.loading -> NovelPrimary
+                                state.playing -> Color(0xFF4CAF50)
+                                else -> NovelTextSecondary.copy(alpha = 0.45f)
+                            },
+                            animationSpec = tween(200),
+                            label = "mini_player_pulse_dot"
+                        )
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    when {
-                                        state.loading -> NovelPrimary
-                                        state.playing -> Color(0xFF4CAF50)
-                                        else -> NovelTextSecondary.copy(alpha = 0.45f)
-                                    }
-                                )
+                                .background(dotColor)
                         )
 
                         Spacer(modifier = Modifier.width(5.dp))
 
-                        Text(
-                            text = when {
-                                state.phase == NarrationPhase.FAILED -> "Narration failed · Tap Play to retry"
-                                state.phase == NarrationPhase.COMPLETED -> "Chapter narration complete"
-                                state.loading -> state.phase.caption
-                                state.total > 0 -> "${if (state.playing) "Playing" else "Paused"} · Passage ${state.passage}/${state.total}"
-                                else -> "Narration paused"
-                            },
-                            color = if (state.playing) NovelPrimary else NovelTextSecondary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (state.playing) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                        val subtitleText = when {
+                            state.phase == NarrationPhase.FAILED -> "Narration failed · Tap Play to retry"
+                            state.phase == NarrationPhase.COMPLETED -> "Chapter narration complete"
+                            state.loading -> state.phase.caption
+                            state.total > 0 -> "${if (state.playing) "Playing" else "Paused"} · Passage ${state.passage}/${state.total}"
+                            else -> "Narration paused"
+                        }
+                        val subtitleColor by animateColorAsState(
+                            targetValue = if (state.playing) NovelPrimary else NovelTextSecondary,
+                            animationSpec = tween(200),
+                            label = "mini_player_subtitle_color"
                         )
+
+                        Crossfade(
+                            targetState = subtitleText,
+                            animationSpec = tween(180),
+                            label = "mini_player_subtitle_crossfade"
+                        ) { text ->
+                            Text(
+                                text = text,
+                                color = subtitleColor,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (state.playing) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
@@ -249,15 +283,21 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                     }
 
                     // Skip Previous Passage
+                    val canSkipPrev = state.passage > 1
+                    val prevTint by animateColorAsState(
+                        targetValue = if (canSkipPrev) NovelTextPrimary else NovelTextSecondary.copy(alpha = 0.25f),
+                        animationSpec = tween(200),
+                        label = "mini_player_prev_tint"
+                    )
                     IconButton(
-                        enabled = !state.loading && state.passage > 1,
+                        enabled = canSkipPrev,
                         onClick = { command(NarrationService.PREVIOUS) },
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipPrevious,
                             contentDescription = "Previous audio passage",
-                            tint = if (!state.loading && state.passage > 1) NovelTextPrimary else NovelTextSecondary.copy(alpha = 0.35f),
+                            tint = prevTint,
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -276,32 +316,59 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (state.loading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = NovelOnPrimary,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (state.playing) "Pause narration" else "Play narration",
-                                tint = NovelOnPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        Crossfade(
+                            targetState = when {
+                                state.loading -> "loading"
+                                state.playing -> "playing"
+                                else -> "paused"
+                            },
+                            animationSpec = tween(180),
+                            label = "mini_player_play_pause_crossfade"
+                        ) { mode ->
+                            when (mode) {
+                                "loading" -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = NovelOnPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                                "playing" -> {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Pause,
+                                        contentDescription = "Pause narration",
+                                        tint = NovelOnPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = "Play narration",
+                                        tint = NovelOnPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
                     // Skip Next Passage
+                    val canSkipNext = state.passage < state.total
+                    val nextTint by animateColorAsState(
+                        targetValue = if (canSkipNext) NovelTextPrimary else NovelTextSecondary.copy(alpha = 0.25f),
+                        animationSpec = tween(200),
+                        label = "mini_player_next_tint"
+                    )
                     IconButton(
-                        enabled = !state.loading && state.passage < state.total,
+                        enabled = canSkipNext,
                         onClick = { command(NarrationService.NEXT) },
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.SkipNext,
                             contentDescription = "Next audio passage",
-                            tint = if (!state.loading && state.passage < state.total) NovelTextPrimary else NovelTextSecondary.copy(alpha = 0.35f),
+                            tint = nextTint,
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -454,7 +521,11 @@ private fun NarrationScrubbableProgressBar(
                 ((SystemClock.elapsedRealtime() - timeline.updatedAtMs).coerceAtLeast(0L) * timeline.speed).toLong() else 0L)
                 .coerceIn(0L, timeline.durationMs.coerceAtLeast(0L))
             val fraction = if (timeline.durationMs > 0) position.toFloat() / timeline.durationMs else 0f
-            progress.snapTo(fraction.coerceIn(0f, 1f))
+            if (fraction == 0f && progress.value > 0.05f) {
+                progress.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+            } else {
+                progress.snapTo(fraction.coerceIn(0f, 1f))
+            }
             if (timeline.playing && timeline.speed > 0f && !reducedMotion && timeline.durationMs > position) {
                 val remaining = ((timeline.durationMs - position) / timeline.speed).toLong().coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
                 progress.animateTo(1f, tween(remaining, easing = LinearEasing))
@@ -470,7 +541,9 @@ private fun NarrationScrubbableProgressBar(
         }
     }
     val elapsedLabel = remember(elapsedSeconds) { formatDuration(elapsedSeconds * 1000L) }
-    val durationLabel = remember(timeline.durationMs) { formatDuration(timeline.durationMs) }
+    val durationLabel = remember(timeline.durationMs) {
+        if (timeline.durationMs > 0L) formatDuration(timeline.durationMs) else "--:--"
+    }
     val fillBrush = remember { Brush.horizontalGradient(listOf(NovelPrimary, NovelPrimary.copy(alpha = 0.85f))) }
     val canSeek = timeline.canSeek && timeline.durationMs > 0L
 
@@ -525,27 +598,25 @@ private fun NarrationScrubbableProgressBar(
             }
         }
 
-        // Time indicator row if duration is available
-        if (timeline.durationMs > 0L) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = elapsedLabel,
-                    fontSize = 9.5.sp,
-                    color = NovelTextSecondary.copy(alpha = 0.7f),
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = durationLabel,
-                    fontSize = 9.5.sp,
-                    color = NovelTextSecondary.copy(alpha = 0.7f),
-                    fontWeight = FontWeight.Medium
-                )
-            }
+        // Time indicator row - always present with fixed height so player height never jumps/blinks
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = elapsedLabel,
+                fontSize = 9.5.sp,
+                color = NovelTextSecondary.copy(alpha = 0.7f),
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = durationLabel,
+                fontSize = 9.5.sp,
+                color = NovelTextSecondary.copy(alpha = 0.7f),
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
