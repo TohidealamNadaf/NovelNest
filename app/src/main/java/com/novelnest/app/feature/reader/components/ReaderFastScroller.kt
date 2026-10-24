@@ -1,33 +1,26 @@
 package com.novelnest.app.feature.reader.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -69,22 +62,19 @@ fun ReaderFastScroller(
     if (!enabled || !scrollable) return
 
     val density = LocalDensity.current
-    val thumbPx = with(density) { 48.dp.toPx() }
-    val thumbWidth = with(density) { 4.dp.toPx() }
+    val thumbPx = with(density) { 28.dp.toPx() }
+    val thumbWidth = with(density) { 3.5.dp.toPx() }
     val rightMargin = with(density) { 4.dp.toPx() }
     val requests = remember(listState) { Channel<ScrollTarget>(Channel.CONFLATED) }
     val draggingChanged by rememberUpdatedState(onDraggingChanged)
     var dragFraction by remember(listState) { mutableStateOf<Float?>(null) }
     val thumbAlpha by animateFloatAsState(
-        targetValue = if (dragFraction != null) 0.85f else 0.35f,
+        targetValue = if (dragFraction != null) 0.90f else 0.20f,
+        animationSpec = tween(durationMillis = 200),
         label = "fast_scroller_thumb_alpha"
     )
-    var trackHeight by remember { mutableIntStateOf(0) }
     var gesture by remember { mutableIntStateOf(0) }
     var gestureRange by remember { mutableFloatStateOf(1f) }
-    val percent by remember(listState) {
-        derivedStateOf { ((dragFraction ?: listState.scrollFraction()) * 100).roundToInt() }
-    }
 
     DisposableEffect(requests) {
         onDispose {
@@ -126,9 +116,9 @@ fun ReaderFastScroller(
         }
     }
 
-    Box(modifier.width(100.dp).fillMaxHeight().onSizeChanged { trackHeight = it.height }) {
+    Box(modifier.width(48.dp).fillMaxHeight()) {
         Canvas(
-            Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
+            Modifier.fillMaxSize()
                 .semantics {
                     contentDescription = "Chapter scroll position, approximate"
                     progressBarRangeInfo = ProgressBarRangeInfo(listState.scrollFraction(), 0f..1f)
@@ -183,30 +173,6 @@ fun ReaderFastScroller(
                 size = Size(thumbWidth, thumb),
                 cornerRadius = CornerRadius(thumbWidth / 2f, thumbWidth / 2f)
             )
-        }
-        if (dragFraction != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 20.dp)
-                    .offset {
-                        IntOffset(
-                            0,
-                            (((trackHeight - thumbPx).coerceAtLeast(0f) *
-                                (dragFraction ?: 0f)) + thumbPx / 2 - 12.dp.toPx()).roundToInt()
-                        )
-                    }
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(color.copy(alpha = 0.15f))
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "$percent%",
-                    color = color,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
     }
 }
