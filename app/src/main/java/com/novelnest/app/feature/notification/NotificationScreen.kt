@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.notification
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -95,7 +97,7 @@ fun NotificationScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 8.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                bottom = rememberPageBottomPadding(24.dp)
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {

@@ -222,7 +222,7 @@ fun CloudNarrationControls(
                                     scaleDown = BounceScale.Small,
                                     onClick = {
                                         runCatching {
-                                            NarrationService.command(context, NarrationService.STOP)
+                                            NarrationService.command(context, NarrationService.STOP, state.sessionId)
                                         }
                                     }
                                 ),
@@ -258,7 +258,8 @@ fun CloudNarrationControls(
                                             if (currentSession) {
                                                 NarrationService.command(
                                                     context,
-                                                    if (state.playing || state.loading) NarrationService.PAUSE else NarrationService.PLAY
+                                                    if (state.playing || state.loading) NarrationService.PAUSE else NarrationService.PLAY,
+                                                    state.sessionId
                                                 )
                                             } else {
                                                 NarrationService.start(

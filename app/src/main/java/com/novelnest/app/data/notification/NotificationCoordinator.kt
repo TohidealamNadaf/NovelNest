@@ -16,6 +16,10 @@ import com.novelnest.app.R
 import com.novelnest.app.data.model.NovelIdentity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 const val CHAPTER_JOB = 7101
@@ -26,7 +30,14 @@ data class NotificationOpen(val eventId: String, val novelId: String?)
 
 class NotificationCoordinator(private val app: NovelNestApplication) {
     private val store get() = app.notificationStore
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
+        CoroutineExceptionHandler { _, error ->
+            // Notification work is optional; an uncaught launch exception would
+            // otherwise terminate the application, including during cold start.
+            android.util.Log.w("Notifications", "Background operation failed: ${error.javaClass.simpleName}")
+        })
+    private val scheduling = Mutex()
+    private val activityEvents = MutableStateFlow(0L)
     @Volatile private var foreground = false
     private val scheduler get() = app.getSystemService(JobScheduler::class.java)
 
@@ -38,16 +49,38 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
         scope.launch {
             combine(store.settings, app.bookmarkManager.bookmarks) { settings, bookmarks -> settings to bookmarks }
                 .collect { (_, bookmarks) ->
-                    store.reconcile(bookmarks.associate { NovelIdentity.normalize(it).id to it.chapterMarker() })
-                    schedule()
+                    try {
+                        scheduling.withLock {
+                            store.reconcile(bookmarks.associate { NovelIdentity.normalize(it).id to it.chapterMarker() })
+                            schedule()
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled
+                    } catch (error: Exception) {
+                        android.util.Log.w("Notifications", "Scheduling failed: ${error.javaClass.simpleName}")
+                    }
                 }
+        }
+        scope.launch {
+            // A single consumer coalesces lifecycle bursts while preference/binder
+            // work is busy. No scheduling job or coroutine per resume/stop event.
+            activityEvents.filter { it > 0L }.collect { now ->
+                try {
+                    scheduling.withLock {
+                        store.recordActive(maxOf(now, store.lastActive))
+                        scheduleReminder()
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled
+                } catch (error: Exception) {
+                    android.util.Log.w("Notifications", "Reminder scheduling failed: ${error.javaClass.simpleName}")
+                }
+            }
         }
     }
     fun activityChanged(active: Boolean) {
         foreground = active
-        store.recordActive(System.currentTimeMillis())
-        scheduleReminder()
+        activityEvents.value = System.currentTimeMillis()
     }
+    fun markRead(id: String) { scope.launch { store.markRead(id) } }
     fun configure(enabled: Boolean = store.settings.value.enabled,
         chapters: Boolean = store.settings.value.chapterUpdates, reminders: Boolean = store.settings.value.reminders,
         bookmarks: Boolean = store.settings.value.bookmarkConfirmations) {
@@ -113,7 +146,7 @@ class NotificationCoordinator(private val app: NovelNestApplication) {
         }
         val intent = Intent(app, MainActivity::class.java)
             .setData(Uri.parse("novelnest://notification/${Uri.encode(item.id)}"))
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(EXTRA_NOTIFICATION_ID, item.id).putExtra(EXTRA_NOVEL_ID, item.novelId)
         val pending = PendingIntent.getActivity(app, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(app, channel)

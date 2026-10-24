@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.profile
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -117,7 +119,7 @@ fun ProfileScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 12.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 28.dp
+                bottom = rememberPageBottomPadding(28.dp)
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {

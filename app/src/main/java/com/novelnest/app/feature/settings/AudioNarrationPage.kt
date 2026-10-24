@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -24,10 +26,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.novelnest.app.core.designsystem.NovelOnPrimary
@@ -38,6 +46,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.NovelNestIconButton
+import com.novelnest.app.core.ui.rememberFormFocusController
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
@@ -62,6 +71,10 @@ fun AudioNarrationPage(
     val context = LocalContext.current
     val store = remember { NarrationStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
+    val formFocus = rememberFormFocusController()
+    val tokenFocus = remember { FocusRequester() }
+    var urlFocused by remember { mutableStateOf(false) }
+    var tokenFocused by remember { mutableStateOf(false) }
 
     var endpointUrl by remember { mutableStateOf("") }
     var savedEndpoint by remember { mutableStateOf("") }
@@ -91,7 +104,7 @@ fun AudioNarrationPage(
         catch (_: Exception) { cacheMessage = "Could not inspect the audio cache. Tap Refresh to retry." }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize().then(formFocus.container())) {
         NovelNestHeader(
             title = "Audio Narration",
             subtitle = "Cloudflare MeloTTS & credentials",
@@ -99,7 +112,7 @@ fun AudioNarrationPage(
                 NovelNestIconButton(
                     icon = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = "Back",
-                    onClick = onBack
+                    onClick = { formFocus.clear(); onBack() }
                 )
             }
         )
@@ -258,13 +271,23 @@ fun AudioNarrationPage(
                                 verificationMessage = ""
                             },
                             label = { Text("HTTPS Worker URL") },
-                            placeholder = { Text("https://novelnest-narration.<subdomain>.workers.dev/v1/narration") },
+                            placeholder = if (urlFocused) null else {
+                                { Text("https://novelnest-narration.<subdomain>.workers.dev/v1/narration",
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            },
                             leadingIcon = {
                                 Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = NovelPrimary)
                             },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                                keyboardType = KeyboardType.Uri,
+                                imeAction = ImeAction.Next
+                            ),
+                            keyboardActions = KeyboardActions(onNext = { tokenFocus.requestFocus() }),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().then(formFocus.field("url") { urlFocused = it })
                         )
 
                         // Access Token Input
@@ -278,7 +301,9 @@ fun AudioNarrationPage(
                                 verificationMessage = ""
                             },
                             label = { Text(if (isConfigured && accessToken.isEmpty()) "Access Token (Stored securely)" else "Worker Access Token") },
-                            placeholder = { Text(if (isConfigured) "Enter new token to replace" else "32+ char secret token") },
+                            placeholder = if (tokenFocused) null else {
+                                { Text(if (isConfigured) "Enter new token to replace" else "32+ char secret token") }
+                            },
                             leadingIcon = {
                                 Icon(Icons.Rounded.Key, contentDescription = null, tint = NovelPrimary)
                             },
@@ -293,8 +318,16 @@ fun AudioNarrationPage(
                             },
                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { formFocus.clear() }),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().focusRequester(tokenFocus)
+                                .then(formFocus.field("token") { tokenFocused = it })
                         )
 
                         // Error Banner
@@ -330,6 +363,7 @@ fun AudioNarrationPage(
                             Button(
                                 enabled = settingsLoaded && !isSaving && !isTesting && endpointUrl.isNotBlank() && (accessToken.isNotBlank() || isConfigured),
                                 onClick = {
+                                    formFocus.clear()
                                     isSaving = true
                                     errorMessage = ""
                                     scope.launch {
@@ -383,6 +417,7 @@ fun AudioNarrationPage(
                         TextButton(
                             enabled = settingsLoaded && !isTesting && !isSaving && endpointUrl.isNotBlank() && (accessToken.isNotBlank() || isConfigured),
                             onClick = {
+                                formFocus.clear()
                                 isTesting = true
                                 isVerified = false
                                 verificationMessage = ""

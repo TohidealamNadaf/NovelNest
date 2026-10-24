@@ -9,6 +9,7 @@ import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.feature.reader.Chapter
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -168,7 +169,12 @@ class NovelDetailViewModel(
 
     private fun loadNovelDetails() {
         detailJob?.cancel()
-        detailJob = viewModelScope.launch {
+        detailJob = loadWithErrorHandling(onFailure = { error ->
+            _uiState.update {
+                it.copy(isLoading = false,
+                    errorMessage = "Unable to load details (${formatFriendlyError(error)}). Tap to retry.")
+            }
+        }) {
             _uiState.update { it.copy(isLoading = it.novel == null, errorMessage = null) }
 
             // 1. Initial resolution: Check repository/DB first, then BookmarkManager, then SeedData, then synthetic shell
@@ -276,12 +282,14 @@ class NovelDetailViewModel(
 
     private fun loadChapters(forceRefresh: Boolean) {
         chapterJob?.cancel()
-        chapterJob = viewModelScope.launch {
+        chapterJob = loadWithErrorHandling(onFailure = { error ->
+            showChapterError("Failed to fetch live chapters (${formatFriendlyError(error)}).")
+        }) {
             val currentNovel = _uiState.value.novel
                 ?: repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
                 ?: SeedData.findNovelById(novelId)
-                ?: return@launch
+                ?: return@loadWithErrorHandling
 
             val source = currentNovel.source
 
@@ -333,4 +341,19 @@ class NovelDetailViewModel(
             )
         }
     }
+
+    private fun loadWithErrorHandling(onFailure: (Exception) -> Unit, load: suspend () -> Unit): Job =
+        viewModelScope.launch {
+            try {
+                load()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Cold notification opens lack the warm metadata cache. Storage or
+                // unexpected source exceptions must reach Retry rather than the
+                // process-wide uncaught coroutine handler. Retain displayed data.
+                android.util.Log.w("NovelNestLaunch", "Novel loading failed: ${error.javaClass.simpleName}")
+                onFailure(error)
+            }
+        }
 }

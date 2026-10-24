@@ -84,11 +84,13 @@ internal class NarrationAudio(private val directory: File, private val store: Na
         }
         if (cached) { onPhase(NarrationPhase.USING_CACHE); return@withContext target }
         if (endpoint.isBlank() || token.isBlank()) throw IOException("Configure cloud narration first.")
+        NarrationRequestPolicy.admit(endpoint) { onPhase(NarrationPhase.WAITING_FOR_SLOT) }
         val request = Request.Builder().url(endpoint)
             .tag(AudioProgress::class.java, AudioProgress(onPhase))
             .header("Authorization", "Bearer $token")
             .post(JSONObject().put("text", text).toString().toRequestBody("application/json".toMediaType())).build()
         val call = client.newCall(request)
+        android.util.Log.d("NovelNestNarration", "Cloud synthesis request admitted")
         onPhase(NarrationPhase.CONNECTING)
         // Cancellation remains registered until the response body has been copied and closed.
         suspendCancellableCoroutine<File> { continuation ->
@@ -110,7 +112,8 @@ internal class NarrationAudio(private val directory: File, private val store: Na
                         response.use {
                             if (!it.isSuccessful) {
                                 android.util.Log.w("NovelNestNarration", "Audio response failed: HTTP ${it.code}")
-                                throw IOException(responseError(it))
+                                val cooldown = NarrationRequestPolicy.failed(endpoint, it.code, it.header("Retry-After"))
+                                throw IOException(responseError(it, cooldown))
                             }
                             if (it.header("Content-Type")?.startsWith("audio/") != true) throw IOException("Invalid audio response.")
                             val body = it.body ?: throw IOException("Empty audio response.")
@@ -157,17 +160,22 @@ internal class NarrationAudio(private val directory: File, private val store: Na
         }
     }.getOrDefault(false)
 
-    private fun responseError(response: Response): String {
+    private fun responseError(response: Response, cooldown: Long): String {
         val code = runCatching { JSONObject(response.peekBody(4096).string()).optString("code") }.getOrDefault("")
+        val knownCodes = setOf("INVALID_AUDIO", "UPSTREAM_FORMAT", "QUOTA_EXCEEDED", "RATE_LIMITED",
+            "BUSY", "CONFIGURATION", "UPSTREAM_UNAVAILABLE")
+        android.util.Log.w("NovelNestNarration", "Provider error code: ${code.takeIf { it in knownCodes } ?: "unstructured"}")
         return when (code) {
             "INVALID_AUDIO", "UPSTREAM_FORMAT" -> "Cloudflare returned unreadable audio. Redeploy the updated Worker and retry."
             "QUOTA_EXCEEDED" -> "Cloudflare free audio allowance is exhausted. Try after the daily reset."
             "RATE_LIMITED", "BUSY" -> "Cloud narration is busy or rate limited. Wait a minute before retrying."
             "CONFIGURATION" -> "Worker AI binding is missing. Check the Worker deployment."
+            "UPSTREAM_UNAVAILABLE" -> "Cloudflare could not generate audio (HTTP ${response.code}). Wait ${cooldown.coerceAtLeast(30L)} seconds, then tap Play."
             else -> when (response.code) {
                 401, 403 -> "Cloud access denied. Check the Worker access token in Settings."
                 404 -> "Narration endpoint not found. Check the Worker URL in Settings."
                 429 -> "Cloudflare quota or request limit reached. Wait before retrying."
+                503 -> "Cloud narration temporarily unavailable (HTTP 503). Wait ${cooldown.coerceAtLeast(30L)} seconds, then tap Play."
                 else -> "Cloud audio generation failed (HTTP ${response.code}). Check the Worker and retry."
             }
         }

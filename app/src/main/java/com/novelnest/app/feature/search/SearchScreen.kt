@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.search
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -305,11 +307,11 @@ fun SearchScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
 
-                        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                        val bottomPadding = rememberPageBottomPadding()
 
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = navBarBottom + 16.dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = bottomPadding),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize()
@@ -331,12 +333,12 @@ fun SearchScreen(
 
                 else -> {
                     // Landing state: Redesigned Recent Searches, Popular Shelf, and Genre Shortcuts
-                    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    val bottomPadding = rememberPageBottomPadding()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
-                            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = navBarBottom + 16.dp),
+                            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomPadding),
                         verticalArrangement = Arrangement.spacedBy(22.dp)
                     ) {
                         // 1. Redesigned Recent Searches (Compact pills, no bloated padding)

@@ -41,6 +41,27 @@ completed successfully. The fresh APK is `app/build/outputs/apk/debug/app-debug.
 
 Cache API reference: [Coil 2.7 DiskCache](https://github.com/coil-kt/coil/blob/2.7.0/coil-base/src/main/java/coil/disk/DiskCache.kt).
 
+## Notification launch follow-up — 2026-10-24
+
+A main-thread null-icon failure was
+found in MainActivity's splash exit path with core-splashscreen 1.0.1. The icon
+handling and splash lifetime were repaired, notification routing now waits for
+graph/lifecycle readiness, and notification/detail loading failure boundaries
+were strengthened. See [notification launch investigation](NOTIFICATION_LAUNCH.md)
+for evidence, changes, scenario handling, and device-verification limits. This
+follow-up used compilation and dependency inspection; the earlier 138-test
+results above do not describe these new lifecycle changes.
+The final notification repair APK assembled successfully; physical-device
+confirmation remains pending.
+
+Connected-device narration follow-up (2026-10-24): the installed build's crash
+buffer confirmed `ForegroundServiceDidNotStartInTimeException` from transport
+commands. Transport now dispatches to a live session, explicit Listen always
+acknowledges foreground startup, rapid skips are combined into one destination,
+and remote failures receive bounded admission/cooldown handling. See
+[connected-device investigation](CLOUD_NARRATION.md#connected-device-investigation--2026-10-24).
+The final APK assembled; post-fix device reproduction awaits manual installation.
+
 ## Initial conclusion and scope (before repairs)
 
 The initial implementation had useful safeguards and concrete correctness and

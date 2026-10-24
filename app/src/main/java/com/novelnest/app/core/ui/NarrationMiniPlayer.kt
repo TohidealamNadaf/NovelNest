@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.animation.BounceScale
@@ -75,7 +77,7 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
     fun command(action: String) {
         try {
             error = ""
-            NarrationService.command(context, action)
+            NarrationService.command(context, action, state.sessionId)
         } catch (_: RuntimeException) {
             error = "Could not control narration. Please try again."
         }
@@ -290,7 +292,7 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                         label = "mini_player_prev_tint"
                     )
                     IconButton(
-                        enabled = canSkipPrev,
+                        enabled = canSkipPrev && !state.loading,
                         onClick = { command(NarrationService.PREVIOUS) },
                         modifier = Modifier.size(32.dp)
                     ) {
@@ -361,7 +363,7 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
                         label = "mini_player_next_tint"
                     )
                     IconButton(
-                        enabled = canSkipNext,
+                        enabled = canSkipNext && !state.loading,
                         onClick = { command(NarrationService.NEXT) },
                         modifier = Modifier.size(32.dp)
                     ) {
@@ -391,9 +393,9 @@ fun NarrationMiniPlayer(modifier: Modifier = Modifier) {
             // Bottom Progress Track & Passage Timeline
             Spacer(modifier = Modifier.height(7.dp))
             NarrationScrubbableProgressBar(
-                onSeek = { position, mediaId ->
+                onSeek = { position, mediaId, sessionId ->
                     try {
-                        NarrationService.seek(context, position, mediaId)
+                        NarrationService.seek(context, position, mediaId, sessionId)
                     } catch (_: RuntimeException) {
                         error = "Could not seek this passage."
                     }
@@ -437,6 +439,15 @@ private fun AnimatedEqualizer(
     color: Color = NovelPrimary,
     modifier: Modifier = Modifier
 ) {
+    val owner = LocalLifecycleOwner.current
+    val lifecycleState by owner.lifecycle.currentStateAsState()
+    val reducedMotion = rememberAreAnimationsDisabled()
+    if (!isPlaying || reducedMotion || !lifecycleState.isAtLeast(Lifecycle.State.STARTED)) {
+        Canvas(modifier.size(width = 17.dp, height = 18.dp)) {
+            drawEqualizer(color, 0.30f, 0.50f, 0.25f)
+        }
+        return
+    }
     val infiniteTransition = rememberInfiniteTransition(label = "EqualizerAnimation")
 
     val height1 by infiniteTransition.animateFloat(
@@ -467,36 +478,20 @@ private fun AnimatedEqualizer(
         label = "EqualizerBar3"
     )
 
-    Row(
-        modifier = modifier.size(width = 17.dp, height = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.5.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        val h1 = if (isPlaying) height1 else 0.30f
-        val h2 = if (isPlaying) height2 else 0.50f
-        val h3 = if (isPlaying) height3 else 0.25f
+    Canvas(modifier.size(width = 17.dp, height = 18.dp)) {
+        // Animated values are read only while drawing; bar heights never change layout.
+        drawEqualizer(color, height1, height2, height3)
+    }
+}
 
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(h1)
-                .clip(RoundedCornerShape(1.dp))
-                .background(color)
-        )
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(h2)
-                .clip(RoundedCornerShape(1.dp))
-                .background(color)
-        )
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(h3)
-                .clip(RoundedCornerShape(1.dp))
-                .background(color)
-        )
+private fun DrawScope.drawEqualizer(color: Color, h1: Float, h2: Float, h3: Float) {
+    val gap = 2.5.dp.toPx()
+    val width = ((size.width - gap * 2f) / 3f).coerceAtLeast(0f)
+    val radius = CornerRadius(1.dp.toPx())
+    repeat(3) { bar ->
+        val fraction = when (bar) { 0 -> h1; 1 -> h2; else -> h3 }
+        val height = size.height * fraction.coerceIn(0f, 1f)
+        drawRoundRect(color, Offset(bar * (width + gap), size.height - height), Size(width, height), radius)
     }
 }
 
@@ -507,13 +502,13 @@ private fun AnimatedEqualizer(
 @Composable
 private fun NarrationScrubbableProgressBar(
     modifier: Modifier = Modifier,
-    onSeek: (Long, String) -> Unit
+    onSeek: (Long, String, String) -> Unit
 ) {
     val timeline by NarrationStatus.timeline.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
     val reducedMotion = rememberAreAnimationsDisabled()
     val progress = remember { Animatable(0f) }
-    var draggingFraction by remember { mutableStateOf<Float?>(null) }
+    var draggingFraction by remember(timeline.sessionId, timeline.mediaId) { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(timeline, owner, reducedMotion) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -521,7 +516,7 @@ private fun NarrationScrubbableProgressBar(
                 ((SystemClock.elapsedRealtime() - timeline.updatedAtMs).coerceAtLeast(0L) * timeline.speed).toLong() else 0L)
                 .coerceIn(0L, timeline.durationMs.coerceAtLeast(0L))
             val fraction = if (timeline.durationMs > 0) position.toFloat() / timeline.durationMs else 0f
-            if (fraction == 0f && progress.value > 0.05f) {
+            if (!reducedMotion && fraction == 0f && progress.value > 0.05f) {
                 progress.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
             } else {
                 progress.snapTo(fraction.coerceIn(0f, 1f))
@@ -552,21 +547,21 @@ private fun NarrationScrubbableProgressBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(14.dp)
-                .pointerInput(canSeek, timeline.durationMs, timeline.mediaId) {
+                .pointerInput(canSeek, timeline.durationMs, timeline.mediaId, timeline.sessionId) {
                     if (!canSeek) return@pointerInput
                     detectTapGestures { offset ->
                         val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        onSeek((fraction * timeline.durationMs).toLong(), timeline.mediaId)
+                        onSeek((fraction * timeline.durationMs).toLong(), timeline.mediaId, timeline.sessionId)
                     }
                 }
-                .pointerInput(canSeek, timeline.durationMs, timeline.mediaId) {
+                .pointerInput(canSeek, timeline.durationMs, timeline.mediaId, timeline.sessionId) {
                     if (!canSeek) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
                             draggingFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                         },
                         onDragEnd = {
-                            draggingFraction?.let { onSeek((it * timeline.durationMs).toLong(), timeline.mediaId) }
+                            draggingFraction?.let { onSeek((it * timeline.durationMs).toLong(), timeline.mediaId, timeline.sessionId) }
                             draggingFraction = null
                         },
                         onDragCancel = {

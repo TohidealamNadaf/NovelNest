@@ -16,6 +16,26 @@ The Settings page scans and clears the same `narration_audio` directory as playb
 
 Deployment requires account authentication and is a separate external action. The code does not change subscription plans. Workers Free requests stop at the provider allowance; upgrading the account to Paid changes that billing behavior. Check account status in the dashboard, not a flag in the APK.
 
+### Settings credential input
+
+The URL/token editors keep hint text separate from their values. The saved URL
+is real editable text; the token editor starts blank and an empty replacement
+continues to use the encrypted stored token. Focusing an empty editor hides its
+hint so the caret has no hint text behind it. The persistent field labels remain.
+
+The URL keyboard offers Next to focus the token; the token keyboard offers Done
+to clear focus and dismiss the keyboard. URL/password keyboard types disable
+autocorrection and capitalization. Tapping outside either editor clears focus,
+including taps on page controls. Field-to-field taps, token visibility toggles,
+text selection, and scrolling preserve their normal handling. Outside-tap
+observation consumes no pointer events, ignores drags/multiple pointers, and
+queries current field bounds only during taps. Save, Check Endpoint, and Back
+also clear focus for keyboard/accessibility activation.
+
+This changes the Settings form's input interaction only. Credential validation,
+Keystore storage, endpoint checks, and audio generation use the same paths.
+Touch/IME behavior still needs confirmation on a physical device.
+
 ## Boundaries and privacy
 
 - This is a **personal/trusted-device deployment**. The access token is manually provisioned and encrypted with an Android Keystore AES-GCM key; its preference file is excluded from backup/transfer. Rotate the Worker secret if a device/token is compromised. Restoring onto a new phone requires setup again.
@@ -97,7 +117,103 @@ require device measurement. General Settings cache clearing uses live HTTP/image
 cache APIs and the shared reader-cache lock; it preserves the narration cache
 while a narration session owns it.
 
-Position snapshots reuse the media session's existing 5-second checkpoint updates. Only the seek-bar leaf interpolates progress while the UI is started; backgrounding cancels that animation. The app root observes only session visibility, so position updates do not recompose the navigation host. No per-page timers, audio fetching, or additional synthesis are introduced. After prolonged pause, resuming promotes the service and reopens the cached passage at the saved offset. Android may still kill a background paused service; it does not auto-resume after process death or force-stop.
+Position snapshots reuse the media session's existing 5-second checkpoint updates. Only the seek-bar leaf interpolates progress while the UI is started; backgrounding cancels that animation. The app root observes session visibility and measured player height rather than playback position, so position updates do not recompose the navigation host. No per-page timers, audio fetching, or additional synthesis are introduced. After prolonged pause, resuming promotes the service and reopens the cached passage at the saved offset. Android may still kill a background paused service; it does not auto-resume after process death or force-stop.
+
+### Mini-player review repairs — 2026-10-24
+
+- **Skip admission:** Next/Previous keep their existing boundary-based tint, but
+  are unavailable while the selected passage is loading. The service rejects
+  skips during loading too, covering commands already queued and system media
+  callbacks. The first skip still preserves a matching prefetch. Cached skips
+  remain immediate; Pause and Stop remain available during loading. This avoids
+  cancelling accepted synthesis on repeated taps while buffering. An explicit
+  cancellation can still leave provider work consuming allowance.
+- **One measured body inset:** The player body is measured independently of its
+  navigation-bar padding. `LocalNarrationBottomPadding` supplies that height only
+  to page content. Footer pages include it through their shared padding helper;
+  Browse, Search, Profile, Notifications, detail lists/floating buttons, and the
+  reader apply it to their bottom content/control spacing. Each page retains its
+  existing footer/navigation-bar spacing and full-window background. Reader
+  padding no longer uses the fixed 115dp player estimate. Modal sheets retain
+  their own insets and can cover the player.
+- **Equalizer:** The same three bars, gap, color, radii, and animation timings are
+  drawn in a fixed-size Canvas. Animated heights are read in drawing rather than
+  used as layout constraints, removing their per-frame composition/measurement
+  work. The infinite animation exists only for active playback while the UI is
+  Started and reduced motion is off. Progress-reset animation also respects the
+  existing reduced-motion flag.
+- **Height expectations:** The time row remains present across preparation.
+  Optional error/status text can change the card height; the measured inset
+  follows those changes. This does not promise constant height for every state.
+
+The final offline `:app:assembleDebug --max-workers=1` succeeded in 1m45s. No
+automated tests or physical-device profiling were run for these repairs. Device checks should cover
+rapid app/system Next/Previous, cold and cached passages, Pause/Stop while loading,
+long status messages, large fonts, every page's last item and floating controls,
+gesture/three-button navigation, and background/resume. CPU/frame-time/thermal
+improvements are not claimed as measured results.
+
+### Connected-device investigation — 2026-10-24
+
+The connected Samsung SM-S938B reported Android 17 / API 37. Its app crash buffer
+confirmed three distinct failures across installed builds: the earlier
+main-thread TLS eviction, the earlier optional splash icon assertion, and the
+remaining narration foreground-service start timeout. The latest installed-build
+stack at device timestamp `10-24 11:05:51` contained:
+
+```text
+android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException
+Context.startForegroundService() did not then call Service.startForeground()
+NarrationService$Companion.command(NarrationService.kt:596)
+NarrationMiniPlayer$command(NarrationMiniPlayer.kt:80)
+```
+
+The initiating mini-player callback was Play/Pause at line 316. Transport commands
+used `startForegroundService`, while `promote()` could return early from its
+cached foreground flag. Stop could also arrive while starts were pending. Android
+delivers this service timeout asynchronously on the main thread, so a try/catch
+around the click handler cannot recover it. This explains why closing the player
+could appear to close the app. See [Android's foreground-service timeout guidance](https://developer.android.com/develop/background-work/services/fgs/troubleshooting#internal-exception-start-timeout).
+
+Live app-filtered logging also captured HTTP 503 responses at `11:19:38` and
+`11:20:02`. Those are separate server/Worker/provider failures; the Android
+service timeout is the confirmed app-termination cause in the captured stack.
+The phone disconnected after those responses. The filtered logs are saved locally
+under `build/diagnostics/`; no Worker credential or chapter text was read.
+
+Repairs:
+
+- Play/Pause/Next/Previous/Seek/Close dispatch to the live service on the main
+  thread using a session ID. They do not create/start another service. Close
+  marks the owner stopped and cancels pending selection work synchronously.
+  Weak ownership is cleared on destruction. Late controls from an old player
+  or system notification cannot affect a replacement session.
+- Only explicit Listen uses `startForegroundService`. Each such start calls
+  `startForeground` again rather than trusting the cached flag. Duplicate Listen
+  for an already active chapter reuses playback/loading.
+- Rapid skips accumulate one bounded destination and one timer. After 180ms
+  without a new tap, only that destination is loaded. Pause, Stop, Seek, or chapter
+  replacement cancels the pending selection. Natural completion respects an
+  already queued manual destination. Loading guards and matching-prefetch reuse
+  remain in place.
+- Cache misses pass a process-wide admission gate: at most 12 new audio requests
+  per rolling minute. Waiting for local admission has its own caption and is
+  cancelled by Pause/Stop. This counter does not include other devices or health
+  checks, and it resets with the process; the Worker/account limits remain the
+  authoritative provider boundary.
+- HTTP 503 starts a 30-second endpoint cooldown; HTTP 429 starts a 60-second
+  cooldown. Numeric Retry-After values are supported within 5–300 seconds.
+  Retries remain explicit, with no repeated synthesis after an HTTP error.
+  Cached audio bypasses remote admission/cooldown. A 503 cannot be repaired by
+  repeatedly reconnecting; persistent server failures need Worker/provider
+  investigation.
+
+The final offline `:app:assembleDebug --max-workers=1` succeeded in 35 seconds.
+No automated tests or cloud requests were initiated from the workstation. Device
+logs confirmed the installed build's exception and two 503 responses. The user
+chose manual installation after USB disconnected, so post-fix on-device
+reproduction remains pending. The separately named deliverable is
+`app/build/outputs/apk/debug/app-debug-narration-session-fix.apk`.
 
 ## Diagnosing preparation and playback failures
 

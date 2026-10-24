@@ -75,6 +75,7 @@ import com.novelnest.app.feature.reader.components.ReaderQuickSettingsSheet
 import com.novelnest.app.feature.reader.components.ReaderNavigationBar
 import com.novelnest.app.feature.reader.components.ReaderTopBar
 import com.novelnest.app.feature.reader.components.ReaderFastScroller
+import com.novelnest.app.core.ui.LocalNarrationBottomPadding
 import kotlinx.coroutines.launch
 
 @Composable
@@ -86,8 +87,7 @@ fun ReaderScreen(
     val uiState by viewModel.uiState.collectAsState()
     val settings by viewModel.readerSettings.collectAsState()
     val playHaptic = rememberNovelNestHaptic()
-    val narrationState by com.novelnest.app.data.narration.NarrationStatus.state.collectAsState()
-    val hasActiveNarration = narrationState.novelId.isNotBlank()
+    val narrationBottomPadding = LocalNarrationBottomPadding.current
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -328,7 +328,7 @@ fun ReaderScreen(
                             start = 22.dp, // Subtly pushed by 2dp ("two salt grains") from 20.dp
                             end = 20.dp,
                             top = topPadding,
-                            bottom = if (hasActiveNarration) 115.dp else 48.dp
+                            bottom = 48.dp + narrationBottomPadding
                         )
                     ) {
                         // Chapter Title Header with generous breathing space below ReaderTopBar
@@ -431,7 +431,7 @@ fun ReaderScreen(
                             if (dragging) pullOffset = 0f
                         },
                         modifier = Modifier.align(Alignment.CenterEnd)
-                            .padding(top = topPadding + 8.dp, bottom = if (hasActiveNarration) 115.dp else 48.dp)
+                            .padding(top = topPadding + 8.dp, bottom = 48.dp + narrationBottomPadding)
                     )
 
                     // Pull Down Indicator (Previous Chapter Preview & Release state)

@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.browse
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -102,7 +104,7 @@ fun BrowseScreen(
             }
         }
 
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+        val bottomPadding = rememberPageBottomPadding(24.dp)
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             state = currentGridState,

@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.detail
 
+import com.novelnest.app.core.ui.LocalNarrationBottomPadding
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -125,6 +127,7 @@ fun NovelDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val narrationBottomPadding = LocalNarrationBottomPadding.current
     val novel = uiState.novel
     val playHaptic = rememberNovelNestHaptic()
     val context = LocalContext.current
@@ -190,7 +193,7 @@ fun NovelDetailScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 60.dp)
+                contentPadding = PaddingValues(bottom = 60.dp + narrationBottomPadding)
             ) {
                 // 1. HERO POSTER & METADATA SECTION
                 item(key = "detail:hero", contentType = "hero") {
@@ -464,7 +467,7 @@ fun NovelDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, bottom = 24.dp)
+                    .padding(start = 20.dp, bottom = 24.dp + narrationBottomPadding)
             ) {
                 NovelNestIconButton(
                     icon = Icons.Rounded.KeyboardArrowUp,
@@ -495,7 +498,7 @@ fun NovelDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(end = 20.dp, bottom = 24.dp)
+                    .padding(end = 20.dp, bottom = 24.dp + narrationBottomPadding)
             ) {
                 val lastReadIdx = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
                 Button(

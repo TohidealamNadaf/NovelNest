@@ -237,7 +237,8 @@ fun ReaderQuickSettingsSheet(
                                         if (isCurrentAudioSession) {
                                             NarrationService.command(
                                                 context,
-                                                if (narrationState.playing || narrationState.loading) NarrationService.PAUSE else NarrationService.PLAY
+                                                if (narrationState.playing || narrationState.loading) NarrationService.PAUSE else NarrationService.PLAY,
+                                                narrationState.sessionId
                                             )
                                         } else {
                                             if (currentNovel != null && currentChapter != null) {

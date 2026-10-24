@@ -43,7 +43,11 @@ class NotificationStore(private val prefs: SharedPreferences) {
         save((listOf(item) + _items.value).take(100))
         return true
     }
-    @Synchronized fun markRead(id: String) = save(_items.value.map { if (it.id == id) it.copy(read = true) else it })
+    @Synchronized fun markRead(id: String) {
+        val current = _items.value
+        if (current.none { it.id == id && !it.read }) return
+        save(current.map { if (it.id == id) it.copy(read = true) else it })
+    }
     @Synchronized fun markAllRead() = save(_items.value.map { it.copy(read = true) })
     @Synchronized fun delete(id: String) = save(_items.value.filterNot { it.id == id })
     @Synchronized fun clearAll() = save(emptyList())

@@ -7,6 +7,7 @@ import android.media.*
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.*
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import com.novelnest.app.MainActivity
 import com.novelnest.app.NovelNestApplication
@@ -14,6 +15,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.filterNotNull
 import org.json.JSONObject
 import java.io.File
+import java.lang.ref.WeakReference
+import java.util.UUID
 
 /** User-started cloud audio session. No local synthesis and no restart after process death. */
 class NarrationService : Service() {
@@ -55,6 +58,10 @@ class NarrationService : Service() {
     private var wanted = false
     private var foreground = false
     private var stopping = false
+    private var sessionId = UUID.randomUUID().toString()
+    private var pendingSkip: Int? = null
+    private var skipDeadline = 0L
+    private var skipJob: Job? = null
     private var noisyRegistered = false
     private var cacheOwned = false
     private var resumeOnFocus = false
@@ -93,6 +100,7 @@ class NarrationService : Service() {
         }
         ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED)
         noisyRegistered = true
+        activeService = WeakReference(this)
         scope.launch {
             NarrationSpeed.load(applicationContext)
             NarrationSpeed.values.filterNotNull().collect { speed ->
@@ -111,16 +119,22 @@ class NarrationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) { stopSelf(); return START_NOT_STICKY }
-        // Stopping/pausing/seeking never starts or promotes foreground playback.
-        if (intent.action == STOP) { stopSession(); return START_NOT_STICKY }
+        // Every explicit startForegroundService call needs a fresh acknowledgement,
+        // even when our local foreground flag was already true or Stop is pending.
+        if (intent.action == START && !promote(force = true)) { stopSelf(); return START_NOT_STICKY }
         if (stopping) { stopSelf(); return START_NOT_STICKY }
-        val startsPlayback = intent.action in listOf(START, PLAY, NEXT, PREVIOUS)
-        if (startsPlayback && !promote()) { stopSelf(); return START_NOT_STICKY }
-        if (!startsPlayback && novelId.isBlank()) { stopSelf(); return START_NOT_STICKY }
+        // Only an explicit Listen creates foreground playback. Old notification
+        // controls cannot revive or change a replacement listening session.
+        if (intent.action != START &&
+            (intent.getStringExtra(SESSION) != sessionId || novelId.isBlank())) {
+            if (novelId.isBlank()) stopSelf()
+            return START_NOT_STICKY
+        }
         control { when (intent.action) {
             START -> startChapter(intent)
             PLAY -> resume()
             PAUSE -> pause()
+            STOP -> stopSession()
             NEXT -> skip(1)
             PREVIOUS -> skip(-1)
             SEEK -> if (intent.getStringExtra("mediaId") == currentMediaId()) {
@@ -142,12 +156,13 @@ class NarrationService : Service() {
         }
     }
 
-    private fun promote(): Boolean {
-        if (foreground) return true
+    private fun promote(force: Boolean = false): Boolean {
+        if (foreground && !force) return true
         return try {
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         else startForeground(ID, notification())
         foreground = true
+        if (force) android.util.Log.d("NovelNestNarration", "Foreground start acknowledged")
         true
     } catch (error: RuntimeException) {
         android.util.Log.w("NovelNestNarration", "Foreground playback denied: ${error.javaClass.simpleName}")
@@ -157,8 +172,14 @@ class NarrationService : Service() {
     }
 
     private fun startChapter(intent: Intent) {
+        if (wanted && novelId == intent.getStringExtra("novelId") &&
+            chapterUrl == intent.getStringExtra("chapterUrl")) {
+            resume()
+            return
+        }
         save()
         invalidate()
+        sessionId = UUID.randomUUID().toString()
         novelId = intent.getStringExtra("novelId").orEmpty()
         chapterUrl = intent.getStringExtra("chapterUrl").orEmpty()
         chapterId = intent.getStringExtra("chapterId").orEmpty()
@@ -292,7 +313,10 @@ class NarrationService : Service() {
                     control {
                         if (generation == epoch && wanted && player === media) {
                             checkpointJob?.cancel(); releasePlayer(); offsetMs = 0
-                            if (index < passages.lastIndex) { index++; save(); work = null; resume() }
+                            if (pendingSkip != null) {
+                                // A queued manual destination wins over automatic advance.
+                                publish(loading = true, newPhase = NarrationPhase.CHECKING_CACHE)
+                            } else if (index < passages.lastIndex) { index++; save(); work = null; resume() }
                             else { save(); pause(); publish(message = "Chapter complete. Select the next chapter to continue.", newPhase = NarrationPhase.COMPLETED) }
                         }
                     }
@@ -349,6 +373,7 @@ class NarrationService : Service() {
 
     private fun pause(abandonFocus: Boolean = true) {
         if (stopping) return
+        cancelPendingSkip()
         wanted = false; resumeOnFocus = false
         playbackStarted = false
         checkpointJob?.cancel()
@@ -382,14 +407,39 @@ class NarrationService : Service() {
     }
 
     private fun skip(delta: Int) {
-        if (passages.isEmpty()) return
-        val targetIndex = (index + delta).coerceIn(passages.indices)
-        if (targetIndex == index) return
+        // All entry points (app, PendingIntent and MediaSession) share this gate.
+        // A second skip must not cancel accepted synthesis while the first loads.
+        if (passages.isEmpty() || NarrationStatus.state.value.loading) return
+        val targetIndex = ((pendingSkip ?: index) + delta).coerceIn(passages.indices)
+        if (targetIndex == (pendingSkip ?: index)) return
+        pendingSkip = targetIndex
+        skipDeadline = SystemClock.elapsedRealtime() + 180L
+        if (skipJob?.isActive == true) return
+        // One timer per burst, not a service start/coroutine/network call per tap.
+        skipJob = scope.launch {
+            while (true) {
+                val remaining = skipDeadline - SystemClock.elapsedRealtime()
+                if (remaining <= 0L) break
+                delay(remaining)
+            }
+            val target = pendingSkip
+            pendingSkip = null; skipJob = null
+            if (target != null && !stopping) selectPassage(target)
+        }
+    }
+
+    private fun selectPassage(targetIndex: Int) {
+        if (targetIndex == index) {
+            // The burst may have returned to its starting passage at completion.
+            if (wanted && player == null) resume()
+            return
+        }
         save()
         // A manual Next has the same destination as the existing prefetch. Keep
         // that request/result; cancelling it cannot reliably stop remote inference.
         invalidate(keepPrefetchFor = targetIndex)
         index = targetIndex; offsetMs = 0
+        android.util.Log.d("NovelNestNarration", "Selected audio passage ${index + 1}")
         save(); resume()
     }
 
@@ -413,6 +463,7 @@ class NarrationService : Service() {
     }
 
     private fun seekWithinPassage(positionMs: Long) {
+        cancelPendingSkip()
         val media = player ?: return
         if (!prepared || durationMs <= 0L) return
         runCatching {
@@ -452,14 +503,21 @@ class NarrationService : Service() {
     private fun cancelPrefetch() {
         val pending = prefetch
         prefetch = null
-        pending?.download?.cancel()
+        cleanup("prefetch cancellation") { pending?.download?.cancel() }
     }
 
     private fun invalidate(keepPrefetchFor: Int? = null) {
+        cancelPendingSkip()
         epoch++; wanted = false; resumeOnFocus = false
-        work?.cancel(); work = null
+        val previousWork = work; work = null
+        cleanup("request cancellation") { previousWork?.cancel() }
         if (keepPrefetchFor == null || prefetch?.index != keepPrefetchFor) cancelPrefetch()
         checkpointJob?.cancel(); releasePlayer()
+    }
+
+    private fun cancelPendingSkip() {
+        pendingSkip = null
+        skipJob?.cancel(); skipJob = null
     }
 
     private fun publish(loading: Boolean = false, message: String = "", newPhase: NarrationPhase? = null) {
@@ -467,7 +525,7 @@ class NarrationService : Service() {
         val playing = wanted && prepared && playbackStarted && !loading
         phase = newPhase ?: when { playing -> NarrationPhase.PLAYING; loading -> phase; else -> NarrationPhase.PAUSED }
         NarrationStatus.mutable.value = NarrationState(novelId, chapterTitle, playing, loading,
-            if (passages.isEmpty()) 0 else index + 1, passages.size, message, chapterId, phase)
+            if (passages.isEmpty()) 0 else index + 1, passages.size, message, chapterId, phase, sessionId)
         val mediaId = "$novelId|$chapterId|$index|$chapterTitle"
         if (publishedMediaId != mediaId || publishedDuration != durationMs) {
             session.setMetadata(MediaMetadata.Builder()
@@ -496,7 +554,7 @@ class NarrationService : Service() {
         NarrationStatus.mutableTimeline.value = NarrationTimeline(
             positionMs = if (position >= 0L) position else offsetMs.toLong().coerceAtLeast(0L),
             durationMs = durationMs, speed = if (playing) actualSpeed else 0f,
-            updatedAtMs = now, playing = playing, canSeek = ready, mediaId = currentMediaId())
+            updatedAtMs = now, playing = playing, canSeek = ready, mediaId = currentMediaId(), sessionId = sessionId)
         session.setPlaybackState(PlaybackState.Builder().setActions(actions)
             .setBufferedPosition(if (ready) durationMs else 0L)
             .setState(if (loading) PlaybackState.STATE_BUFFERING else if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
@@ -506,14 +564,20 @@ class NarrationService : Service() {
     private fun currentMediaId() = "$novelId|$chapterId|$index|$fingerprint"
 
     private fun action(action: String): PendingIntent = PendingIntent.getService(this, action.hashCode(),
-        Intent(this, NarrationService::class.java).setAction(action), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        Intent(this, NarrationService::class.java).setAction(action).putExtra(SESSION, sessionId)
+            .setData(Uri.Builder().scheme("novelnest").authority("narration-control")
+                .appendPath(sessionId).appendPath(action).build()),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     private fun notification(): Notification {
         val state = NarrationStatus.state.value
         return Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(chapterTitle.ifBlank { "Novel Nest narration" })
             .setContentText(state.message.ifBlank { "${state.phase.caption} · Passage ${state.passage} of ${state.total}" })
-            .setContentIntent(PendingIntent.getActivity(this, 9201, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+            .setContentIntent(PendingIntent.getActivity(this, 9201,
+                Intent(this, MainActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC).setOngoing(wanted)
             .addAction(Notification.Action.Builder(android.R.drawable.ic_media_previous, "Previous passage", action(PREVIOUS)).build())
             .addAction(Notification.Action.Builder(if (wanted) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
@@ -525,6 +589,7 @@ class NarrationService : Service() {
     private fun stopSession() {
         if (stopping) { stopSelf(); return }
         stopping = true
+        android.util.Log.d("NovelNestNarration", "Stopping narration session")
         cleanup("checkpoint") { save() }
         invalidate(); idleJob?.cancel()
         cleanup("focus") { focus?.let { audioManager.abandonAudioFocusRequest(it) } }; focus = null
@@ -536,10 +601,14 @@ class NarrationService : Service() {
     }
     override fun onTaskRemoved(rootIntent: Intent?) { if (!wanted) stopSession() }
     override fun onDestroy() {
+        if (activeService.get() === this) activeService.clear()
         if (!stopping) cleanup("checkpoint") { save() }
         stopping = true
-        invalidate(); idleJob?.cancel(); scope.cancel()
-        if (::audio.isInitialized) audio.close() // Schedules TLS cleanup on IO; never blocks this callback.
+        cleanup("playback") { invalidate() }
+        cleanup("idle") { idleJob?.cancel() }
+        cleanup("scope") { scope.cancel() }
+        // Schedules TLS cleanup on IO; never blocks this callback.
+        if (::audio.isInitialized) cleanup("network") { audio.close() }
         cleanup("focus") { focus?.let { audioManager.abandonAudioFocusRequest(it) } }; focus = null
         if (noisyRegistered) cleanup("receiver") { unregisterReceiver(noisy) }
         noisyRegistered = false
@@ -563,6 +632,9 @@ class NarrationService : Service() {
     }
 
     companion object {
+        @Volatile private var activeService = WeakReference<NarrationService>(null)
+        private val main by lazy { Handler(Looper.getMainLooper()) }
+        private const val SESSION = "narration_session"
         private const val CHANNEL = "narration_playback"
         private const val ID = 9201
         const val START = "narration.START"
@@ -572,23 +644,43 @@ class NarrationService : Service() {
         const val NEXT = "narration.NEXT"
         const val PREVIOUS = "narration.PREVIOUS"
         const val SEEK = "narration.SEEK"
-        fun seek(context: Context, positionMs: Long, mediaId: String) {
-            if (NarrationStatus.state.value.novelId.isBlank()) return
-            context.startService(Intent(context, NarrationService::class.java).setAction(SEEK)
-                .putExtra("positionMs", positionMs).putExtra("mediaId", mediaId))
+        fun seek(context: Context, positionMs: Long, mediaId: String, expectedSession: String? = null) {
+            dispatch(expectedSession) { service ->
+                if (service.currentMediaId() == mediaId) service.seekWithinPassage(positionMs)
+            }
         }
-        fun command(context: Context, action: String) {
-            val intent = Intent(context, NarrationService::class.java).setAction(action)
-            if (action == STOP) {
-                // Do not create/promote a new service just to close it. onDestroy saves
-                // position, cancels requests, clears UI/session state and releases resources.
-                if (!context.stopService(intent)) {
+        fun command(context: Context, action: String, expectedSession: String? = null) {
+            val accepted = dispatch(expectedSession) { service ->
+                when (action) {
+                    PLAY -> service.resume()
+                    PAUSE -> service.pause()
+                    STOP -> service.stopSession()
+                    NEXT -> service.skip(1)
+                    PREVIOUS -> service.skip(-1)
+                }
+            }
+            if (!accepted && action == STOP &&
+                (expectedSession == null || NarrationStatus.state.value.sessionId == expectedSession)) {
+                // Clear stale UI without constructing a new service to stop it.
+                if (activeService.get() == null) {
                     NarrationStatus.mutable.value = NarrationState()
                     NarrationStatus.mutableTimeline.value = NarrationTimeline()
                     context.getSystemService(NotificationManager::class.java).cancel(ID)
                 }
-            } else if (action == PAUSE) context.startService(intent)
-            else ContextCompat.startForegroundService(context, intent)
+            }
+        }
+
+        private fun dispatch(expectedSession: String?, action: (NarrationService) -> Unit): Boolean {
+            val service = activeService.get() ?: return false
+            val expected = expectedSession ?: NarrationStatus.state.value.sessionId
+            if (expected.isBlank()) return false
+            val command = Runnable {
+                if (activeService.get() === service && !service.stopping && service.sessionId == expected) {
+                    service.control { action(service) }
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) command.run() else main.post(command)
+            return true
         }
         fun start(context: Context, novelId: String, chapterId: String, chapterUrl: String, title: String) {
             ContextCompat.startForegroundService(context, Intent(context, NarrationService::class.java).setAction(START)

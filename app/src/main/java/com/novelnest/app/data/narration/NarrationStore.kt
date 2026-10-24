@@ -17,6 +17,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 enum class NarrationPhase(val caption: String) {
     IDLE("Narration stopped"), LOADING_CHAPTER("Loading chapter text…"),
     CHECKING_CACHE("Checking downloaded audio…"), USING_CACHE("Opening downloaded audio…"),
+    WAITING_FOR_SLOT("Waiting for a cloud request slot…"),
     CONNECTING("Connecting to cloud narration…"), WAITING_FOR_AUDIO("Waiting for Cloudflare to generate audio…"),
     DOWNLOADING("Downloading generated audio…"), PREPARING_PLAYER("Opening audio on this device…"),
     PLAYING("Playing"), PAUSED("Paused — tap Play to continue"),
@@ -26,14 +27,15 @@ enum class NarrationPhase(val caption: String) {
 data class NarrationState(
     val novelId: String = "", val chapterTitle: String = "", val playing: Boolean = false,
     val loading: Boolean = false, val passage: Int = 0, val total: Int = 0, val message: String = "",
-    val chapterId: String = "", val phase: NarrationPhase = NarrationPhase.IDLE
+    val chapterId: String = "", val phase: NarrationPhase = NarrationPhase.IDLE,
+    val sessionId: String = ""
 )
 
 /** Process-wide observable state contains no Activity or engine references. */
 data class NarrationTimeline(
     val positionMs: Long = 0, val durationMs: Long = 0,
     val speed: Float = 0f, val updatedAtMs: Long = 0, val playing: Boolean = false, val canSeek: Boolean = false,
-    val mediaId: String = ""
+    val mediaId: String = "", val sessionId: String = ""
 )
 
 object NarrationStatus {
