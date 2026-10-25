@@ -92,11 +92,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        (application as NovelNestApplication).aiForeground.update(true)
         (application as NovelNestApplication).notificationCoordinator.activityChanged(true)
     }
 
     override fun onStop() {
         finishSplashExit()
+        if (!isChangingConfigurations) (application as NovelNestApplication).aiForeground.update(false)
         (application as NovelNestApplication).notificationCoordinator.activityChanged(false)
         super.onStop()
     }

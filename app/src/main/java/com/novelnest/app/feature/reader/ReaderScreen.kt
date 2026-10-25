@@ -32,14 +32,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
@@ -85,6 +97,8 @@ fun ReaderScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val aiState by viewModel.aiState.collectAsState()
+    val studyState by viewModel.studyState.collectAsStateWithLifecycle()
     val settings by viewModel.readerSettings.collectAsState()
     val playHaptic = rememberNovelNestHaptic()
     val narrationBottomPadding = LocalNarrationBottomPadding.current
@@ -92,6 +106,11 @@ fun ReaderScreen(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val context = LocalContext.current
+    val activity = context.findReaderActivity()
+    // The ViewModel survives rotation; leaving its destination cancels generation immediately.
+    DisposableEffect(viewModel) {
+        onDispose { if (activity?.isChangingConfigurations != true) viewModel.cancelAiRequest() }
+    }
 
     val currentTheme = settings.theme
     val textColor = currentTheme.textColor.copy(alpha = settings.textBrightness)
@@ -191,19 +210,21 @@ fun ReaderScreen(
                 label = "chapter_reading_transition"
             ) { chapterIndex ->
                 val chapter = uiState.chapters.getOrNull(chapterIndex) ?: return@AnimatedContent
-                val restoredScroll = remember(chapterIndex) { viewModel.scrollPosition(chapterIndex) }
-                val listState = rememberLazyListState()
-                var scrollRestored by remember(chapterIndex) { mutableStateOf(false) }
-                LaunchedEffect(chapterIndex, chapter.paragraphs.isNotEmpty()) {
+                val displayedParagraphs = aiState.paragraphs(chapter)
+                val contentKey = if (aiState.matches(chapter)) aiState.contentKey else "original"
+                val restoredScroll = remember(chapterIndex, contentKey) { viewModel.scrollPosition(chapterIndex, contentKey) }
+                val listState = key(contentKey) { rememberLazyListState() }
+                var scrollRestored by remember(chapterIndex, contentKey) { mutableStateOf(false) }
+                LaunchedEffect(chapterIndex, contentKey, chapter.paragraphs.isNotEmpty()) {
                     if (!scrollRestored && chapter.paragraphs.isNotEmpty()) {
-                        listState.scrollToItem(restoredScroll.first, restoredScroll.second)
+                        listState.scrollToItem(restoredScroll.first.coerceIn(0, displayedParagraphs.size), restoredScroll.second.coerceAtLeast(0))
                         scrollRestored = true
                     }
                 }
-                LaunchedEffect(listState, chapterIndex, scrollRestored) {
+                LaunchedEffect(listState, chapterIndex, contentKey, scrollRestored) {
                     androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
                         .collect { (item, offset) ->
-                            if (scrollRestored) viewModel.saveScrollPosition(chapterIndex, item, offset)
+                            if (scrollRestored) viewModel.saveScrollPosition(chapterIndex, item, offset, contentKey)
                         }
                 }
 
@@ -331,24 +352,122 @@ fun ReaderScreen(
                             bottom = 48.dp + narrationBottomPadding
                         )
                     ) {
-                        // Chapter Title Header with generous breathing space below ReaderTopBar
+                        // Keep title and rewrite controls in one item so paragraph indexes stay stable.
                         item {
-                            Text(
-                                text = chapter.title,
-                                fontFamily = settings.fontFamily.fontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
-                                lineHeight = (((settings.fontSizeSp + 4f) * 0.975f) * settings.lineHeightMultiplier).sp,
-                                letterSpacing = 0.15.sp,
-                                color = textColor,
-                                modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
-                            )
+                            Column {
+                                Text(
+                                    text = chapter.title,
+                                    fontFamily = settings.fontFamily.fontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
+                                    lineHeight = (((settings.fontSizeSp + 4f) * 0.975f) * settings.lineHeightMultiplier).sp,
+                                    letterSpacing = 0.15.sp,
+                                    color = textColor,
+                                    modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
+                                )
+
+                                if (aiState.matches(chapter) && aiState.rewrite != null) {
+                                    val isRewrite = aiState.version == ReaderContentVersion.REWRITE
+                                    Card(
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = currentTheme.surfaceColor
+                                        ),
+                                        border = CardDefaults.outlinedCardBorder().copy(
+                                            brush = androidx.compose.ui.graphics.SolidColor(
+                                                if (isRewrite) NovelPrimary.copy(alpha = 0.5f) else secondaryColor.copy(alpha = 0.25f)
+                                            )
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 16.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.AutoAwesome,
+                                                        contentDescription = null,
+                                                        tint = if (isRewrite) NovelPrimary else secondaryColor,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = if (isRewrite) "AI Rewrite (Active)" else "AI Rewrite (Available)",
+                                                        fontSize = 12.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isRewrite) NovelPrimary else textColor
+                                                    )
+                                                }
+
+                                                Text(
+                                                    text = "Narration reads original text",
+                                                    fontSize = 10.5.sp,
+                                                    color = secondaryColor
+                                                )
+                                            }
+
+                                            // Show Original / Show Rewrite control
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(secondaryColor.copy(alpha = 0.10f))
+                                                    .padding(2.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(32.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (!isRewrite) NovelPrimary else androidx.compose.ui.graphics.Color.Transparent)
+                                                        .clickable { viewModel.showAiContentVersion(ReaderContentVersion.ORIGINAL) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "Show Original",
+                                                        color = if (!isRewrite) NovelOnPrimary else textColor,
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = if (!isRewrite) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(32.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isRewrite) NovelPrimary else androidx.compose.ui.graphics.Color.Transparent)
+                                                        .clickable { viewModel.showAiContentVersion(ReaderContentVersion.REWRITE) },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "Show Rewrite",
+                                                        color = if (isRewrite) NovelOnPrimary else textColor,
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = if (isRewrite) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Chapter Paragraphs calibrated to match Capacitor web typography
                         itemsIndexed(
-                            items = chapter.paragraphs,
-                            key = { index, _ -> readerParagraphKey(chapter.id, index) }
+                            items = displayedParagraphs,
+                            key = { index, _ -> readerParagraphKey(if (contentKey == "original") chapter.id else "${chapter.id}:$contentKey", index) }
                         ) { _, paragraph ->
                             Text(
                                 text = paragraph,
@@ -480,6 +599,11 @@ fun ReaderScreen(
 
         // Quick Reader Typography & Theme Customization Sheet
         if (uiState.showQuickSettingsSheet) {
+            val chapter = uiState.chapters.getOrNull(uiState.currentChapterIndex)
+            val expectedStudyKey = uiState.novel?.let { novel -> chapter?.let {
+                com.novelnest.app.data.study.StudyChapterKey(novel.source.name, novel.id, it.id)
+            } }
+            val sheetStudy = if (studyState.key == expectedStudyKey) studyState else ReaderStudyState()
             ReaderQuickSettingsSheet(
                 settings = settings,
                 textColor = textColor,
@@ -495,6 +619,23 @@ fun ReaderScreen(
                 onSetLineHeight = { viewModel.setLineHeight(it) },
                 onSetFontFamily = { viewModel.setFontFamily(it) },
                 onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) },
+                aiState = aiState,
+                studyState = sheetStudy,
+                onSaveNote = { id, title, text ->
+                    if (expectedStudyKey != null && viewModel.studyState.value.key == expectedStudyKey)
+                        viewModel.saveChapterNote(id, title, text)
+                },
+                onDeleteNote = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.deleteChapterNote(it) },
+                onSelectNote = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.selectChapterNote(it) },
+                onAddCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.addTermCollection(it) },
+                onSelectCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.selectTermCollection(it) },
+                onDeleteCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.deleteTermCollection(it) },
+                onExtractTerms = viewModel::extractTerms,
+                onDismissStudyMessage = viewModel::dismissStudyMessage,
+                onRequestSummary = { viewModel.requestAiSummary() },
+                onRequestRewrite = { viewModel.requestAiRewrite() },
+                onCancelAi = { viewModel.cancelAiRequest() },
+                onShowVersion = { viewModel.showAiContentVersion(it) },
                 canCopyChapter = !uiState.isLoading && uiState.chapters.getOrNull(uiState.currentChapterIndex)
                     ?.paragraphs?.any { it.isNotBlank() } == true,
                 onCopyChapter = {
@@ -502,7 +643,7 @@ fun ReaderScreen(
                     val state = viewModel.uiState.value
                     val chapter = state.chapters.getOrNull(state.currentChapterIndex)
                     if (!state.isLoading && chapter != null && chapter.paragraphs.any { it.isNotBlank() }) {
-                        val chapterText = (listOf(chapter.title) + chapter.paragraphs)
+                        val chapterText = (listOf(chapter.title) + viewModel.displayedChapterParagraphs(chapter))
                             .filter { it.isNotBlank() }.joinToString("\n\n")
                         try {
                             val clipboard = context.getSystemService(ClipboardManager::class.java)
@@ -520,4 +661,11 @@ fun ReaderScreen(
         }
     }
 }
+
+}
+
+private fun android.content.Context.findReaderActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.takeIf { it !== this }?.findReaderActivity()
+    else -> null
 }

@@ -1,0 +1,20 @@
+{
+  "source": "https://openrouter.ai/api/v1/models",
+  "checkedOn": "2026-10-24",
+  "data": [
+    {
+      "id": "google/gemma-4-31b-it:free",
+      "name": "Google: Gemma 4 31B (free)",
+      "context_length": 262144,
+      "pricing": {"prompt": "0", "completion": "0"},
+      "supported_parameters": ["include_reasoning", "max_tokens", "reasoning", "response_format", "seed", "temperature", "tool_choice", "tools", "top_p"]
+    },
+    {
+      "id": "google/gemma-4-26b-a4b-it:free",
+      "name": "Google: Gemma 4 26B A4B (free)",
+      "context_length": 262144,
+      "pricing": {"prompt": "0", "completion": "0"},
+      "supported_parameters": ["include_reasoning", "max_tokens", "reasoning", "response_format", "seed", "temperature", "tool_choice", "tools", "top_p"]
+    }
+  ]
+}

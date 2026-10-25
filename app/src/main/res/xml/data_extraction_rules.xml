@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <cloud-backup><exclude domain="sharedpref" path="cloud_narration.xml" /></cloud-backup>
-    <device-transfer><exclude domain="sharedpref" path="cloud_narration.xml" /></device-transfer>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="cloud_narration.xml" />
+        <exclude domain="sharedpref" path="ai_reading_tools.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="cloud_narration.xml" />
+        <exclude domain="sharedpref" path="ai_reading_tools.xml" />
+    </device-transfer>
 </data-extraction-rules>

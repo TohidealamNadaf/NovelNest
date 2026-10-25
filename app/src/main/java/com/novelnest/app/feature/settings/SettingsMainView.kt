@@ -141,6 +141,19 @@ fun SettingsMainView(
                 )
             }
 
+            // 4. AI Reading Tools Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "AI Reading Tools",
+                    subtitle = "Summaries, rewrites & provider configuration",
+                    icon = Icons.Rounded.AutoAwesome,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.AI_READING_TOOLS)
+                    }
+                )
+            }
+
             // Group 2 Header: Application & Storage
             item {
                 Text(

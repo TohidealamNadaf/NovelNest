@@ -12,9 +12,24 @@ import com.novelnest.app.data.repository.NovelRepositoryImpl
 
 class NovelNestApplication : Application(), ImageLoaderFactory {
 
+    val aiForeground = com.novelnest.app.data.ai.AiForegroundState()
+    val aiConfiguration by lazy { com.novelnest.app.data.ai.AiConfigurationStore(this) }
+    val aiResultCache by lazy { com.novelnest.app.data.ai.AiResultCache(java.io.File(cacheDir, "ai_results")) }
+    private val aiHttp by lazy { com.novelnest.app.data.ai.AiHttpClient() }
+    private val aiProviders by lazy { listOf(
+        com.novelnest.app.data.ai.GeminiAiProvider(aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.GROQ, aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.OPEN_ROUTER, aiHttp)
+    ) }
+    val aiModelDirectory by lazy { com.novelnest.app.data.ai.AiModelDirectory(aiProviders) }
+    val chapterAiRepository by lazy { com.novelnest.app.data.ai.ChapterAiRepository(
+        aiConfiguration, aiResultCache, aiProviders, directory = aiModelDirectory
+    ) }
+
     val database: NovelNestDatabase by lazy {
         NovelNestDatabase.getInstance(this)
     }
+    val studyRepository by lazy { com.novelnest.app.data.study.StudyRepository(database) }
 
     val readerCacheStore by lazy {
         com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume"))

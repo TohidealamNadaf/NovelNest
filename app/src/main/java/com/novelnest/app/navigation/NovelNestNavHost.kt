@@ -149,7 +149,13 @@ fun NovelNestNavHost(
             val settingsViewModel = remember {
                 SettingsViewModel(app.preferencesManager, context)
             }
-            SettingsScreen(viewModel = settingsViewModel)
+            val aiViewModel: com.novelnest.app.feature.settings.AiReadingToolsViewModel = viewModel(factory = screenFactory {
+                com.novelnest.app.feature.settings.AiReadingToolsViewModel(app.aiConfiguration, app.aiModelDirectory, app.aiResultCache)
+            })
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                aiViewModel = aiViewModel
+            )
         }
 
         // SEARCH SCREEN (Fluid animated entry)
@@ -298,7 +304,11 @@ fun NovelNestNavHost(
                             bookmarkManager = app.bookmarkManager,
                             readingProgressManager = app.readingProgressManager,
                             initialChapterIndex = chapterIndex,
-                            savedStateHandle = extras.createSavedStateHandle()
+                            savedStateHandle = extras.createSavedStateHandle(),
+                            aiRepository = app.chapterAiRepository,
+                            aiConfigurationRevision = app.aiConfiguration.revision,
+                            aiForeground = app.aiForeground.foreground,
+                            studyRepository = app.studyRepository
                         ) as T
                     }
                 }

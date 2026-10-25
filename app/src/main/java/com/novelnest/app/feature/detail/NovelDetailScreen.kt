@@ -323,13 +323,13 @@ fun NovelDetailScreen(
                     items = uiState.filteredChapters,
                     key = { _, ch -> ch.id },
                     contentType = { _, _ -> "chapter" }
-                ) { index, chapter ->
+                ) { _, chapter ->
                     val isRead = uiState.readChapterIds.contains(chapter.id)
                     val actualIndex = viewModel.readerChapterIndex(chapter.id)
                     val isCurrent = uiState.readingProgress != null && actualIndex == uiState.readingProgress?.lastReadChapterIndex
                     ChapterListItem(
                         chapterTitle = chapter.title,
-                        chapterNumber = index + 1,
+                        chapterNumber = actualIndex + 1,
                         isRead = isRead,
                         isCurrent = isCurrent,
                         onClick = {

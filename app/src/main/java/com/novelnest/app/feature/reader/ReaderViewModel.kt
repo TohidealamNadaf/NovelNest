@@ -21,6 +21,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import com.novelnest.app.data.ai.AiAction
+import com.novelnest.app.data.ai.AiChapterInput
+import com.novelnest.app.data.ai.ChapterAiRepository
 
 data class Chapter(
     val id: String,
@@ -51,7 +57,11 @@ class ReaderViewModel(
     private val bookmarkManager: BookmarkManager? = null,
     private val readingProgressManager: com.novelnest.app.data.progress.ReadingProgressManager? = null,
     private val initialChapterIndex: Int = 0,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    aiRepository: ChapterAiRepository? = null,
+    aiConfigurationRevision: StateFlow<Long>? = null,
+    private val aiForeground: StateFlow<Boolean>? = null,
+    private val studyRepository: com.novelnest.app.data.study.StudyRepository? = null
 ) : ViewModel() {
 
     val readerSettings: StateFlow<ReaderSettings> = preferencesManager.readerSettings
@@ -66,10 +76,79 @@ class ReaderViewModel(
     )
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
     private val prefetchedChapterIds = mutableSetOf<String>()
+    private val aiController = aiRepository?.let { ReaderAiController(viewModelScope, it) }
+    val aiState: StateFlow<ReaderAiState> = aiController?.state ?: MutableStateFlow(ReaderAiState()).asStateFlow()
+    private val studyController = studyRepository?.let { ReaderStudyController(viewModelScope, it) }
+    val studyState: StateFlow<ReaderStudyState> = studyController?.state ?: MutableStateFlow(ReaderStudyState()).asStateFlow()
 
     init {
         loadNovelAndChapters()
         observeReadingProgress()
+        studyController?.let { controller -> viewModelScope.launch {
+            uiState.map { state ->
+                val novel = state.novel
+                val chapter = state.chapters.getOrNull(state.currentChapterIndex)
+                val key = if (novel != null && chapter != null)
+                    com.novelnest.app.data.study.StudyChapterKey(novel.source.name, novel.id, chapter.id) else null
+                key to state.showQuickSettingsSheet
+            }.distinctUntilChanged().collect { (key, visible) -> controller.open(key, visible) }
+        } }
+        if (aiController != null) {
+            viewModelScope.launch {
+                uiState.map(::aiInput).distinctUntilChanged().collect { aiController.sourceChanged(it) }
+            }
+            aiConfigurationRevision?.let { revision -> viewModelScope.launch {
+                revision.drop(1).collect { aiController.cancel() }
+            } }
+            aiForeground?.let { foreground -> viewModelScope.launch {
+                foreground.collect { if (!it) aiController.cancel() }
+            } }
+        }
+    }
+
+    private fun aiInput(state: ReaderUiState): AiChapterInput? {
+        if (state.isLoading || state.isChapterLoading) return null
+        val novel = state.novel ?: return null
+        val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return null
+        if (chapter.paragraphs.none { it.isNotBlank() }) return null
+        return AiChapterInput(novel.source.name, novel.id, chapter.id, chapter.title, chapter.paragraphs)
+    }
+
+    fun requestAiSummary() = requestAi(AiAction.SUMMARY)
+    fun requestAiRewrite() = requestAi(AiAction.REWRITE)
+    private fun requestAi(action: AiAction) {
+        if (aiForeground?.value == false) return
+        aiController?.sourceChanged(aiInput(uiState.value))
+        aiController?.request(action)
+    }
+    fun cancelAiRequest() { aiController?.cancel() }
+    fun showAiContentVersion(version: ReaderContentVersion) { aiController?.showVersion(version) }
+    fun displayedChapterParagraphs(chapter: Chapter): List<String> = aiState.value.paragraphs(chapter)
+    fun saveChapterNote(id: String?, title: String, markdown: String) { studyController?.saveNote(id, title, markdown) }
+    fun deleteChapterNote(id: String) { studyController?.deleteNote(id) }
+    fun selectChapterNote(id: String?) { studyController?.selectNote(id) }
+    fun addTermCollection(name: String) { studyController?.addCollection(name) }
+    fun selectTermCollection(id: String?) { studyController?.selectCollection(id) }
+    fun deleteTermCollection(id: String) {
+        if (aiState.value.action == AiAction.EXTRACT && aiState.value.extractionCollectionId == id) aiController?.cancel()
+        studyController?.deleteCollection(id)
+    }
+    fun dismissStudyMessage() { studyController?.clearMessage() }
+    fun extractTerms(id: String) {
+        if (aiForeground?.value == false || aiState.value.busy) return
+        val input = aiInput(uiState.value) ?: return
+        val key = com.novelnest.app.data.study.StudyChapterKey(input.source, input.novelId, input.chapterId)
+        val collection = studyState.value.collections.firstOrNull { it.collection.id == id }?.collection ?: return
+        if (collection.source != key.source || collection.novelId != key.novelId) return
+        aiController?.sourceChanged(input)
+        aiController?.extract(id, collection.target) { request, result ->
+            try { studyRepository?.append(collection, request, result) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { throw com.novelnest.app.data.ai.AiException(com.novelnest.app.data.ai.AiErrorCode.STORAGE,
+                if (error is IllegalArgumentException) error.message.orEmpty() else "Could not save extracted terms. Check device storage and try again. Earlier discoveries are kept.") }
+            studyController?.message(key, if (result.extractedTerms.isEmpty()) "No matching terms found in this chapter. Saved terms are unchanged."
+                else "Extraction saved. Earlier discoveries are kept.")
+        }
     }
 
     private fun observeReadingProgress() {
@@ -102,19 +181,32 @@ class ReaderViewModel(
     fun resyncChapter() {
         val state = _uiState.value
         val currentChapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
+        aiController?.sourceChanged(null)
         // Reset circuit breaker when user manually resyncs
         val source = state.novel?.source ?: NovelSourceType.NOVEL_PHOENIX
         repository.resetSourceCircuitBreaker(source)
         loadChapterContent(state.currentChapterIndex, currentChapter, forceRefresh = true)
     }
 
-    fun scrollPosition(chapterIndex: Int): Pair<Int, Int> =
-        if (savedStateHandle.get<Int>("scrollChapter") == chapterIndex)
+    fun scrollPosition(chapterIndex: Int, contentKey: String = "original"): Pair<Int, Int> =
+        if (contentKey != "original") {
+            if (savedStateHandle.get<Int>("aiScrollChapter") == chapterIndex && savedStateHandle.get<String>("aiScrollContent") == contentKey)
+                (savedStateHandle.get<Int>("aiScrollItem") ?: 0) to (savedStateHandle.get<Int>("aiScrollOffset") ?: 0)
+            else scrollPosition(chapterIndex).first to 0
+        } else if (savedStateHandle.get<Int>("scrollChapter") == chapterIndex)
             (savedStateHandle.get<Int>("scrollItem") ?: 0) to (savedStateHandle.get<Int>("scrollOffset") ?: 0)
         else 0 to 0
 
-    fun saveScrollPosition(chapterIndex: Int, item: Int, offset: Int) {
+    fun saveScrollPosition(chapterIndex: Int, item: Int, offset: Int, contentKey: String = "original") {
         if (_uiState.value.currentChapterIndex != chapterIndex) return
+        if (aiState.value.contentKey != contentKey) return
+        if (contentKey != "original") {
+            savedStateHandle["aiScrollChapter"] = chapterIndex
+            savedStateHandle["aiScrollContent"] = contentKey
+            savedStateHandle["aiScrollItem"] = item
+            savedStateHandle["aiScrollOffset"] = offset
+            return
+        }
         savedStateHandle["scrollChapter"] = chapterIndex
         savedStateHandle["scrollItem"] = item
         savedStateHandle["scrollOffset"] = offset
@@ -124,6 +216,7 @@ class ReaderViewModel(
         val state = _uiState.value
         if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
         if (state.currentChapterIndex < state.chapters.size - 1) {
+            aiController?.sourceChanged(null)
             val nextIndex = state.currentChapterIndex + 1
             savedStateHandle["readerChapterIndex"] = nextIndex
             _uiState.update { it.copy(currentChapterIndex = nextIndex, chapters = retainReaderContent(it.chapters, nextIndex)) }
@@ -136,6 +229,7 @@ class ReaderViewModel(
         val state = _uiState.value
         if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
         if (state.currentChapterIndex > 0) {
+            aiController?.sourceChanged(null)
             val prevIndex = state.currentChapterIndex - 1
             savedStateHandle["readerChapterIndex"] = prevIndex
             _uiState.update { it.copy(currentChapterIndex = prevIndex, chapters = retainReaderContent(it.chapters, prevIndex)) }
@@ -147,6 +241,7 @@ class ReaderViewModel(
     fun selectChapter(index: Int) {
         val state = _uiState.value
         if (index in state.chapters.indices) {
+            if (index != state.currentChapterIndex) aiController?.sourceChanged(null)
             savedStateHandle["readerChapterIndex"] = index
             _uiState.update { it.copy(currentChapterIndex = index, chapters = retainReaderContent(it.chapters, index)) }
             val selected = state.chapters[index]

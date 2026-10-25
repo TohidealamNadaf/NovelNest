@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -32,9 +35,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "21"
-    }
     buildFeatures {
         compose = true
     }
@@ -56,8 +56,22 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Explicit live checks must never replay a cached test result; never use credentials as task inputs.
+tasks.withType<Test>().configureEach {
+    if (providers.environmentVariable("AI_LIVE_SMOKE").orNull == "1") {
+        outputs.upToDateWhen { false }
+        outputs.doNotCacheIf("Live provider verification requires actual requests") { true }
+    }
 }
 
 dependencies {
@@ -79,6 +93,10 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
+    implementation("io.noties.markwon:core:4.6.2")
+    implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("io.noties.markwon:ext-tasklist:4.6.2")
+    implementation("io.noties.markwon:ext-strikethrough:4.6.2")
 
     // Room Database
     implementation(libs.androidx.room.runtime)

@@ -50,6 +50,7 @@ enum class SettingsSubPage {
     READING_DISPLAY,
     READING_BEHAVIOR,
     AUDIO_NARRATION,
+    AI_READING_TOOLS,
     APP_EXPERIENCE,
     NOTIFICATIONS,
     STORAGE_CACHE
@@ -58,6 +59,7 @@ enum class SettingsSubPage {
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    aiViewModel: AiReadingToolsViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     val readerSettings by viewModel.readerSettings.collectAsState()
@@ -134,6 +136,27 @@ fun SettingsScreen(
                     AudioNarrationPage(
                         onBack = { currentSubPage = SettingsSubPage.MAIN }
                     )
+                }
+
+                SettingsSubPage.AI_READING_TOOLS -> {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val effectiveAiViewModel = aiViewModel ?: run {
+                        val app = context.applicationContext as? com.novelnest.app.NovelNestApplication
+                        if (app != null) {
+                            androidx.lifecycle.viewmodel.compose.viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                                @Suppress("UNCHECKED_CAST")
+                                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                    return AiReadingToolsViewModel(app.aiConfiguration, app.aiModelDirectory, app.aiResultCache) as T
+                                }
+                            })
+                        } else null
+                    }
+                    if (effectiveAiViewModel != null) {
+                        AiReadingToolsPage(
+                            viewModel = effectiveAiViewModel,
+                            onBack = { currentSubPage = SettingsSubPage.MAIN }
+                        )
+                    }
                 }
 
                 SettingsSubPage.APP_EXPERIENCE -> {

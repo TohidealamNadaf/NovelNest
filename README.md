@@ -61,7 +61,9 @@ Following `kotlin_android_app_rulebook.md`:
 3. **Open Project**:
    - Launch Android Studio.
    - Click **Open** and select `E:\novel-nest`.
-   - Android Studio will automatically sync Gradle using the configured Gradle 8.14.3 wrapper and AGP 8.7.3.
+   - Install a local **JDK 21**. The project selects it for Gradle in both the IDE and terminal.
+   - Android Studio will sync using the configured Gradle 8.14.3 wrapper and AGP 8.13.0.
+   - See [Build setup and diagnostics](docs/BUILDING.md) for JVM selection, warnings, and verification commands.
 4. **Run on Emulator / Device**:
    - Select an emulator or connected physical Android device.
    - Click the green **Run (Shift + F10)** button.
