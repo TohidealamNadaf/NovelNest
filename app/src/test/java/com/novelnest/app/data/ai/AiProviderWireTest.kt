@@ -7,6 +7,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import okio.buffer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -16,8 +17,9 @@ import org.junit.Test
 class AiProviderWireTest {
     private val prompt = AiPromptFactory.create(AiAction.SUMMARY, chapter().title,
         chapter().paragraphs.mapIndexed { index, text -> AiParagraph(index, text) })
-    private fun client(status: Int = 200, reply: (okhttp3.Request) -> String) = AiHttpClient(OkHttpClient.Builder().addInterceptor { chain ->
+    private fun client(status: Int = 200, headers: Map<String, String> = emptyMap(), reply: (okhttp3.Request) -> String) = AiHttpClient(OkHttpClient.Builder().addInterceptor { chain ->
         Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(status).message("Synthetic")
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
             .body(reply(chain.request()).toResponseBody("application/json".toMediaType())).build()
     }.build())
     private fun response(model: String, content: String = validResponse(prompt), finish: String = "stop") = JSONObject().put("model", model)
@@ -88,6 +90,29 @@ class AiProviderWireTest {
     @Test fun truncatedCompletionIsNeverAccepted() = runBlocking {
         val provider = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { response(freeRoute.model, finish = "length") })
         expectAi(AiErrorCode.INVALID_OUTPUT) { provider.generate(freeRoute, "offline-key", prompt, 1_000) {} }
+    }
+    @Test fun groqReportsTotalUsageIncludingReasoningBeforeRejectingTruncatedOutput() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client {
+            JSONObject(response(route.model, finish = "length")).put("usage", JSONObject()
+                .put("prompt_tokens", 400).put("completion_tokens", 900).put("total_tokens", 1_300)
+                .put("completion_tokens_details", JSONObject().put("reasoning_tokens", 700))).toString()
+        })
+        var reported = 0
+        expectAi(AiErrorCode.INVALID_OUTPUT) {
+            provider.generateWithUsage(route, "offline-key", prompt, 2_048, { reported = it }) {}
+        }
+        assertEquals(1_300, reported)
+    }
+    @Test fun geminiReportsTotalUsageWithoutLeakingResponseContent() = runBlocking {
+        val provider = GeminiAiProvider(client {
+            JSONObject().put("usageMetadata", JSONObject().put("totalTokenCount", 800))
+                .put("candidates", JSONArray().put(JSONObject().put("finishReason", "STOP")
+                    .put("content", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", validResponse(prompt))))))).toString()
+        })
+        var reported = 0
+        assertEquals(validResponse(prompt), provider.generateWithUsage(geminiRoute, "offline-key", prompt, 2_048, { reported = it }) {})
+        assertEquals(800, reported)
     }
     @Test fun explicitRefusalIsNotAnEmptySuccess() = runBlocking {
         val provider = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { response(freeRoute.model, finish = "content_filter") })
@@ -173,6 +198,121 @@ class AiProviderWireTest {
                 val actual = provider.generate(spec.route, "offline-test-key", task, 1_000) {}
                 assertEquals(action, AiResponseValidator.parse(actual, action, chapter().fingerprint(), spec.route, refs).action)
             }
+        }
+    }
+
+    @Test fun extractionUsesWholeChapterAndRetainsFullGroqOutputBudgetOnWire() = runBlocking {
+        val spec = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }
+        val input = chapter().copy(extractionTarget = "cultivation terms", paragraphs = List(7) { "Mira walked. ".repeat(90) })
+        var posts = 0
+        val provider = ChatAiProvider(AiProviderId.GROQ, client { request ->
+            if (request.method == "GET") JSONObject().put("data", JSONArray().put(JSONObject().put("id", spec.route.model))).toString()
+            else {
+                posts++
+                val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertEquals(spec.outputTokens, body.getInt("max_completion_tokens"))
+                val data = JSONObject(body.getJSONArray("messages").getJSONObject(1).getString("content"))
+                assertEquals(input.extractionTarget, data.getString("extractionTarget"))
+                assertEquals(7, data.getJSONArray("paragraphs").length())
+                response(spec.route.model, "{\"terms\":[]}")
+            }
+        })
+        val settings = configured(spec.route).copy(extractRoutes = listOf(spec.route))
+        val result = ChapterAiRepository(FakeConfiguration(settings), FakeCache(), listOf(provider)).generate(input, AiAction.EXTRACT)
+        assertEquals(1, posts); assertTrue(result.extractedTerms.isEmpty())
+    }
+
+    @Test fun groqDailyTokenErrorUsesServerRetryHintAndHidesPrivateDiagnostics() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client(429) {
+            JSONObject().put("error", JSONObject().put("message",
+                "Rate limit reached in private-org on tokens per day (TPD). Please try again in 1h2m3.5s. private chapter text")).toString()
+        })
+        try {
+            provider.generate(route, "offline-key", prompt, 1_000) {}; fail("Expected a quota error")
+        } catch (error: AiException) {
+            assertEquals(3_724L, error.retryAfterSeconds)
+            assertEquals(AiLimitKind.DAILY_TOKENS, error.rateLimit?.kind)
+            assertTrue(error.rateLimit?.modelScoped == true)
+            assertTrue(error.message.orEmpty().contains("daily token"))
+            assertFalse(error.message.orEmpty().contains("private"))
+        }
+    }
+
+    @Test fun explicitProviderRetryTakesPriorityOverFullDailyCounterReset() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client(429, mapOf(
+            "Retry-After" to "60", "x-ratelimit-remaining-requests" to "0", "x-ratelimit-reset-requests" to "2h"
+        )) { "{\"error\":{\"message\":\"limited\"}}" })
+        try {
+            provider.generate(route, "offline-key", prompt, 1_000) {}; fail("Expected daily quota")
+        } catch (error: AiException) {
+            assertEquals(60L, error.retryAfterSeconds)
+            assertEquals(AiLimitKind.DAILY_REQUESTS, error.rateLimit?.kind)
+        }
+    }
+
+    @Test fun groqSuccessReportsQuotaCountersWithFractionalResetDurations() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client(headers = mapOf(
+            "x-ratelimit-limit-tokens" to "8000", "x-ratelimit-remaining-tokens" to "1200",
+            "x-ratelimit-reset-tokens" to "7.66s", "x-ratelimit-remaining-requests" to "999",
+            "x-ratelimit-reset-requests" to "23h59m59.5s"
+        )) { response(route.model) })
+        var quota: AiQuotaSnapshot? = null
+        provider.generateWithUsage(route, "offline-key", prompt, 1_000, {}, { quota = it }) {}
+        assertEquals(1_200, quota?.tokensRemaining)
+        assertEquals(7_660L, quota?.tokenResetMs)
+        assertEquals(999, quota?.requestsRemaining)
+        assertEquals(86_399_500L, quota?.requestResetMs)
+    }
+
+    @Test fun rejectedOversizedResponseClosesTheBodyWithoutReadingItsPayload() = runBlocking {
+        val closed = java.util.concurrent.atomic.AtomicBoolean()
+        val body = object : okhttp3.ResponseBody() {
+            private val content = object : okio.ForwardingSource(Buffer().writeUtf8("not read")) {
+                override fun close() { closed.set(true); super.close() }
+            }.buffer()
+            override fun contentType() = "application/json".toMediaType()
+            override fun contentLength() = 512 * 1024L + 1
+            override fun source() = content
+        }
+        val http = AiHttpClient(OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("Synthetic").body(body).build()
+        }.build())
+        expectAi(AiErrorCode.INVALID_OUTPUT) { ChatAiProvider(AiProviderId.OPEN_ROUTER, http).generate(freeRoute, "offline-key", prompt, 1_000) {} }
+        assertTrue(closed.get())
+    }
+
+    @Test fun singleRequestOverMinuteTokenBudgetIsNotARetryableCooldown() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        for (status in listOf(413, 429)) {
+            val provider = ChatAiProvider(AiProviderId.GROQ, client(status) {
+                JSONObject().put("error", JSONObject().put("message",
+                    "Request too large on tokens per minute (TPM): Limit 8,000, Used 0, Requested 9,100. private-org")).toString()
+            })
+            try {
+                provider.generate(route, "offline-key", prompt, 1_000) {}; fail("Waiting does not repair an oversized request")
+            } catch (error: AiException) {
+                assertEquals(AiErrorCode.TOO_LARGE, error.code)
+                assertTrue(error.message.orEmpty().contains("Waiting one minute cannot"))
+                assertFalse(error.message.orEmpty().contains("private-org"))
+            }
+        }
+    }
+
+    @Test fun usedMinuteQuotaWithIndividuallyValidRequestRemainsARateLimit() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client(429) {
+            JSONObject().put("error", JSONObject().put("message",
+                "Rate limit on tokens per minute (TPM): Limit 8000, Used 7000, Requested 2000. Please try again in 8.5s.")).toString()
+        })
+        try {
+            provider.generate(route, "offline-key", prompt, 1_000) {}; fail("Expected per-minute usage limit")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.RATE_LIMIT, error.code)
+            assertEquals(AiLimitKind.MINUTE_TOKENS, error.rateLimit?.kind)
+            assertEquals(9L, error.retryAfterSeconds)
         }
     }
 }

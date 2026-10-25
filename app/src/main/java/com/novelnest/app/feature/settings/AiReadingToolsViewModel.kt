@@ -67,7 +67,9 @@ class AiReadingToolsViewModel(
         val available = directory.available(provider, key, force = true)
         mutable.update { current -> current.copy(availableModels = current.availableModels.filterNot { it.route.provider == provider } +
             supportedModels.filter { it.route.provider == provider }.map { AiModelAvailability(it.route, it.route.model in available) },
-            message = "Model availability checked. This does not generate text, verify remaining allowance, or verify your account billing tier.") }
+            message = if (provider == AiProviderId.NVIDIA)
+                "NVIDIA catalog checked. Listed models can still be unavailable to your account or at capacity. Generation access and remaining allowance have not been verified."
+            else "Model availability checked. This does not generate text, verify remaining allowance, or verify your account billing tier.") }
     }
     fun clearResults() = perform {
         val cleared = cache.clear()

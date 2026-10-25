@@ -29,6 +29,9 @@ class ReaderAiControllerTest {
             entered.await(); release.complete(Unit); ready(controller)
             controller.request(AiAction.SUMMARY)
             assertEquals(1, provider.calls.get())
+            assertEquals(AiAction.SUMMARY, controller.state.value.action)
+            assertNotNull(controller.state.value.summary)
+            assertNull(controller.state.value.rewrite)
         } finally { scope.cancel() }
     }
     @Test fun chapterSwitchCannotReceiveAnOutgoingResult() = runBlocking {

@@ -22,12 +22,19 @@ class AiLiveProviderTest {
         val http = AiHttpClient(OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request()
             if (request.method == "POST" && requests.incrementAndGet() > maxRequests) throw java.io.IOException("Live request budget exhausted")
-            val reply = chain.proceed(request)
+            val reply = try { chain.proceed(request) } catch (error: java.io.IOException) {
+                wire.add(JSONObject().put("method", request.method).put("host", request.url.host)
+                    .put("networkCauseTypes", JSONArray(generateSequence<Throwable>(error) { it.cause }.take(8)
+                        .map { it.javaClass.simpleName }.toList())))
+                throw error
+            }
             val json = runCatching { JSONObject(reply.peekBody(512 * 1024).string()) }.getOrNull()
             val error = json?.optJSONObject("error")
             val usage = json?.optJSONObject("usage")
             val sentBody = request.body?.let { body -> JSONObject(okio.Buffer().also { body.writeTo(it) }.readUtf8()) }
             wire.add(JSONObject().put("http", reply.code).put("method", request.method)
+                .put("host", request.url.host).put("path", request.url.encodedPath)
+                .put("contentType", reply.header("Content-Type").orEmpty().substringBefore(';'))
                 .put("model", sentBody?.optString("model").orEmpty())
                 .put("strict", sentBody?.optJSONObject("response_format")?.optJSONObject("json_schema")?.opt("strict") ?: JSONObject.NULL)
                 .put("diagnostics", diagnostics(sentBody, json))
@@ -42,9 +49,11 @@ class AiLiveProviderTest {
             "Mira stood at the Copper Gate with 12 spirit stones. Elder Ren explained that Qi Condensation was the first cultivation realm. A Golden Core could form only after the disciple learned to control spiritual energy. Mira placed 3 stones on the altar and kept 9 stones in her pouch.",
             "The elder taught her the Cloud Step technique. It allowed a trained disciple to move quietly, but Mira could manage only 2 steps. Beyond the gate stood the Azure Sect, the organization that protected their village. Mira promised to practice before entering the sect. That evening, she returned the borrowed Jade Compass to Elder Ren."
         ))
-        val providers = listOf(ChatAiProvider(AiProviderId.OPEN_ROUTER, http), ChatAiProvider(AiProviderId.GROQ, http))
+        val providers = listOf(ChatAiProvider(AiProviderId.OPEN_ROUTER, http), ChatAiProvider(AiProviderId.GROQ, http),
+            ChatAiProvider(AiProviderId.NVIDIA, http))
         val credentials = mapOf(AiProviderId.OPEN_ROUTER to System.getenv("OPENROUTER_API_KEY").orEmpty(),
-            AiProviderId.GROQ to System.getenv("GROQ_API_KEY").orEmpty())
+            AiProviderId.GROQ to System.getenv("GROQ_API_KEY").orEmpty(),
+            AiProviderId.NVIDIA to System.getenv("NVIDIA_API_KEY").orEmpty())
         val configuration = object : AiConfiguration {
             var route = AiProviderCatalog.models.first().route
             override suspend fun settings() = AiSettings(listOf(route), listOf(route), setOf(route.provider),
@@ -56,7 +65,8 @@ class AiLiveProviderTest {
             override suspend fun read(key: String, input: AiChapterInput, action: AiAction): AiResult? = null
             override suspend fun write(key: String, result: AiResult, expectedGeneration: Long) = Unit
         }
-        val repository = ChapterAiRepository(configuration, cache, providers)
+        val directory = AiModelDirectory(providers)
+        val repository = ChapterAiRepository(configuration, cache, providers, directory = directory)
         try {
             for (provider in providers) {
                 val credential = credentials.getValue(provider.id)
@@ -64,7 +74,7 @@ class AiLiveProviderTest {
                 if (provider.id == AiProviderId.GROQ) check(System.getenv("GROQ_FREE_PLAN_CONFIRMED") == "1") {
                     "Confirm a Groq Free-plan account before live inference"
                 }
-                val available = try { provider.available(credential) } catch (error: AiException) {
+                val available = try { directory.available(provider.id, credential) } catch (error: AiException) {
                     report.put(JSONObject().put("provider", provider.id.name).put("stage", "metadata")
                         .put("status", error.code.name).put("message", error.message))
                     continue
@@ -97,12 +107,13 @@ class AiLiveProviderTest {
                 }
             }
         } finally {
-            val target = File("build/reports/ai-live/report.json")
+            val target = File("build/reports/ai-live/" +
+                if (credentials.getValue(AiProviderId.NVIDIA).isNotBlank()) "nvidia-report.json" else "report.json")
             requireNotNull(target.parentFile).mkdirs()
             target.writeText(JSONObject().put("fixture", "Two original paragraphs; protocol and evidence validation, not a full-novel quality evaluation")
                 .put("results", report).put("wire", JSONArray(wire)).toString(2))
         }
-        assertTrue("Live models failed checks; see the sanitized build/reports/ai-live/report.json", report.length() > 0 &&
+        assertTrue("Live models failed checks; see the sanitized build/reports/ai-live reports", report.length() > 0 &&
             (0 until report.length()).all { report.getJSONObject(it).optString("status") == "VALIDATED" })
     }
 }
@@ -115,7 +126,14 @@ private fun diagnostics(sent: JSONObject?, received: JSONObject?): JSONObject {
         val data = JSONObject(sent.getJSONArray("messages").getJSONObject(1).getString("content"))
         val originals = data.getJSONArray("paragraphs")
         val refs = (0 until originals.length()).associate { originals.getJSONObject(it).let { p -> p.getInt("id") to p.getString("text") } }
-        val content = JSONObject(received.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content"))
+        val choice = received.getJSONArray("choices").getJSONObject(0)
+        val message = choice.getJSONObject("message")
+        val rawContent = message.optString("content", "")
+        result.put("finishReason", choice.optString("finish_reason").takeIf { it in setOf("stop", "length", "content_filter", "tool_calls") } ?: "OTHER")
+            .put("contentLength", rawContent.length).put("fencedOutput", rawContent.trim().startsWith("```"))
+            .put("thinkingPrefix", rawContent.trim().startsWith("<think>"))
+            .put("separateReasoningLength", message.optString("reasoning_content", "").length)
+        val content = JSONObject(rawContent)
         result.put("keys", JSONArray(content.keys().asSequence().toList()))
         content.optJSONArray("terms")?.let { terms -> result.put("terms", JSONArray().apply {
             for (i in 0 until terms.length()) {

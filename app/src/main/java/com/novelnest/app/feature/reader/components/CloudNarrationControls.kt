@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,8 +35,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
+import com.novelnest.app.core.designsystem.NovelSurfaceBorder
+import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
@@ -414,20 +418,56 @@ fun CloudNarrationControls(
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
+                        textStyle = TextStyle(
+                            color = NovelTextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
                         label = { Text("Worker URL") },
-                        placeholder = { Text("https://...workers.dev/v1/narration") },
+                        placeholder = { Text("https://...workers.dev/v1/narration", color = NovelTextTertiary) },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NovelTextPrimary,
+                            unfocusedTextColor = NovelTextPrimary,
+                            focusedBorderColor = NovelPrimary,
+                            unfocusedBorderColor = NovelSurfaceBorder,
+                            focusedLabelColor = NovelPrimary,
+                            unfocusedLabelColor = NovelTextSecondary,
+                            focusedPlaceholderColor = NovelTextTertiary,
+                            unfocusedPlaceholderColor = NovelTextTertiary,
+                            cursorColor = NovelPrimary,
+                            focusedContainerColor = NovelSurfaceVariant,
+                            unfocusedContainerColor = NovelSurfaceVariant
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = token,
                         onValueChange = { token = it },
+                        textStyle = TextStyle(
+                            color = NovelTextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
                         label = { Text("Access Token") },
-                        placeholder = { Text("Private worker secret") },
+                        placeholder = { Text("Private worker secret", color = NovelTextTertiary) },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NovelTextPrimary,
+                            unfocusedTextColor = NovelTextPrimary,
+                            focusedBorderColor = NovelPrimary,
+                            unfocusedBorderColor = NovelSurfaceBorder,
+                            focusedLabelColor = NovelPrimary,
+                            unfocusedLabelColor = NovelTextSecondary,
+                            focusedPlaceholderColor = NovelTextTertiary,
+                            unfocusedPlaceholderColor = NovelTextTertiary,
+                            cursorColor = NovelPrimary,
+                            focusedContainerColor = NovelSurfaceVariant,
+                            unfocusedContainerColor = NovelSurfaceVariant
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (setupError.isNotBlank()) {
@@ -464,7 +504,11 @@ fun CloudNarrationControls(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(if (saving) "Saving…" else "Save")
+                    Text(
+                        text = if (saving) "Saving…" else "Save",
+                        color = NovelOnPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {

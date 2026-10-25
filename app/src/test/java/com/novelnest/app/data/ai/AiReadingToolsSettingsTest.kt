@@ -113,4 +113,26 @@ class AiReadingToolsSettingsTest {
             assertTrue(config.value.consentedProviders.isEmpty())
         } finally { vm.viewModelScope.cancel() }
     }
+
+    @Test fun nvidiaKeyConsentAndAllActionRoutesUseExistingSettingsFlow() = runTest {
+        val config = Configuration()
+        val provider = FakeProvider(AiProviderId.NVIDIA)
+        val vm = AiReadingToolsViewModel(config, AiModelDirectory(listOf(provider)), AiResultCache(temp.newFolder()))
+        try {
+            runCurrent()
+            assertTrue(vm.state.value.providers.any { it.provider == AiProviderId.NVIDIA && !it.configured })
+            assertTrue(vm.supportedModels.any { it.route.provider == AiProviderId.NVIDIA })
+            vm.replaceKey(AiProviderId.NVIDIA, "offline-test-key"); runCurrent()
+            assertEquals(1L, vm.state.value.savedKeyRevisions[AiProviderId.NVIDIA])
+            val routes = vm.supportedModels.filter { it.route.provider == AiProviderId.NVIDIA }.map { it.route }
+            val settings = configured(*routes.toTypedArray()).copy(extractRoutes = routes)
+            vm.saveSettings(settings); runCurrent()
+            assertEquals(settings, vm.state.value.settings)
+            vm.replaceKey(AiProviderId.NVIDIA, ""); runCurrent()
+            assertTrue(AiProviderId.NVIDIA in config.keys)
+            vm.removeKey(AiProviderId.NVIDIA); runCurrent()
+            assertFalse(vm.state.value.providers.single { it.provider == AiProviderId.NVIDIA }.configured)
+            assertEquals(0, provider.calls.get()) // No generation while configuring credentials/routes.
+        } finally { vm.viewModelScope.cancel() }
+    }
 }

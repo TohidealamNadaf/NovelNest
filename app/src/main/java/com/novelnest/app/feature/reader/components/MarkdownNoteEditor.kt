@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
@@ -28,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +63,7 @@ internal fun MarkdownNoteEditor(
     saving: Boolean,
     onBack: () -> Unit,
     onSave: (String, String) -> Unit,
+    onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var title by rememberSaveable(note?.id) { mutableStateOf(note?.title.orEmpty()) }
@@ -86,7 +89,11 @@ internal fun MarkdownNoteEditor(
             )
             Spacer(modifier = Modifier.width(6.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .swipeDownToDismiss(onDismissSheet)
+            ) {
                 Text(
                     text = if (preview) {
                         title.ifBlank { "Untitled Note" }
@@ -200,6 +207,7 @@ internal fun MarkdownNoteEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 380.dp)
+                .nestedScroll(rememberSubpageScrollConnection())
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -244,6 +252,11 @@ internal fun MarkdownNoteEditor(
                     onValueChange = { if (it.length <= 160) title = it },
                     singleLine = true,
                     enabled = !saving,
+                    textStyle = TextStyle(
+                        color = textColor,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
                     placeholder = {
                         Text(
                             text = "Note title (e.g. Cultivation Insights, Plot Revelation)",
@@ -257,6 +270,7 @@ internal fun MarkdownNoteEditor(
                         unfocusedBorderColor = secondaryColor.copy(alpha = 0.25f),
                         focusedTextColor = textColor,
                         unfocusedTextColor = textColor,
+                        cursorColor = NovelPrimary,
                         focusedContainerColor = theme.surfaceColor,
                         unfocusedContainerColor = theme.surfaceColor
                     ),

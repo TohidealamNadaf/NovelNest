@@ -2,39 +2,57 @@ package com.novelnest.app.data.ai
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 /** Structural/evidence checks are deliberately local. They cannot prove semantic fidelity. */
 object AiResponseValidator {
     fun parse(raw: String, action: AiAction, fingerprint: String, route: AiRoute,
         paragraphs: List<AiParagraph>): AiResult {
+        // Keep diagnostics static: never include model text, names, evidence or credentials.
+        var problem = "the response exceeds the supported size"
         try {
             require(raw.toByteArray(Charsets.UTF_8).size <= 256 * 1024)
-            val json = JSONObject(raw)
+            problem = "the response is not one complete JSON object"
+            val json = jsonObject(raw)
             if (action == AiAction.REWRITE) {
+                problem = "the required paragraph fields are missing or unexpected fields were added"
                 fields(json, setOf("paragraphs"))
                 val values = json.getJSONArray("paragraphs")
+                problem = "the response omitted or added source paragraphs"
                 require(values.length() == paragraphs.size)
                 val result = paragraphs.mapIndexed { i, original ->
+                    problem = "a rewritten paragraph has missing or unexpected fields"
                     val row = values.getJSONObject(i)
                     fields(row, setOf("id", "text"))
+                    problem = "the rewritten paragraphs have invalid or reordered source IDs"
                     require(int(row, "id") == original.id)
+                    problem = "a rewritten paragraph is empty, too long or contains unsupported characters"
                     val text = text(row, "text", 96_000, allowBlank = original.text.isBlank())
                     if (original.text.isBlank()) require(text.isBlank())
                     // Catch gross expansion, embedded markup and lost numerical facts.
                     require(text.length <= original.text.length * 3 + 256)
                     require(!text.contains(Regex("</?(?:script|iframe|html|body)\\b", RegexOption.IGNORE_CASE)))
+                    problem = "a rewritten paragraph changed the source's numerical facts"
                     require(numbers(original.text) == numbers(text))
                     text
                 }
                 return AiResult(action, fingerprint, route, rewrittenParagraphs = result)
             }
+            problem = if (action == AiAction.EXTRACT) "the required terms array is missing or unexpected fields were added"
+                else "the required summary, events or terms fields are missing or have the wrong format"
             fields(json, if (action == AiAction.EXTRACT) setOf("terms") else setOf("summary", "events", "terms"))
             val byId = paragraphs.associateBy { it.id }
             val events = if (action == AiAction.EXTRACT) JSONArray() else json.getJSONArray("events")
             val terms = json.getJSONArray("terms")
+            problem = "the response returned too many events or terms"
             require(events.length() <= 8 && terms.length() <= if (action == AiAction.EXTRACT) 320 else 20)
-            val parsedEvents = (0 until events.length()).map { i -> events.getJSONObject(i).let { event ->
+            problem = "the summary text is missing, empty, too long or contains unsupported characters"
+            val summaryText = if (action == AiAction.SUMMARY) text(json, "summary", 6_000) else null
+            val parsedEvents = (0 until events.length()).map { i ->
+                problem = "an event has missing or unexpected fields"
+                val event = events.getJSONObject(i)
                 fields(event, setOf("text", "paragraphIds"))
+                problem = "an event has missing, duplicate or invalid source paragraph references"
                 val refs = event.getJSONArray("paragraphIds")
                 require(refs.length() in 1..8)
                 val ids = (0 until refs.length()).map { index ->
@@ -43,24 +61,52 @@ object AiResponseValidator {
                     value.toInt().also { require(it in byId) }
                 }
                 require(ids.distinct().size == ids.size)
+                problem = "an event description is empty, too long or contains unsupported characters"
                 AiEvent(text(event, "text", 1_500), ids)
-            } }
-            val parsedTerms = (0 until terms.length()).map { i -> terms.getJSONObject(i).let { term ->
+            }
+            val parsedTerms = (0 until terms.length()).map { i ->
+                problem = "a term has missing or unexpected fields"
+                val term = terms.getJSONObject(i)
                 fields(term, setOf("name", "kind", "meaning", "paragraphId", "evidence"))
+                problem = "a term references a source paragraph that was not supplied"
                 val id = int(term, "paragraphId")
                 val source = byId[id]?.text ?: error("Invalid reference")
+                problem = "a term's name or evidence is empty, too long or contains unsupported characters"
                 val evidence = text(term, "evidence", 200)
                 val name = text(term, "name", 160)
+                problem = "a term uses an unsupported category"
                 val kind = text(term, "kind", 32)
                 require(kind in setOf("CHARACTER", "LOCATION", "ABILITY", "ITEM", "ORGANIZATION", "CONCEPT"))
+                problem = "a term's name or evidence does not exactly match its source paragraph"
                 require(source.contains(evidence) && source.contains(name))
+                problem = "a term's meaning is empty, too long or contains unsupported characters"
                 AiTerm(name, kind, text(term, "meaning", 1_000), id, evidence)
-            } }.distinctBy { if (action == AiAction.EXTRACT) listOf(it.name, it.paragraphId, it.meaning) else it.name.lowercase(java.util.Locale.ROOT) }
+            }.distinctBy { if (action == AiAction.EXTRACT) listOf(it.name, it.paragraphId, it.meaning) else it.name.lowercase(java.util.Locale.ROOT) }
             if (action == AiAction.EXTRACT) return AiResult(action, fingerprint, route, extractedTerms = parsedTerms)
-            return AiResult(action, fingerprint, route, AiSummary(text(json, "summary", 6_000), parsedEvents, parsedTerms))
+            return AiResult(action, fingerprint, route, AiSummary(requireNotNull(summaryText), parsedEvents, parsedTerms))
         } catch (_: Exception) {
-            throw AiException(AiErrorCode.INVALID_OUTPUT, "The model returned incomplete or invalid chapter text. The original is unchanged.")
+            val label = when (action) { AiAction.SUMMARY -> "Summary"; AiAction.REWRITE -> "Rewrite"; AiAction.EXTRACT -> "Term-extraction" }
+            throw AiException(AiErrorCode.INVALID_OUTPUT,
+                "$label validation failed: $problem. Try another configured model. The chapter and saved results are unchanged.")
         }
+    }
+
+    /** Accept only transport decoration around an otherwise complete object. Never extract a JSON
+     * substring out of prose/reasoning, repair truncated output, or ignore trailing provider text. */
+    private fun jsonObject(raw: String): JSONObject {
+        var payload = raw.trim().removePrefix("\uFEFF").trim()
+        if (payload.startsWith("```")) {
+            val firstLine = payload.indexOf('\n')
+            val lastLine = payload.lastIndexOf('\n')
+            require(firstLine >= 0 && lastLine > firstLine)
+            require(payload.substring(0, firstLine).trim().lowercase(java.util.Locale.ROOT) in setOf("```", "```json"))
+            require(payload.substring(lastLine + 1).trim() == "```")
+            payload = payload.substring(firstLine + 1, lastLine).trim()
+        }
+        val tokens = JSONTokener(payload)
+        val value = tokens.nextValue()
+        require(value is JSONObject && tokens.nextClean() == '\u0000')
+        return value
     }
 
     fun outputJson(result: AiResult): JSONObject = if (result.action == AiAction.EXTRACT) JSONObject().put("terms", termsJson(result.extractedTerms))

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -45,6 +46,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.rememberFormFocusController
 import com.novelnest.app.core.ui.animation.BounceScale
@@ -270,9 +272,15 @@ fun AudioNarrationPage(
                                 isVerified = false
                                 verificationMessage = ""
                             },
+                            textStyle = TextStyle(
+                                color = NovelTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
                             label = { Text("HTTPS Worker URL") },
                             placeholder = if (urlFocused) null else {
                                 { Text("https://novelnest-narration.<subdomain>.workers.dev/v1/narration",
+                                    color = NovelTextTertiary,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             },
                             leadingIcon = {
@@ -286,6 +294,19 @@ fun AudioNarrationPage(
                                 imeAction = ImeAction.Next
                             ),
                             keyboardActions = KeyboardActions(onNext = { tokenFocus.requestFocus() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = NovelTextPrimary,
+                                unfocusedTextColor = NovelTextPrimary,
+                                focusedBorderColor = NovelPrimary,
+                                unfocusedBorderColor = NovelSurfaceBorder,
+                                focusedLabelColor = NovelPrimary,
+                                unfocusedLabelColor = NovelTextSecondary,
+                                focusedPlaceholderColor = NovelTextTertiary,
+                                unfocusedPlaceholderColor = NovelTextTertiary,
+                                cursorColor = NovelPrimary,
+                                focusedContainerColor = NovelSurfaceVariant,
+                                unfocusedContainerColor = NovelSurfaceVariant
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().then(formFocus.field("url") { urlFocused = it })
                         )
@@ -300,9 +321,14 @@ fun AudioNarrationPage(
                                 isVerified = false
                                 verificationMessage = ""
                             },
+                            textStyle = TextStyle(
+                                color = NovelTextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
                             label = { Text(if (isConfigured && accessToken.isEmpty()) "Access Token (Stored securely)" else "Worker Access Token") },
                             placeholder = if (tokenFocused) null else {
-                                { Text(if (isConfigured) "Enter new token to replace" else "32+ char secret token") }
+                                { Text(if (isConfigured) "Enter new token to replace" else "32+ char secret token", color = NovelTextTertiary) }
                             },
                             leadingIcon = {
                                 Icon(Icons.Rounded.Key, contentDescription = null, tint = NovelPrimary)
@@ -325,6 +351,19 @@ fun AudioNarrationPage(
                                 imeAction = ImeAction.Done
                             ),
                             keyboardActions = KeyboardActions(onDone = { formFocus.clear() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = NovelTextPrimary,
+                                unfocusedTextColor = NovelTextPrimary,
+                                focusedBorderColor = NovelPrimary,
+                                unfocusedBorderColor = NovelSurfaceBorder,
+                                focusedLabelColor = NovelPrimary,
+                                unfocusedLabelColor = NovelTextSecondary,
+                                focusedPlaceholderColor = NovelTextTertiary,
+                                unfocusedPlaceholderColor = NovelTextTertiary,
+                                cursorColor = NovelPrimary,
+                                focusedContainerColor = NovelSurfaceVariant,
+                                unfocusedContainerColor = NovelSurfaceVariant
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().focusRequester(tokenFocus)
                                 .then(formFocus.field("token") { tokenFocused = it })

@@ -11,11 +11,15 @@ import java.nio.file.Files
 class AiExtractionTest {
     private fun settings(vararg routes: AiRoute) = configured(*routes).copy(extractRoutes = routes.toList())
     private fun input(target: String = "characters") = chapter().copy(extractionTarget = target)
-    private fun response(prompt: AiPrompt): String {
-        val first = JSONObject(prompt.data).getJSONArray("paragraphs").getJSONObject(0)
-        return JSONObject().put("terms", JSONArray().put(JSONObject().put("name", "Mira")
-            .put("kind", "CHARACTER").put("meaning", "The character mentioned in this passage.")
-            .put("paragraphId", first.getInt("id")).put("evidence", "Mira"))).toString()
+    private fun response(prompt: AiPrompt, allParagraphs: Boolean = false): String {
+        val refs = JSONObject(prompt.data).getJSONArray("paragraphs")
+        return JSONObject().put("terms", JSONArray().apply {
+            repeat(if (allParagraphs) refs.length() else 1) { index ->
+                put(JSONObject().put("name", "Mira").put("kind", "CHARACTER")
+                    .put("meaning", "The character mentioned in this passage.")
+                    .put("paragraphId", refs.getJSONObject(index).getInt("id")).put("evidence", "Mira"))
+            }
+        }).toString()
     }
     private fun provider() = FakeProvider(AiProviderId.OPEN_ROUTER).apply { respond = { _, prompt -> response(prompt) } }
 
@@ -49,7 +53,7 @@ class AiExtractionTest {
 
     @Test fun assemblyRetainsEvidenceFromEveryChunkWithoutAMergeRequest() = runBlocking {
         val provider = provider()
-        val input = input().copy(paragraphs = List(3) { "Mira walked. ".repeat(700) })
+        val input = input().copy(paragraphs = List(3) { "Mira walked. ".repeat(1_600) })
         val cache = FakeCache()
         val result = ChapterAiRepository(FakeConfiguration(settings(freeRoute)), cache, listOf(provider)).generate(input, AiAction.EXTRACT)
         assertEquals(3, provider.calls.get())
@@ -87,9 +91,101 @@ class AiExtractionTest {
         val cache = FakeCache()
         expectAi(AiErrorCode.INVALID_OUTPUT) {
             ChapterAiRepository(FakeConfiguration(settings(freeRoute)), cache, listOf(provider))
-                .generate(input().copy(paragraphs = List(3) { "Mira walked. ".repeat(700) }), AiAction.EXTRACT)
+                .generate(input().copy(paragraphs = List(3) { "Mira walked. ".repeat(1_600) }), AiAction.EXTRACT)
         }
         assertEquals(2, provider.calls.get()); assertEquals(0, cache.writes)
+    }
+
+    @Test fun sevenFormerGroqSegmentsExtractInOneRequestWithTheTopicAndLastParagraph() = runBlocking {
+        val input = input("characters and cultivation terms").copy(paragraphs = List(7) { "Mira walked. ".repeat(90) })
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        assertEquals(7, ChapterAiRepository.chunk(input.paragraphs.mapIndexed(::AiParagraph), AiProviderCatalog.spec(route).inputBytes).size)
+        val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { _, prompt ->
+            val sent = JSONObject(prompt.data)
+            assertEquals(input.extractionTarget, sent.getString("extractionTarget"))
+            assertEquals(7, sent.getJSONArray("paragraphs").length())
+            assertEquals(input.paragraphs.last(), sent.getJSONArray("paragraphs").getJSONObject(6).getString("text"))
+            response(prompt, allParagraphs = true)
+        } }
+        val progress = mutableListOf<AiProgress>()
+        val cache = FakeCache()
+        val result = ChapterAiRepository(FakeConfiguration(settings(route)), cache, listOf(provider))
+            .generate(input, AiAction.EXTRACT) { progress.add(it) }
+        assertEquals(1, provider.calls.get()); assertEquals(1, cache.writes)
+        assertEquals((0..6).toList(), result.extractedTerms.map { it.paragraphId })
+        assertFalse(progress.any { it.phase == AiPhase.WAITING_FOR_SLOT })
+    }
+
+    @Test fun largerProviderExtractsWholeChapterWithoutInheritingRewriteSegments() = runBlocking {
+        val input = input().copy(paragraphs = List(3) { "Mira walked. ".repeat(700) })
+        val provider = provider().apply { respond = { _, prompt -> response(prompt, allParagraphs = true) } }
+        val result = ChapterAiRepository(FakeConfiguration(settings(freeRoute)), FakeCache(), listOf(provider))
+            .generate(input, AiAction.EXTRACT)
+        assertEquals(1, provider.calls.get())
+        assertEquals(listOf(0, 1, 2), result.extractedTerms.map { it.paragraphId })
+    }
+
+    @Test fun oversizedGroqExtractionUsesOnlyEnabledExtractFallbackBeforePosting() = runBlocking {
+        val input = input().copy(paragraphs = List(4) { "Mira walked. ".repeat(400) })
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val fallback = provider()
+        val config = FakeConfiguration(settings(route, freeRoute).copy(summaryRoutes = emptyList(), rewriteRoutes = emptyList()))
+        val result = ChapterAiRepository(config, FakeCache(), listOf(groq, fallback)).generate(input, AiAction.EXTRACT)
+        assertEquals(freeRoute, result.route)
+        assertEquals(0, groq.calls.get()); assertEquals(0, groq.discoveries.get())
+        assertEquals(1, fallback.calls.get())
+    }
+
+    @Test fun localQuotaUsesExtractionFallbackWithoutMinuteLongWait() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val policy = AiRequestPolicy { 0L }
+        repeat(6) { policy.admit(AiProviderId.GROQ, AiPrompt("", "", JSONObject()), 10, model = route.model) {} }
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val fallback = provider()
+        val progress = mutableListOf<AiProgress>()
+        val result = ChapterAiRepository(FakeConfiguration(settings(route, freeRoute)), FakeCache(), listOf(groq, fallback), policy)
+            .generate(input(), AiAction.EXTRACT) { progress.add(it) }
+        assertEquals(freeRoute, result.route)
+        assertEquals(0, groq.calls.get()); assertEquals(1, fallback.calls.get())
+        assertFalse(progress.any { it.phase == AiPhase.WAITING_FOR_SLOT })
+    }
+
+    @Test fun oversizedExtractionWithoutFallbackFailsBeforeDiscoveryOrPartialCacheWrite() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val cache = FakeCache()
+        expectAi(AiErrorCode.TOO_LARGE) {
+            ChapterAiRepository(FakeConfiguration(settings(route)), cache, listOf(groq))
+                .generate(input().copy(paragraphs = List(4) { "Mira walked. ".repeat(400) }), AiAction.EXTRACT)
+        }
+        assertEquals(0, groq.discoveries.get()); assertEquals(0, groq.calls.get()); assertEquals(0, cache.writes)
+    }
+
+    @Test fun quotaWithoutEnabledFallbackReturnsRetryDelayWithoutPosting() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val policy = AiRequestPolicy { 0L }
+        repeat(6) { policy.admit(AiProviderId.GROQ, AiPrompt("", "", JSONObject()), 10, model = route.model) {} }
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val cache = FakeCache()
+        try {
+            ChapterAiRepository(FakeConfiguration(settings(route)), cache, listOf(groq), policy).generate(input(), AiAction.EXTRACT)
+            fail("Quota must return a retry delay rather than waiting a minute")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.RATE_LIMIT, error.code); assertEquals(60L, error.retryAfterSeconds)
+        }
+        assertEquals(0, groq.calls.get()); assertEquals(0, cache.writes)
+    }
+
+    @Test fun extractionPlanningIncludesTopicAndFullOutputReservation() = runBlocking {
+        val spec = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }
+        val refs = listOf(AiParagraph(0, "Mira"))
+        val topic = "characters"
+        val inputCost = AiRequestPolicy.estimatedTokens(AiPromptFactory.create(AiAction.EXTRACT, "Title", refs, topic), 0)
+        val exactFit = spec.copy(outputTokens = AiRequestPolicy.GROQ_TOKEN_BUDGET - inputCost)
+        assertEquals(listOf(refs), AiExtractionPlanner.chunks("Title", refs, topic, exactFit))
+        expectAi(AiErrorCode.TOO_LARGE) { AiExtractionPlanner.chunks("Title", refs, "界".repeat(160), exactFit) }
+        expectAi(AiErrorCode.TOO_LARGE) { AiExtractionPlanner.chunks("Title", refs, topic, exactFit.copy(outputTokens = exactFit.outputTokens + 1)) }
     }
 
     @Test fun saveFailureIsReportedAsFailedRatherThanReady() = runBlocking {

@@ -293,7 +293,11 @@ fun SearchScreen(
                             ),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(if (uiState.errorMessage != null) "Retry Search" else "Clear Search", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (uiState.errorMessage != null) "Retry Search" else "Clear Search",
+                                color = NovelOnPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }

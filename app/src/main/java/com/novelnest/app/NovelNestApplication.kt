@@ -16,14 +16,18 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
     val aiConfiguration by lazy { com.novelnest.app.data.ai.AiConfigurationStore(this) }
     val aiResultCache by lazy { com.novelnest.app.data.ai.AiResultCache(java.io.File(cacheDir, "ai_results")) }
     private val aiHttp by lazy { com.novelnest.app.data.ai.AiHttpClient() }
+    // Quota windows/metadata TTL must advance while the device is in deep sleep.
+    private val aiElapsedClock: () -> Long = { android.os.SystemClock.elapsedRealtime() }
     private val aiProviders by lazy { listOf(
         com.novelnest.app.data.ai.GeminiAiProvider(aiHttp),
         com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.GROQ, aiHttp),
-        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.OPEN_ROUTER, aiHttp)
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.OPEN_ROUTER, aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.NVIDIA, aiHttp)
     ) }
-    val aiModelDirectory by lazy { com.novelnest.app.data.ai.AiModelDirectory(aiProviders) }
+    val aiModelDirectory by lazy { com.novelnest.app.data.ai.AiModelDirectory(aiProviders, aiElapsedClock) }
     val chapterAiRepository by lazy { com.novelnest.app.data.ai.ChapterAiRepository(
-        aiConfiguration, aiResultCache, aiProviders, directory = aiModelDirectory
+        aiConfiguration, aiResultCache, aiProviders,
+        policy = com.novelnest.app.data.ai.AiRequestPolicy(aiElapsedClock), directory = aiModelDirectory
     ) }
 
     val database: NovelNestDatabase by lazy {

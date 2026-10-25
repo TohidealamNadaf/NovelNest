@@ -52,26 +52,38 @@ class ChapterAiRepository(
                             throw AiException(AiErrorCode.BILLING_POLICY, "This route requires a free-account billing acknowledgement. Explicit free routes are enabled by default.")
                         progress(AiProgress(if (attempt == 0) AiPhase.PREPARING else AiPhase.SWITCHING_PROVIDER,
                             route.provider, message = if (attempt == 0) "Preparing chapter text" else "Trying the next enabled route"))
-                        val chunks = chunk(paragraphs, spec.inputBytes)
+                        val chunks = when (action) {
+                            AiAction.SUMMARY -> AiSummaryPlanner.chunks(input.title, paragraphs, spec)
+                            AiAction.EXTRACT -> AiExtractionPlanner.chunks(input.title, paragraphs, requireNotNull(input.extractionTarget), spec)
+                            AiAction.REWRITE -> chunk(paragraphs, spec.inputBytes)
+                        }
                         val requiredCalls = chunks.size + if (action == AiAction.SUMMARY && chunks.size > 1) 1 else 0
-                        if (requiredCalls > 12 - calls) throw AiException(AiErrorCode.TOO_LARGE, "This chapter exceeds the remaining request budget. No partial rewrite will be applied.")
+                        if (requiredCalls > 12 - calls) throw AiException(AiErrorCode.TOO_LARGE,
+                            "This chapter exceeds the remaining AI request budget. Select a route that can process it with fewer requests.")
                         val credential = configuration.credential(route.provider)
                         if (credential.isBlank()) throw AiException(AiErrorCode.CREDENTIALS, "Add an API key for this provider in AI Reading Tools.")
+                        policy.bindCredential(route.provider, aiHash(credential))
+                        policy.checkCooldown(route.provider, route.model)
                         val provider = providers[route.provider] ?: throw AiException(AiErrorCode.MODEL_UNAVAILABLE, "This provider is not supported.")
                         progress(AiProgress(AiPhase.CONNECTING, route.provider, message = "Checking model availability"))
-                        if (route.model !in directory.available(route.provider, credential))
+                        if (route.model !in providerCall(route.provider) { directory.available(route.provider, credential) })
                             throw AiException(AiErrorCode.MODEL_UNAVAILABLE, "This model is unavailable or no longer eligible for free requests.")
                         suspend fun request(prompt: AiPrompt, refs: List<AiParagraph>, part: Int, total: Int): AiResult {
                             currentCoroutineContext().ensureActive()
-                            val output = if (action == AiAction.SUMMARY) minOf(2_048, spec.outputTokens) else spec.outputTokens
-                            policy.admit(route.provider, prompt, output) {
-                                progress(AiProgress(AiPhase.WAITING_FOR_SLOT, route.provider, part, total, "Waiting for a local request slot"))
+                            val output = if (action == AiAction.SUMMARY) minOf(AiSummaryPlanner.OUTPUT_TOKENS, spec.outputTokens) else spec.outputTokens
+                            val reservation = policy.admit(route.provider, prompt, output,
+                                maxWaitMs = if (action == AiAction.REWRITE) 60_000 else 10_000, model = route.model) { waitMs ->
+                                progress(AiProgress(AiPhase.WAITING_FOR_SLOT, route.provider, part, total,
+                                    "Waiting for local request allowance (about ${(waitMs + 999) / 1000} seconds)"))
                             }
                             currentCoroutineContext().ensureActive()
                             calls++
                             progress(AiProgress(AiPhase.CONNECTING, route.provider, part, total))
-                            val raw = provider.generate(route, credential, prompt, output) {
-                                progress(AiProgress(AiPhase.GENERATING, route.provider, part, total))
+                            val raw = providerCall(route.provider, route.model) {
+                                provider.generateWithUsage(route, credential, prompt, output,
+                                    usage = { policy.completed(reservation, it) }, quota = { policy.observed(reservation, it) }) {
+                                    progress(AiProgress(AiPhase.GENERATING, route.provider, part, total))
+                                }
                             }
                             currentCoroutineContext().ensureActive()
                             progress(AiProgress(AiPhase.VALIDATING, route.provider, part, total))
@@ -91,7 +103,7 @@ class ChapterAiRepository(
                             parts.size == 1 -> parts.single()
                             else -> {
                                 val prompt = AiPromptFactory.merge(input.title, parts.map { requireNotNull(it.summary) })
-                                if (prompt.data.toByteArray(Charsets.UTF_8).size > spec.inputBytes * 2)
+                                if (prompt.data.toByteArray(Charsets.UTF_8).size > spec.summaryInputBytes)
                                     throw AiException(AiErrorCode.TOO_LARGE, "The combined summary exceeds this model's supported merge budget.")
                                 request(prompt, paragraphs, requiredCalls, requiredCalls)
                             }
@@ -103,12 +115,15 @@ class ChapterAiRepository(
                         return@withTimeout complete
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: AiException) {
-                        lastError = error
-                        policy.failed(route.provider, error)
+                        lastError = if (error.code == AiErrorCode.INVALID_OUTPUT)
+                            AiException(error.code, "${AiProviderCatalog.spec(route).label}: ${error.message.orEmpty()}",
+                                error.retryAfterSeconds, error.rateLimit)
+                        else error
                         if (error.code == AiErrorCode.MODEL_UNAVAILABLE) directory.invalidate(route.provider)
                         if (error.code in setOf(AiErrorCode.NETWORK, AiErrorCode.REFUSED, AiErrorCode.STORAGE)) throw error
-                        if (error.code in setOf(AiErrorCode.CREDENTIALS, AiErrorCode.BILLING_POLICY, AiErrorCode.CONSENT_REQUIRED,
-                                AiErrorCode.RATE_LIMIT, AiErrorCode.UNAVAILABLE)) blockedProviders.add(route.provider)
+                        if (error.code in setOf(AiErrorCode.CREDENTIALS, AiErrorCode.BILLING_POLICY, AiErrorCode.CONSENT_REQUIRED) ||
+                            (error.code in setOf(AiErrorCode.RATE_LIMIT, AiErrorCode.UNAVAILABLE) && error.rateLimit?.modelScoped != true))
+                            blockedProviders.add(route.provider)
                     } catch (_: Exception) {
                         lastError = AiException(AiErrorCode.INVALID_OUTPUT, "The provider returned an unsupported chapter response. The original is unchanged.")
                     }
@@ -120,6 +135,15 @@ class ChapterAiRepository(
             throw AiException(AiErrorCode.TIMEOUT, "The chapter AI request exceeded five minutes. The original is unchanged. Retry when ready.")
         } finally { gate.unlock() }
     }
+
+    private suspend fun <T> providerCall(provider: AiProviderId, model: String? = null, block: suspend () -> T): T =
+        try { block() } catch (error: AiException) {
+            policy.failed(provider, error, model)
+            // Metadata belongs to the provider, even if a response happens to contain model quota headers.
+            if (model == null && error.rateLimit?.modelScoped == true)
+                throw AiException(error.code, error.message.orEmpty(), error.retryAfterSeconds, error.rateLimit.copy(modelScoped = false))
+            throw error
+        }
 
     companion object {
         internal fun validateInput(input: AiChapterInput) {

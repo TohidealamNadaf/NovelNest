@@ -3,7 +3,7 @@ package com.novelnest.app.data.ai
 import java.security.MessageDigest
 
 enum class AiAction { SUMMARY, REWRITE, EXTRACT }
-enum class AiProviderId { OPEN_ROUTER, GEMINI, GROQ }
+enum class AiProviderId { OPEN_ROUTER, GEMINI, GROQ, NVIDIA }
 enum class AiCostPolicy { EXPLICIT_FREE_ONLY, FREE_ACCOUNT_PROVIDERS }
 enum class AiPhase { IDLE, CHECKING_CACHE, PREPARING, WAITING_FOR_SLOT, CONNECTING, GENERATING, SWITCHING_PROVIDER, VALIDATING, READY, FAILED, CANCELLED }
 enum class AiErrorCode {
@@ -12,7 +12,8 @@ enum class AiErrorCode {
     BUSY, STORAGE, CANCELLED
 }
 
-class AiException(val code: AiErrorCode, message: String, val retryAfterSeconds: Long? = null) : Exception(message)
+class AiException(val code: AiErrorCode, message: String, val retryAfterSeconds: Long? = null,
+    val rateLimit: AiRateLimitInfo? = null) : Exception(message)
 
 data class AiRoute(val provider: AiProviderId, val model: String)
 data class AiSettings(

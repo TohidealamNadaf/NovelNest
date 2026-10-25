@@ -37,6 +37,15 @@ policy. Extraction combines segment results locally; there is no extra model cal
 and 320 per chapter are accepted. Rapid Send taps are ignored while busy. Backgrounding, source refresh or a chapter change
 cancels outgoing work. A provider request already accepted can still consume allowance.
 
+Extraction uses an independent input planner instead of rewrite-sized segments. Normal chapters fit one request;
+Gemini/OpenRouter use up to 32,000 source bytes per segment for longer chapters. Groq preflights the whole chapter,
+topic, prompt/schema/framing and full 3,072-token output reservation against the local 8,000-token budget. If it cannot fit,
+an enabled extraction fallback is tried before spending on partial output. No source paragraphs are sampled or omitted.
+Long local quota waits are declined: extraction waits at most ten seconds, then uses an eligible fallback or reports
+an actionable size/quota error. Actual reported usage settles reservations; cancelled/ambiguous usage stays reserved.
+Output remains bounded to 40 terms per request; supplying the complete source does not guarantee exhaustive AI extraction.
+The prompt asks for distinct terms, concise meanings and short exact evidence to reduce repeated output.
+
 The disposable AI cache key includes the topic as well as source, novel, chapter, source fingerprint and prompt version. Sending
 the same topic/chapter again normally reuses its validated cached result. SQLite commits are atomic, append-only and idempotent
 for identical evidence/meaning. Case/Unicode/whitespace normalize term identities without guessing aliases. Changed meanings,

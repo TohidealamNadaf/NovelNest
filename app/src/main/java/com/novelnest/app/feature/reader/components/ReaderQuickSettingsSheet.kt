@@ -59,6 +59,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.novelnest.app.feature.reader.ReaderStudyState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,10 +69,18 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -89,8 +98,6 @@ import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.bounceSelectable
 import com.novelnest.app.data.ai.AiAction
-import com.novelnest.app.data.ai.AiErrorCode
-import com.novelnest.app.data.ai.AiFailure
 import com.novelnest.app.data.ai.AiPhase
 import com.novelnest.app.data.ai.AiProgress
 import com.novelnest.app.data.narration.NarrationService
@@ -101,6 +108,8 @@ import com.novelnest.app.data.preferences.ReaderSettings
 import com.novelnest.app.data.preferences.ReaderTheme
 import com.novelnest.app.feature.reader.Chapter
 import com.novelnest.app.feature.reader.ReaderAiState
+import com.novelnest.app.feature.reader.aiErrorHelpText
+import com.novelnest.app.feature.reader.retryAiFailure
 import com.novelnest.app.feature.reader.ReaderContentVersion
 import com.novelnest.app.feature.reader.ReaderUiState
 import kotlin.math.roundToInt
@@ -129,6 +138,73 @@ data class ExtractionCategoryUi(
     val lastUpdatedChapter: String = "",
     val termCount: Int = terms.size
 )
+
+/**
+ * Nested scroll connection that absorbs downward scroll/fling deltas when the user reaches the top
+ * of a subpage's scrollable content, preventing the parent [ModalBottomSheet] from closing accidentally.
+ */
+@Composable
+internal fun rememberSubpageScrollConnection(): NestedScrollConnection = remember {
+    object : NestedScrollConnection {
+        override fun onPostScroll(
+            consumed: Offset,
+            available: Offset,
+            source: NestedScrollSource
+        ): Offset {
+            return if (available.y > 0f) {
+                Offset(0f, available.y)
+            } else {
+                Offset.Zero
+            }
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+            return if (available.y > 0f) {
+                Velocity(0f, available.y)
+            } else {
+                Velocity.Zero
+            }
+        }
+    }
+}
+
+/**
+ * Allows the user to swipe down specifically from the header area or drag handle to dismiss the sheet.
+ */
+internal fun Modifier.swipeDownToDismiss(
+    onDismiss: () -> Unit,
+    threshold: Float = 36f
+): Modifier = this.pointerInput(onDismiss, threshold) {
+    var totalDragY = 0f
+    var dismissed = false
+    detectVerticalDragGestures(
+        onDragStart = {
+            totalDragY = 0f
+            dismissed = false
+        },
+        onDragEnd = {
+            if (!dismissed && totalDragY > threshold) {
+                onDismiss()
+            }
+            totalDragY = 0f
+            dismissed = false
+        },
+        onDragCancel = {
+            totalDragY = 0f
+            dismissed = false
+        },
+        onVerticalDrag = { change, dragAmount ->
+            if (dragAmount > 0f) {
+                totalDragY += dragAmount
+                if (!dismissed && totalDragY > threshold) {
+                    dismissed = true
+                    change.consume()
+                    onDismiss()
+                }
+            }
+        }
+    )
+}
 
 /**
  * Compact Half-Page Quick Menu bottom sheet for the Novel Reader screen.
@@ -241,6 +317,17 @@ fun ReaderQuickSettingsSheet(
     val isAudioLoading = isCurrentAudioSession && narrationState.loading
     val hasPlayableAudio = currentNovel != null && currentChapter?.paragraphs?.any { it.isNotBlank() } == true
 
+    val coroutineScope = rememberCoroutineScope()
+    val dismissSheet: () -> Unit = {
+        coroutineScope.launch {
+            try {
+                bottomSheetState.hide()
+            } finally {
+                onDismiss()
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = bottomSheetState,
@@ -260,6 +347,7 @@ fun ReaderQuickSettingsSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .swipeDownToDismiss(dismissSheet)
                     .padding(top = 10.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -316,7 +404,8 @@ fun ReaderQuickSettingsSheet(
                             secondaryColor = secondaryColor,
                             onBack = { currentSheetPage = QuickSettingsSheetPage.MAIN },
                             onRequestSummary = onRequestSummary,
-                            onCancelAi = onCancelAi
+                            onCancelAi = onCancelAi,
+                            onDismissSheet = dismissSheet
                         )
                     }
 
@@ -332,7 +421,8 @@ fun ReaderQuickSettingsSheet(
                             onBack = { currentSheetPage = QuickSettingsSheetPage.MAIN },
                             onNewNote = { if (studyState.key != null) { onSelectNote(null); currentSheetPage = QuickSettingsSheetPage.NOTE_EDIT } },
                             onOpenNote = { onSelectNote(it.id); currentSheetPage = QuickSettingsSheetPage.NOTE_EDIT },
-                            onDeleteNote = onDeleteNote
+                            onDeleteNote = onDeleteNote,
+                            onDismissSheet = dismissSheet
                         )
                     }
                     QuickSettingsSheetPage.NOTE_EDIT -> {
@@ -343,7 +433,8 @@ fun ReaderQuickSettingsSheet(
                             onSave = { title, content ->
                                 savingNote = true
                                 onSaveNote(activeNote?.id, title, content)
-                            }
+                            },
+                            onDismissSheet = dismissSheet
                         ) else TextButton(onClick = { currentSheetPage = QuickSettingsSheetPage.NOTES_LIST }) {
                             Text("Loading note… Back to notes", color = textColor)
                         }
@@ -368,7 +459,8 @@ fun ReaderQuickSettingsSheet(
                             onSendExtract = onExtractTerms,
                             canSend = extractionEnabled, saving = studyState.saving || studyState.key == null,
                             savedRevision = studyState.collectionSavedRevision,
-                            onDeleteCategory = onDeleteCollection
+                            onDeleteCategory = onDeleteCollection,
+                            onDismissSheet = dismissSheet
                         )
                     }
                     QuickSettingsSheetPage.EXTRACT_DETAIL -> {
@@ -387,7 +479,8 @@ fun ReaderQuickSettingsSheet(
                                     currentSheetPage = QuickSettingsSheetPage.EXTRACT_LIST
                                 },
                                 onSendExtract = onExtractTerms,
-                                canSend = extractionEnabled
+                                canSend = extractionEnabled,
+                                onDismissSheet = dismissSheet
                             )
                         } else {
                             TextButton(onClick = { currentSheetPage = QuickSettingsSheetPage.EXTRACT_LIST }) {
@@ -597,6 +690,13 @@ fun ReaderQuickSettingsSheet(
                 },
                 onOpenExtract = {
                     currentSheetPage = QuickSettingsSheetPage.EXTRACT_LIST
+                },
+                onRetryExtract = {
+                    currentSheetPage = QuickSettingsSheetPage.EXTRACT_LIST
+                    val collectionId = aiState?.extractionCollectionId
+                    if (extractionEnabled && collectionId != null && extractionCategories.any { it.id == collectionId }) {
+                        onExtractTerms(collectionId)
+                    }
                 }
             )
 
@@ -1077,6 +1177,7 @@ private fun ReaderSummarySubPage(
     onBack: () -> Unit,
     onRequestSummary: () -> Unit,
     onCancelAi: () -> Unit,
+    onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1105,7 +1206,11 @@ private fun ReaderSummarySubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .swipeDownToDismiss(onDismissSheet)
+            ) {
                 Text(
                     text = "Chapter Summary",
                     color = textColor,
@@ -1165,6 +1270,7 @@ private fun ReaderSummarySubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
+                .nestedScroll(rememberSubpageScrollConnection())
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1266,7 +1372,7 @@ private fun ReaderSummarySubPage(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = aiErrorHelpText(failure),
+                                    text = aiErrorHelpText(failure, AiAction.SUMMARY),
                                     color = textColor,
                                     fontSize = 10.5.sp,
                                     lineHeight = 14.sp
@@ -1494,6 +1600,7 @@ private fun ReaderNotesListSubPage(
     onNewNote: () -> Unit,
     onOpenNote: (ChapterNoteUi) -> Unit,
     onDeleteNote: (String) -> Unit,
+    onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
@@ -1530,7 +1637,11 @@ private fun ReaderNotesListSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .swipeDownToDismiss(onDismissSheet)
+            ) {
                 Text(
                     text = "Chapter Notes",
                     color = textColor,
@@ -1606,6 +1717,7 @@ private fun ReaderNotesListSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
+                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -1751,8 +1863,10 @@ private fun ReaderNotesListSubPage(
 @Composable
 private fun ReaderNoteEditSubPage(
     note: ChapterNoteUi?, textColor: Color, secondaryColor: Color, theme: ReaderTheme,
-    saving: Boolean, onBack: () -> Unit, onSave: (String, String) -> Unit, modifier: Modifier = Modifier
-) = MarkdownNoteEditor(note, textColor, secondaryColor, theme, saving, onBack, onSave, modifier)
+    saving: Boolean, onBack: () -> Unit, onSave: (String, String) -> Unit,
+    onDismissSheet: () -> Unit = {},
+    modifier: Modifier = Modifier
+) = MarkdownNoteEditor(note, textColor, secondaryColor, theme, saving, onBack, onSave, onDismissSheet, modifier)
 
 /**
  * Dedicated Subpage within Quick Settings to view and trigger term extraction categories.
@@ -1776,6 +1890,7 @@ private fun ReaderExtractListSubPage(
     saving: Boolean,
     savedRevision: Long,
     onDeleteCategory: (String) -> Unit,
+    onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
@@ -1824,7 +1939,11 @@ private fun ReaderExtractListSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .swipeDownToDismiss(onDismissSheet)
+            ) {
                 Text(
                     text = "Extract Terms",
                     color = textColor,
@@ -1943,7 +2062,7 @@ private fun ReaderExtractListSubPage(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = extractFailure.message.ifBlank { "Extraction failed. Please try again." },
+                        text = aiErrorHelpText(extractFailure, AiAction.EXTRACT),
                         color = failureColor,
                         fontSize = 11.5.sp,
                         lineHeight = 15.sp,
@@ -1999,6 +2118,7 @@ private fun ReaderExtractListSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
+                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -2028,15 +2148,29 @@ private fun ReaderExtractListSubPage(
                             OutlinedTextField(
                                 value = newCategoryName,
                                 onValueChange = { if (it.length <= 160) newCategoryName = it },
+                                textStyle = TextStyle(
+                                    color = textColor,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
                                 placeholder = {
                                     Text(
                                         "e.g. Cultivation terms, Alchemy pills, Beast ranks...",
-                                        color = secondaryColor.copy(alpha = 0.6f),
+                                        color = secondaryColor.copy(alpha = 0.5f),
                                         fontSize = 11.5.sp
                                     )
                                 },
                                 singleLine = true,
                                 shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = NovelPrimary,
+                                    unfocusedBorderColor = secondaryColor.copy(alpha = 0.25f),
+                                    focusedTextColor = textColor,
+                                    unfocusedTextColor = textColor,
+                                    cursorColor = NovelPrimary,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
+                                ),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Row(
@@ -2274,6 +2408,7 @@ private fun ReaderExtractDetailSubPage(
     onBack: () -> Unit,
     onSendExtract: (String) -> Unit,
     canSend: Boolean,
+    onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var expanded by remember(category.id) { mutableStateOf(emptySet<String>()) }
@@ -2293,7 +2428,11 @@ private fun ReaderExtractDetailSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .swipeDownToDismiss(onDismissSheet)
+            ) {
                 Text(
                     text = category.name,
                     color = textColor,
@@ -2393,6 +2532,7 @@ private fun ReaderExtractDetailSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
+                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -2549,7 +2689,8 @@ private fun AiReadingActionSection(
     onShowVersion: (ReaderContentVersion) -> Unit,
     onOpenSummary: () -> Unit,
     onOpenNotes: () -> Unit = {},
-    onOpenExtract: () -> Unit = {}
+    onOpenExtract: () -> Unit = {},
+    onRetryExtract: () -> Unit = onOpenExtract
 ) {
     val accentColor = if (theme.isDark) NovelPrimary else textColor
     val successColor = if (theme.isDark) NovelSecondary else textColor
@@ -2570,12 +2711,55 @@ private fun AiReadingActionSection(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 4 Square-Shaped Action Tiles in One Grid Row
+        // 4 Square-Shaped Action Tiles in One Grid Row (Summary and Rewrite in the middle)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ─── 1. SUMMARY TILE ───
+            // ─── 1. NOTES TILE ───
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(68.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(secondaryColor.copy(alpha = if (theme.isDark) 0.08f else 0.05f))
+                    .border(
+                        1.dp,
+                        secondaryColor.copy(alpha = 0.16f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .bounceClick(
+                        enabled = true,
+                        scaleDown = BounceScale.Small,
+                        onClick = onOpenNotes
+                    )
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.EditNote,
+                        contentDescription = null,
+                        tint = if (theme.isDark) NovelPrimary else textColor,
+                        modifier = Modifier.size(23.dp)
+                    )
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Text(
+                        text = "Notes",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = textColor,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // ─── 2. SUMMARY TILE ───
             val summaryActive = currentSummary != null
             Box(
                 modifier = Modifier
@@ -2636,7 +2820,7 @@ private fun AiReadingActionSection(
                 }
             }
 
-            // ─── 2. REWRITE TILE ───
+            // ─── 3. REWRITE TILE ───
             val rewriteActive = currentRewrite != null
             val isShowingRewrite = currentVersion == ReaderContentVersion.REWRITE
             Box(
@@ -2693,49 +2877,6 @@ private fun AiReadingActionSection(
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (rewriteActive) successColor else if (hasText && !isBusy) textColor else secondaryColor.copy(alpha = 0.4f),
-                        maxLines = 1,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            // ─── 3. NOTES TILE ───
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(68.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(secondaryColor.copy(alpha = if (theme.isDark) 0.08f else 0.05f))
-                    .border(
-                        1.dp,
-                        secondaryColor.copy(alpha = 0.16f),
-                        RoundedCornerShape(12.dp)
-                    )
-                    .bounceClick(
-                        enabled = true,
-                        scaleDown = BounceScale.Small,
-                        onClick = onOpenNotes
-                    )
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.EditNote,
-                        contentDescription = null,
-                        tint = if (theme.isDark) NovelPrimary else textColor,
-                        modifier = Modifier.size(23.dp)
-                    )
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Text(
-                        text = "Notes",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor,
                         maxLines = 1,
                         textAlign = TextAlign.Center
                     )
@@ -2884,7 +3025,7 @@ private fun AiReadingActionSection(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = aiErrorHelpText(failure),
+                                text = aiErrorHelpText(failure, aiState?.action),
                                 color = textColor,
                                 fontSize = 10.5.sp,
                                 lineHeight = 14.sp
@@ -2897,7 +3038,7 @@ private fun AiReadingActionSection(
                             .clip(RoundedCornerShape(8.dp))
                             .background(NovelPrimary)
                             .clickable {
-                                if (aiState?.action == AiAction.REWRITE) onRequestRewrite() else onRequestSummary()
+                                retryAiFailure(aiState?.action, onRequestSummary, onRequestRewrite, onRetryExtract)
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -2983,21 +3124,6 @@ private fun aiPhaseTitle(phase: AiPhase, action: AiAction?): String {
         AiPhase.FAILED -> "$actionWord Failed"
         AiPhase.CANCELLED -> "$actionWord Cancelled"
         else -> "AI Processing..."
-    }
-}
-
-private fun aiErrorHelpText(failure: AiFailure): String {
-    return when (failure.code) {
-        AiErrorCode.NOT_CONFIGURED -> "No route configured. Please configure a provider and model in Settings > AI Reading Tools."
-        AiErrorCode.CONSENT_REQUIRED -> "Chapter sharing consent required. Enable consent for this provider in Settings > AI Reading Tools."
-        AiErrorCode.CREDENTIALS -> "Missing or invalid API key. Update credentials in Settings > AI Reading Tools."
-        AiErrorCode.BILLING_POLICY -> "Route requires billing acknowledgement. Update policy in Settings > AI Reading Tools."
-        AiErrorCode.MODEL_UNAVAILABLE -> "The selected model is unavailable or free quota is exhausted."
-        AiErrorCode.RATE_LIMIT -> "Rate limit reached. ${failure.retryAfterSeconds?.let { "Retry in ${it}s." } ?: "Please wait before retrying."}"
-        AiErrorCode.TOO_LARGE -> "Chapter text exceeds supported request budget. No partial rewrite applied."
-        AiErrorCode.BUSY -> "Another AI request is already in progress."
-        AiErrorCode.CANCELLED -> "The request was cancelled."
-        else -> failure.message.ifBlank { "Could not complete AI request." }
     }
 }
 

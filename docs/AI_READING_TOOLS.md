@@ -6,6 +6,9 @@ launch or normal reading. Users configure their own keys, model routes, sharing 
 
 ## Product behavior
 
+For the verified action-to-route mapping, the Extract retry correction and actual NVIDIA HTTP results, see
+[AI route verification](AI_ROUTE_VERIFICATION.md). Catalog availability alone does not establish generation access.
+
 - Summary operates on the loaded **original** chapter and returns a concise summary, source-referenced key events,
   and chapter-local terms (characters, locations, abilities, items, organizations, concepts). No subsequent chapter
   is sent, including prefetched text. Evidence strings and term spellings must occur in their referenced paragraph.
@@ -22,8 +25,31 @@ launch or normal reading. Users configure their own keys, model routes, sharing 
 
 ## Provider and cost boundary
 
+### Summary validation diagnostics (25 October 2026)
+
+A reported Summary failure used NVIDIA Nemotron 3 Super, followed by Groq GPT-OSS 120B/20B. The old message
+collapsed JSON formatting, source-reference, field, category and exact-evidence failures into one generic
+"incomplete or invalid chapter text" error. It therefore cannot establish which check rejected that device's response.
+No failing live response or current credential was captured for this report.
+
+The NVIDIA request now explicitly sends `chat_template_kwargs.enable_thinking=false`, alongside Super's
+`reasoning_effort=none`, following the reasoning-off template example. Previously Super sent only the selector,
+while NVIDIA's reference says its snippets translate that selector into template kwargs.
+
+The validator accepts a UTF-8 BOM and a single enclosing JSON code block around a complete object. It still
+rejects reasoning/prose surrounding JSON, extra objects, trailing text, truncated output, invalid evidence, invalid
+references and incomplete rewrites. Nothing is sliced out of a response to fabricate a successful result.
+Static action-specific errors now identify the rejected component, and failed routes include their curated model
+label. No response text, source quotes, credentials or raw provider diagnostics are included in these errors.
+Summary/merge instructions now state the event-reference bounds and tell the model to omit optional terms it cannot
+support exactly. No new generation retry/repair call is introduced, and valid caches remain reusable.
+
+These changes address confirmed request/response handling gaps. An authenticated reproduction is still needed to
+determine whether this user's original rejection was caused by formatting, evidence, references or another field.
+
 `AiProviderCatalog` is the only accepted model list. It currently contains Gemini Flash/Flash-Lite, Groq GPT-OSS/Qwen,
-and two OpenRouter Gemma free variants. Model IDs/capabilities are maintained centrally and availability is checked
+two OpenRouter Gemma free variants, and opt-in NVIDIA Gemma 4/Nemotron 3 Super prototype/testing routes.
+Model IDs/capabilities are maintained centrally and availability is checked
 against authenticated metadata. Native model listing does not establish free entitlement or remaining quota.
 Gemini discovery follows at most four pages of 100 models; model discovery has a 45-second deadline.
 
@@ -61,7 +87,10 @@ after five minutes and is keyed to the credential fingerprint. Requests specify 
 pricing, a fixed free model, no hidden provider fallback, no paid model fallback array, and no tools/plugins. If these
 constraints cannot be met, the request fails. We do not use the random `openrouter/free` router for rewriting.
 
-Gemini/Groq are opt-in through `FREE_ACCOUNT_PROVIDERS`. The UI must require acknowledgement before saving this policy:
+Gemini/Groq/NVIDIA are opt-in through `FREE_ACCOUNT_PROVIDERS`. NVIDIA's hosted free access is for prototype/testing
+only and is rate-limited; it is not free unrestricted production access. See [NVIDIA integration and setup](NVIDIA_AI_RESEARCH.md).
+NVIDIA uses schema instructions plus mandatory local validation, not an assumed unsupported response-format parameter.
+The UI must require acknowledgement before saving this policy:
 the app cannot verify account billing status or prevent provider charges on a billed API key. Use a provider-enforced
 free account/project if enabling native providers. This setting is an acknowledgement, not a billing cutoff. The app
 never enables billing, upgrades an account, buys credits, or chooses an unlisted paid model.
@@ -108,19 +137,47 @@ application-lifetime AI client is isolated from scraper and narration clients an
 - Loaded source limit: 96,000 UTF-8 bytes, 2,000 paragraphs, title at most 1,000 characters.
 - At most three explicitly selected routes per action, eight paragraph-aligned segments per attempt, twelve generation
   POSTs across the entire operation including failed attempts and summary merging, and five minutes overall.
-- Gemini/OpenRouter segment source budget is 16,000 UTF-8 bytes; Groq uses 2,000 to leave room for its free-plan token
-  allowance. JSON envelope size and expected output are additionally bounded. A paragraph is never silently split or
+- Rewrite segment source budget is 16,000 UTF-8 bytes for Gemini/OpenRouter and 2,000 for Groq.
+  Summaries have independent limits: Gemini/OpenRouter use up to 64,000 UTF-8 bytes per segment; Groq plans the
+  complete chapter as one request against the 8,000-token local budget, including prompt/schema/framing and a
+  2,048-token completion reservation. Oversized Groq summaries try the next enabled route before sending any
+  chapter text; they do not spend on partial summaries that need minute-long quota waits.
+  Extraction also has its own planner: Gemini/OpenRouter allow 32,000 UTF-8 bytes per segment; Groq
+  preflights a single whole-chapter request including the topic and its full 3,072-token output reservation.
+  Oversized Groq extraction tries the next enabled **extraction** route before sending text. It does not
+  lower the output budget to squeeze in more input. Segment results are combined locally without a merge call.
+  JSON envelope size and expected output are additionally bounded. A paragraph is never silently split or
   omitted; if it cannot fit, another eligible larger-capacity route is tried or an actionable size error is returned.
 - Typical chapters use one call. Long summaries use segment summaries plus one bounded merge. Long rewrites use one
   model throughout an attempt. Fallback restarts from original text; partial output is never applied or cached.
-- Local admission permits at most six generation starts/provider/minute. Groq also reserves a conservative UTF-8-based
-  input/output token estimate against 8,000 tokens/minute, including prompt/schema/envelope overhead. This is a local
-  estimate, not an account quota counter. Slot waiting suspends without polling and is included in the overall deadline.
-- 429 and 5xx responses establish a provider cooldown (Retry-After honored up to one day; defaults 60/30 seconds).
+- Local admission permits at most six generation starts/minute per provider budget; Groq budgets are scoped to each
+  curated model, while other providers retain shared local budgets. Credentials are not rotated to evade quotas.
+  Groq also estimates input/output usage
+  against 8,000 tokens/minute, counting padded ASCII prose at three bytes/token and non-ASCII bytes at one byte/token,
+  including prompt/schema/framing and the full possible completion. This is an estimate, not an exact tokenizer or
+  account quota counter. Each successful provider response settles its reservation to reported total token usage,
+  including reasoning, even if subsequent local output validation fails. Missing usage and ambiguous cancelled
+  requests retain their reservation. No refund is inferred from output character count.
+- Groq response headers supply remaining TPM tokens and DAILY requests, with independent reset durations. Fresh
+  server counters replace already-accounted local estimates; subsequent unknown requests retain separate reservations.
+  Daily reservations survive expiry of the minute window. No chapter text, keys or organization IDs are retained in
+  quota state. Account/project restrictions and separate input/output limits remain provider-enforced.
+- Summary and extraction admission wait at most ten seconds for a local slot, then try another enabled provider or
+  report a retry delay. Rewrite retains its existing one-minute admission wait. Waiting suspends without polling and
+  displays an approximate reset delay; it is included in the overall deadline. The display is not a live countdown.
+- Real 429/5xx responses establish a remote cooldown (retry/reset hints honored up to seven days; defaults 60/30 seconds
+  only when no hint is available). Local admission/cooldown checks never renew remote expiry. Known Groq model quota
+  failures may try the next configured model; unknown/shared limits and 5xx retain provider-wide blocking. Daily token
+  and daily request failures are reported separately from per-minute failures. One minute is not a promised reset time.
   These counters are process-local. Other applications/devices and account/project quotas remain provider-controlled.
+- Groq's currently documented free allowance is 8K TPM for the curated models; the account limits page remains
+  authoritative: https://console.groq.com/docs/rate-limits . Large model context windows do not increase free TPM.
+  Genuine provider throttling/capacity and network latency cannot be eliminated by client scheduling. No billing
+  policy, consent, output validation, source coverage or durable notes/terms storage is relaxed by summary planning.
 - Offline/DNS/connection failures and explicit refusals stop the action. Invalid credentials, rate limits, unavailable
   providers, unavailable models, timeouts and invalid/truncated results may advance to the next enabled eligible route.
-  A credential/rate-limit/provider failure skips the remaining models under that same provider for this action.
+  Credential/shared-quota/provider failures skip remaining models under that same provider for this action;
+  a known model-scoped Groq quota only skips that model.
 - No same-request automatic retry, repair-prompt loop, hedged parallel generation, key rotation to evade quotas, or
   fallback to a provider without consent. HTTP errors and partial output never become replacement chapter text.
 
@@ -206,6 +263,9 @@ outside taps dismiss focus/keyboard while taps within fields keep editing. Nativ
 an explicit billing acknowledgement dialog before saving; cancellation leaves the previous policy unchanged.
 
 ### Reader Quick Settings
+
+Reader error presentation preserves sanitized backend messages, including the specific size/quota explanation and
+retry delay. Empty-message fallbacks use the action that failed; Summary and Extract never inherit a rewrite warning.
 
 Observe `ReaderViewModel.aiState` and pass state/callbacks into presentational components:
 

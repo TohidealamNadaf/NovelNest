@@ -149,11 +149,68 @@ class ChapterAiRepositoryTest {
         expectAi(AiErrorCode.UNAVAILABLE) { ChapterAiRepository(FakeConfiguration(configured(freeRoute)), cache, listOf(provider)).generate(input, AiAction.REWRITE) }
         assertEquals(0, cache.writes); assertNull(cache.result)
     }
-    @Test fun longSummaryUsesBoundedMergeWithOriginalReferences() = runBlocking {
+    @Test fun summaryDoesNotInheritRewriteChunkLimits() = runBlocking {
         val input = chapter().copy(paragraphs = List(3) { "Mira walked. ".repeat(700) })
         val provider = FakeProvider(AiProviderId.OPEN_ROUTER)
         val result = ChapterAiRepository(FakeConfiguration(configured(freeRoute)), FakeCache(), listOf(provider)).generate(input, AiAction.SUMMARY)
-        assertNotNull(result.summary); assertEquals(4, provider.calls.get())
+        assertNotNull(result.summary); assertEquals(1, provider.calls.get())
+    }
+    @Test fun veryLongSummaryStillCoversEveryParagraphWithBoundedMerge() = runBlocking {
+        val input = chapter().copy(paragraphs = List(3) { "Mira walked. ".repeat(2_400) })
+        val seen = mutableListOf<Int>()
+        val provider = FakeProvider(AiProviderId.OPEN_ROUTER).apply { respond = { _, prompt ->
+            JSONObject(prompt.data).optJSONArray("paragraphs")?.let { values ->
+                for (index in 0 until values.length()) seen.add(values.getJSONObject(index).getInt("id"))
+            }
+            validResponse(prompt)
+        } }
+        val result = ChapterAiRepository(FakeConfiguration(configured(freeRoute)), FakeCache(), listOf(provider))
+            .generate(input, AiAction.SUMMARY)
+        assertNotNull(result.summary); assertEquals(listOf(0, 1, 2), seen)
+        assertEquals(3, provider.calls.get()) // Two large segments, one merge.
+    }
+    @Test fun sevenFormerGroqChunksUseOneSummaryRequestIncludingTheLastParagraph() = runBlocking {
+        val input = chapter().copy(paragraphs = List(7) { "Mira walked home. ".repeat(95) })
+        val refs = input.paragraphs.mapIndexed(::AiParagraph)
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        assertEquals(7, ChapterAiRepository.chunk(refs, AiProviderCatalog.spec(route).inputBytes).size)
+        val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { _, prompt ->
+            val sent = JSONObject(prompt.data).getJSONArray("paragraphs")
+            assertEquals(7, sent.length())
+            assertEquals(input.paragraphs.last(), sent.getJSONObject(6).getString("text"))
+            validResponse(prompt)
+        } }
+        val progress = mutableListOf<AiProgress>()
+        val cache = FakeCache()
+        val result = ChapterAiRepository(FakeConfiguration(configured(route)), cache, listOf(provider))
+            .generate(input, AiAction.SUMMARY) { progress.add(it) }
+        assertNotNull(result.summary); assertEquals(1, provider.calls.get()); assertEquals(1, cache.writes)
+        assertFalse(progress.any { it.phase == AiPhase.WAITING_FOR_SLOT })
+    }
+    @Test fun oversizedGroqSummaryFallsBackBeforeSpendingOnPartialResults() = runBlocking {
+        val input = chapter().copy(paragraphs = List(10) { "Mira walked home. ".repeat(200) })
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val fallback = FakeProvider(AiProviderId.OPEN_ROUTER)
+        val result = ChapterAiRepository(FakeConfiguration(configured(route, freeRoute)), FakeCache(), listOf(groq, fallback))
+            .generate(input, AiAction.SUMMARY)
+        assertEquals(freeRoute, result.route)
+        assertEquals(0, groq.calls.get()); assertEquals(0, groq.discoveries.get())
+        assertEquals(1, fallback.calls.get())
+    }
+    @Test fun quotaLimitedQuickSummaryUsesEnabledFallbackWithoutMinuteLongQueue() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val policy = AiRequestPolicy { 0L }
+        val small = AiPrompt("", "", JSONObject())
+        repeat(6) { policy.admit(AiProviderId.GROQ, small, 10, model = route.model) {} }
+        val groq = FakeProvider(AiProviderId.GROQ)
+        val fallback = FakeProvider(AiProviderId.OPEN_ROUTER)
+        val progress = mutableListOf<AiProgress>()
+        val result = ChapterAiRepository(FakeConfiguration(configured(route, freeRoute)), FakeCache(), listOf(groq, fallback), policy)
+            .generate(chapter(), AiAction.SUMMARY) { progress.add(it) }
+        assertEquals(freeRoute, result.route)
+        assertEquals(0, groq.calls.get()); assertEquals(1, fallback.calls.get())
+        assertFalse(progress.any { it.phase == AiPhase.WAITING_FOR_SLOT })
     }
     @Test fun oversizedParagraphFailsWithoutNetwork() = runBlocking {
         val provider = FakeProvider(AiProviderId.OPEN_ROUTER)
@@ -177,5 +234,40 @@ class ChapterAiRepositoryTest {
         assertEquals(2, provider.discoveries.get())
         directory.invalidate(provider.id); directory.available(provider.id, "second")
         assertEquals(3, provider.discoveries.get())
+    }
+
+    @Test fun knownGroqModelQuotaCanUseNextConfiguredGroqModel() = runBlocking {
+        val models = AiProviderCatalog.models.filter { it.route.provider == AiProviderId.GROQ }
+        val first = models[0].route; val second = models[1].route
+        val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { route, prompt ->
+            if (route == first) throw AiException(AiErrorCode.RATE_LIMIT, "Groq daily token allowance", 3_600,
+                AiRateLimitInfo(AiLimitKind.DAILY_TOKENS, modelScoped = true))
+            validResponse(prompt)
+        } }
+        val result = ChapterAiRepository(FakeConfiguration(configured(first, second)), FakeCache(), listOf(provider))
+            .generate(chapter(), AiAction.SUMMARY)
+        assertEquals(second, result.route); assertEquals(2, provider.calls.get())
+    }
+
+    @Test fun unknownProviderQuotaDoesNotFanOutAcrossModels() = runBlocking {
+        val models = AiProviderCatalog.models.filter { it.route.provider == AiProviderId.GROQ }.map { it.route }
+        val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { _, _ -> throw AiException(AiErrorCode.RATE_LIMIT, "Unknown scope", 60) } }
+        expectAi(AiErrorCode.RATE_LIMIT) {
+            ChapterAiRepository(FakeConfiguration(configured(*models.toTypedArray())), FakeCache(), listOf(provider))
+                .generate(chapter(), AiAction.SUMMARY)
+        }
+        assertEquals(1, provider.calls.get())
+    }
+
+    @Test fun activeProviderCooldownDoesNotRefetchModelMetadata() = runBlocking {
+        val routes = AiProviderCatalog.models.filter { it.route.provider == AiProviderId.GROQ }.map { it.route }
+        val provider = FakeProvider(AiProviderId.GROQ)
+        val policy = AiRequestPolicy { 0L }
+        policy.failed(AiProviderId.GROQ, AiException(AiErrorCode.RATE_LIMIT, "Shared provider quota", 60))
+        expectAi(AiErrorCode.RATE_LIMIT) {
+            ChapterAiRepository(FakeConfiguration(configured(*routes.toTypedArray())), FakeCache(), listOf(provider), policy)
+                .generate(chapter(), AiAction.SUMMARY)
+        }
+        assertEquals(0, provider.discoveries.get()); assertEquals(0, provider.calls.get())
     }
 }

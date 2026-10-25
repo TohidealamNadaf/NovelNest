@@ -12,6 +12,9 @@ interface AiProvider {
     suspend fun available(credential: String, force: Boolean = false): Set<String>
     suspend fun generate(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int,
         onSent: () -> Unit): String
+    /** Usage is reported before result validation; unsuccessful local validation still used tokens. */
+    suspend fun generateWithUsage(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int,
+        usage: (Int) -> Unit, quota: (AiQuotaSnapshot) -> Unit = {}, onSent: () -> Unit): String = generate(route, credential, prompt, outputTokens, onSent)
 }
 
 class GeminiAiProvider(private val http: AiHttpClient) : AiProvider {
@@ -39,6 +42,10 @@ class GeminiAiProvider(private val http: AiHttpClient) : AiProvider {
         return found
     }
     override suspend fun generate(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int, onSent: () -> Unit): String {
+        return generateWithUsage(route, credential, prompt, outputTokens, {}, {}, onSent)
+    }
+    override suspend fun generateWithUsage(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int,
+        usage: (Int) -> Unit, quota: (AiQuotaSnapshot) -> Unit, onSent: () -> Unit): String {
         AiProviderCatalog.spec(route)
         val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt.system))))
             .put("contents", JSONArray().put(JSONObject().put("role", "user")
@@ -48,6 +55,7 @@ class GeminiAiProvider(private val http: AiHttpClient) : AiProvider {
         val json = http.json("https://generativelanguage.googleapis.com/v1beta/models/${route.model}:generateContent", credential,
             gemini = true, body = body, sent = onSent)
         return withContext(Dispatchers.Default) {
+            json.optJSONObject("usageMetadata")?.optInt("totalTokenCount", -1)?.let(usage)
             val block = json.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
             if (block.isNotBlank() && block != "BLOCK_REASON_UNSPECIFIED") refused()
             val candidate = json.optJSONArray("candidates")?.optJSONObject(0)
@@ -68,8 +76,12 @@ class GeminiAiProvider(private val http: AiHttpClient) : AiProvider {
 
 /** Shared wire format only; each provider retains separate endpoints, eligibility and request options. */
 class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClient) : AiProvider {
-    init { require(id == AiProviderId.GROQ || id == AiProviderId.OPEN_ROUTER) }
-    private val root = if (id == AiProviderId.GROQ) "https://api.groq.com/openai/v1" else "https://openrouter.ai/api/v1"
+    private val root = when (id) {
+        AiProviderId.GROQ -> "https://api.groq.com/openai/v1"
+        AiProviderId.OPEN_ROUTER -> "https://openrouter.ai/api/v1"
+        AiProviderId.NVIDIA -> "https://integrate.api.nvidia.com/v1"
+        else -> error("This provider does not use the chat adapter.")
+    }
     override suspend fun available(credential: String, force: Boolean): Set<String> {
         val json = http.json("$root/models", credential)
         return withContext(Dispatchers.Default) {
@@ -95,6 +107,10 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
         }
     }
     override suspend fun generate(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int, onSent: () -> Unit): String {
+        return generateWithUsage(route, credential, prompt, outputTokens, {}, {}, onSent)
+    }
+    override suspend fun generateWithUsage(route: AiRoute, credential: String, prompt: AiPrompt, outputTokens: Int,
+        usage: (Int) -> Unit, quota: (AiQuotaSnapshot) -> Unit, onSent: () -> Unit): String {
         val spec = AiProviderCatalog.spec(route)
         require(route.provider == id)
         val schemaOutput = spec.responseMode == AiResponseMode.JSON_SCHEMA
@@ -108,17 +124,34 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
         val body = JSONObject().put("model", route.model).put("stream", false)
             .put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", system))
                 .put(JSONObject().put("role", "user").put("content", prompt.data)))
-            .put("response_format", responseFormat)
-        if (id == AiProviderId.GROQ) body.put("max_completion_tokens", outputTokens).put("temperature", 0.2)
-            .put("reasoning_effort", if (route.model.startsWith("qwen/")) "none" else "low")
-        else {
-            require(route.model.endsWith(":free"))
-            body.put("max_tokens", outputTokens).put("reasoning", JSONObject().put("enabled", false))
-                .put("provider", JSONObject().put("allow_fallbacks", false).put("require_parameters", true)
-                    .put("max_price", JSONObject().put("prompt", 0).put("completion", 0).put("request", 0)))
+        if (spec.responseMode != AiResponseMode.PROMPT_JSON) body.put("response_format", responseFormat)
+        require(outputTokens in 1..spec.outputTokens)
+        when (id) {
+            AiProviderId.GROQ -> body.put("max_completion_tokens", outputTokens).put("temperature", 0.2)
+                .put("reasoning_effort", if (route.model.startsWith("qwen/")) "none" else "low")
+            AiProviderId.OPEN_ROUTER -> {
+                require(route.model.endsWith(":free"))
+                body.put("max_tokens", outputTokens).put("reasoning", JSONObject().put("enabled", false))
+                    .put("provider", JSONObject().put("allow_fallbacks", false).put("require_parameters", true)
+                        .put("max_price", JSONObject().put("prompt", 0).put("completion", 0).put("request", 0)))
+            }
+            AiProviderId.NVIDIA -> {
+                // The hosted documentation's reasoning_effort selector is translated into these
+                // template kwargs in NVIDIA's examples. Set the actual template control too, so
+                // backends do not leave thinking enabled and return reasoning instead of our JSON.
+                body.put("max_tokens", outputTokens)
+                    .put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
+                if (route.model == "nvidia/nemotron-3-super-120b-a12b") {
+                    body.put("reasoning_effort", "none").put("temperature", 1.0).put("top_p", 0.95)
+                } else {
+                    body.put("temperature", 0.2)
+                }
+            }
+            else -> error("Unsupported chat provider")
         }
-        val json = http.json("$root/chat/completions", credential, body = body, sent = onSent)
+        val json = http.json("$root/chat/completions", credential, body = body, quota = quota, sent = onSent)
         return withContext(Dispatchers.Default) {
+            json.optJSONObject("usage")?.optInt("total_tokens", -1)?.let(usage)
             val error = json.optJSONObject("error")
             if (error != null) throw AiException(AiErrorCode.UNAVAILABLE, "The AI provider could not complete the request.")
             val choice = json.optJSONArray("choices")?.optJSONObject(0)
@@ -129,6 +162,8 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
             if (choice.optString("finish_reason") != "stop")
                 throw AiException(AiErrorCode.INVALID_OUTPUT, "The model did not finish the chapter result.")
             if (id == AiProviderId.OPEN_ROUTER && json.optString("model").removeSuffix(":free") != route.model.removeSuffix(":free"))
+                throw AiException(AiErrorCode.MODEL_UNAVAILABLE, "The provider returned a different model than requested.")
+            if (id == AiProviderId.NVIDIA && json.optString("model").let { it.isNotBlank() && it != route.model })
                 throw AiException(AiErrorCode.MODEL_UNAVAILABLE, "The provider returned a different model than requested.")
             message.getString("content")
         }

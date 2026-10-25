@@ -79,6 +79,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -95,6 +96,7 @@ import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelSurfaceVariant
 import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
+import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
@@ -427,7 +429,7 @@ fun AiReadingToolsPage(
                     Text(
                         "Gemini and Groq may charge for requests made with a billed account's API key. " +
                             "NovelNest cannot verify your billing tier or enforce a spending cutoff. " +
-                            "Use a provider-enforced free account/project. Keep Explicit Free Only if you do not accept this risk.",
+                            "Use a provider-enforced free account/project. NVIDIA's free hosted access is rate-limited and for prototype/testing use only. Keep Explicit Free Only if you do not accept these conditions.",
                         color = NovelTextSecondary
                     )
                 },
@@ -542,7 +544,7 @@ private fun CostPolicyCard(
             // Policy Option 2: FREE_ACCOUNT_PROVIDERS
             CostPolicyOptionRow(
                 title = "Free Account Providers",
-                description = "Permits models offering free-tier developer quotas (e.g. Gemini Flash, Groq). Requires an API key on a provider account.",
+                description = "Permits free-account Gemini/Groq routes and NVIDIA prototype/testing routes. Provider limits and account conditions apply; an API key is required.",
                 selected = currentPolicy == AiCostPolicy.FREE_ACCOUNT_PROVIDERS,
                 enabled = enabled,
                 onClick = { onPolicyChanged(AiCostPolicy.FREE_ACCOUNT_PROVIDERS) }
@@ -883,6 +885,7 @@ private fun ProviderCard(
         AiProviderId.OPEN_ROUTER -> "OpenRouter"
         AiProviderId.GEMINI -> "Google Gemini"
         AiProviderId.GROQ -> "Groq Cloud"
+        AiProviderId.NVIDIA -> "NVIDIA (prototype/testing)"
     }
 
     Card(
@@ -984,7 +987,9 @@ private fun ProviderCard(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Allows sending chapter text to $providerDisplayName for summaries and rewrites.",
+                        text = if (providerId == AiProviderId.NVIDIA)
+                            "Allow chapter sharing for prototype/testing summaries, rewrites and terms. Free hosted access is rate-limited; this is not a production entitlement."
+                        else "Allows sending chapter text to $providerDisplayName for summaries, rewrites and terms.",
                         color = NovelTextSecondary,
                         fontSize = 11.sp,
                         lineHeight = 14.sp
@@ -1025,6 +1030,7 @@ private fun ProviderCard(
                         AiProviderId.OPEN_ROUTER -> "https://openrouter.ai/keys"
                         AiProviderId.GEMINI -> "https://aistudio.google.com/app/apikey"
                         AiProviderId.GROQ -> "https://console.groq.com/keys"
+                        AiProviderId.NVIDIA -> "https://build.nvidia.com/"
                     }
                     val uriHandler = LocalUriHandler.current
 
@@ -1060,11 +1066,16 @@ private fun ProviderCard(
                     enabled = !isBusy,
                     value = keyInput,
                     onValueChange = { keyInput = it },
+                    textStyle = TextStyle(
+                        color = NovelTextPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Normal
+                    ),
                     placeholder = {
                         Text(
                             text = if (status.configured) "•••••••••••• (Leave blank to keep current key)" else "Paste API key here",
                             fontSize = 12.sp,
-                            color = NovelTextSecondary.copy(alpha = 0.5f)
+                            color = NovelTextTertiary
                         )
                     },
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -1092,11 +1103,15 @@ private fun ProviderCard(
                         }
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = NovelPrimary,
-                        unfocusedBorderColor = NovelSurfaceBorder,
                         focusedTextColor = NovelTextPrimary,
                         unfocusedTextColor = NovelTextPrimary,
-                        cursorColor = NovelPrimary
+                        focusedBorderColor = NovelPrimary,
+                        unfocusedBorderColor = NovelSurfaceBorder,
+                        focusedPlaceholderColor = NovelTextTertiary,
+                        unfocusedPlaceholderColor = NovelTextTertiary,
+                        cursorColor = NovelPrimary,
+                        focusedContainerColor = NovelSurfaceVariant,
+                        unfocusedContainerColor = NovelSurfaceVariant
                     ),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth().then(fieldModifier)
