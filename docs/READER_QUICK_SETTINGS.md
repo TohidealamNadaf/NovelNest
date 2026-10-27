@@ -88,6 +88,34 @@ IME handling and draft/save guards remain. This change adds no sheet/reader gest
 handler, scrolling coroutine or new animation.
 Android's interception contract: https://developer.android.com/develop/ui/views/touch-and-input/gestures/viewgroup
 
+### Keyboard and cursor visibility (27 October 2026)
+
+The resolved Compose UI dependency is 1.8.2 (confirmed by Gradle dependency insight).
+Its native `AndroidViewHolder` does not forward a child View's rectangle-on-screen
+request into Compose's scroll responders. The native editor can therefore keep a
+cursor visible in its own 170-280 dp bounds while the surrounding form clips that
+line when the keyboard reduces the form's viewport. Material already applies
+`imePadding()` in the sheet's dialog; adding another IME inset would duplicate it.
+
+The editor now forwards native rectangle requests to a `BringIntoViewRequester`
+attached to the existing `AndroidView`. Rectangles are converted from native content
+coordinates to its viewport coordinates, including its current scroll offsets, and
+clipped to its bounds. The form reveals the active line instead of trying to fit the
+entire editor into a small keyboard-constrained viewport. A viewport size change
+requests a fresh native cursor reveal after layout, covering keyboard opening/resizing.
+TextView's normal cursor movement, internal scroll and selection behavior remain.
+
+One conflated channel keeps only the latest rectangle; `collectLatest` cancels an
+outdated reveal, and the effect waits for layout before scrolling. Requests are
+checked against the currently attached, focused editor. Preview discards requests,
+release clears the View callback/reference, detachment cancels the one pending native
+frame callback, and disposal closes the channel/cancels the effect. There is no
+polling, fixed delay, new sheet animation, additional padding, height change or UI
+restructure. The subpage drag restriction and Auto Scroll handoff remain independent.
+
+Native rectangle coordinates: https://developer.android.com/reference/android/view/View#requestRectangleOnScreen(android.graphics.Rect,boolean)
+Exact Compose source: https://dl.google.com/dl/android/maven2/androidx/compose/ui/ui-android/1.8.2/ui-android-1.8.2-sources.jar
+
 `ReaderNoteDraft` holds one bounded title/Markdown draft at sheet level. Editor
 text changes update that object without writing to storage or publishing every
 keystroke through the ViewModel. Its saver supports normal UI state restoration.
@@ -125,6 +153,11 @@ No automatic generation retry or change to provider quotas was added.
   in 39 seconds (69 tasks; 8 executed, 61 up-to-date), with no Kotlin warnings reported.
   Tests were not executed for that correction; long-note drags in both directions,
   short-note form scrolling, IME resize, selection/formatting and Save still need device checks.
+  The subsequent native cursor-to-Compose visibility bridge also passed both APK
+  builds (29 seconds; 69 tasks, 7 executed, 62 up-to-date), without Kotlin warnings.
+  No tests were executed for that bridge. Verify typing/placing the cursor on the
+  last line with the keyboard visible, IME resize/hide, manual text scrolling,
+  selection/formatting and leaving/reopening Preview on a real device.
   No unit or device tests were executed for this gesture fix; no phone was connected.
   Previously recorded test results below describe the earlier build; device checks are still needed for
   scrollable content, header/footer drags, quick repeated flings, transitions, native

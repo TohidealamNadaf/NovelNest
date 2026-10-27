@@ -1,6 +1,7 @@
 package com.novelnest.app.feature.reader.components
 
 import android.content.Context
+import android.graphics.Rect as AndroidRect
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.ActionMode
@@ -15,6 +16,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -47,6 +52,9 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -73,7 +81,22 @@ internal fun MarkdownNoteEditor(
     val content = draft.content
     // Existing notes open in Preview Mode first; new notes open in Edit Mode
     var preview by rememberSaveable(note?.id) { mutableStateOf(note != null) }
-    var editor by remember { mutableStateOf<EditText?>(null) }
+    var editor by remember { mutableStateOf<ScrollableNoteEditText?>(null) }
+    val cursorRequester = remember { BringIntoViewRequester() }
+    val cursorRequests = remember { Channel<Pair<ScrollableNoteEditText, Rect>>(Channel.CONFLATED) }
+    DisposableEffect(cursorRequests) {
+        onDispose { cursorRequests.close() }
+    }
+    LaunchedEffect(cursorRequests, preview) {
+        cursorRequests.receiveAsFlow().collectLatest { (view, rectangle) ->
+            if (preview) return@collectLatest
+            // Keyboard/viewport measurement must finish before asking the form to scroll.
+            withFrameNanos { }
+            if (editor === view && view.isAttachedToWindow && view.isFocused) {
+                cursorRequester.bringIntoView(rectangle)
+            }
+        }
+    }
 
     val accentColor = if (theme.isDark) NovelPrimary else textColor
 
@@ -206,6 +229,7 @@ internal fun MarkdownNoteEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 380.dp)
+                .onSizeChanged { editor?.requestCursorVisibility() }
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -338,6 +362,7 @@ internal fun MarkdownNoteEditor(
                 AndroidView(
                     factory = { context ->
                         ScrollableNoteEditText(context).apply {
+                            onCursorRectangleRequested = { cursorRequests.trySend(this to it) }
                             setText(content)
                             hint = "Write Markdown: **bold**, *italic*, headings, lists, quotes, tables…"
                             gravity = android.view.Gravity.TOP or android.view.Gravity.START
@@ -382,6 +407,11 @@ internal fun MarkdownNoteEditor(
                             editor = this
                         }
                     },
+                    onReset = null,
+                    onRelease = { view ->
+                        view.onCursorRectangleRequested = null
+                        if (editor === view) editor = null
+                    },
                     update = { view ->
                         if (view.text.toString() != content) {
                             val position = view.selectionStart.coerceIn(0, content.length)
@@ -398,6 +428,7 @@ internal fun MarkdownNoteEditor(
                         }
                     },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp, max = 280.dp)
+                        .bringIntoViewRequester(cursorRequester)
                 )
 
                 Text(
@@ -414,6 +445,31 @@ internal fun MarkdownNoteEditor(
 /** Keep overflowing native text scrolls from being intercepted by the Compose form. */
 private class ScrollableNoteEditText(context: Context) : EditText(context) {
     private var ownsScrollGesture = false
+    var onCursorRectangleRequested: ((Rect) -> Unit)? = null
+    private val revealCursor = Runnable {
+        if (isAttachedToWindow && isFocused && selectionEnd >= 0) bringPointIntoView(selectionEnd)
+    }
+
+    fun requestCursorVisibility() {
+        if (isAttachedToWindow && isFocused) {
+            removeCallbacks(revealCursor)
+            postOnAnimation(revealCursor)
+        }
+    }
+
+    override fun requestRectangleOnScreen(rectangle: AndroidRect, immediate: Boolean): Boolean {
+        // View requests use content coordinates; Compose needs viewport coordinates.
+        // Capture before super: the View implementation may mutate the supplied Rect.
+        val cursorRect = if (isFocused && onCursorRectangleRequested != null) {
+            Rect(
+                (rectangle.left - scrollX).toFloat(), (rectangle.top - scrollY).toFloat(),
+                (rectangle.right - scrollX).toFloat(), (rectangle.bottom - scrollY).toFloat()
+            ).intersect(Rect(0f, 0f, width.toFloat(), height.toFloat()))
+        } else null
+        val scrolled = super.requestRectangleOnScreen(rectangle, immediate)
+        if (cursorRect != null && !cursorRect.isEmpty) onCursorRectangleRequested?.invoke(cursorRect)
+        return scrolled
+    }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -431,6 +487,7 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(revealCursor)
         releaseScrollGesture()
         super.onDetachedFromWindow()
     }

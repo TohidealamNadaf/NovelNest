@@ -177,6 +177,7 @@ fun ReaderScreen(
             com.novelnest.app.feature.reader.components.ReaderChaptersDrawer(
                 chapters = uiState.chapters,
                 currentChapterIndex = uiState.currentChapterIndex,
+                isOpen = drawerState.targetValue == androidx.compose.material3.DrawerValue.Open,
                 readChapterIds = uiState.readChapterIds,
                 onSelectChapter = { index ->
                     viewModel.selectChapter(index)

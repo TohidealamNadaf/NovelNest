@@ -72,16 +72,18 @@ fun ReaderChaptersDrawer(
     readChapterIds: Set<String>,
     onSelectChapter: (Int) -> Unit,
     onCloseDrawer: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isOpen: Boolean = false
 ) {
-    val listState = rememberLazyListState()
+    val activeChapterIndex = currentChapterIndex.takeIf { it in chapters.indices }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = activeChapterIndex ?: 0)
     val coroutineScope = rememberCoroutineScope()
 
-    // Scroll to current active chapter when opened
-    LaunchedEffect(currentChapterIndex) {
-        if (currentChapterIndex in chapters.indices) {
-            val scrollIndex = (currentChapterIndex - 2).coerceAtLeast(0)
-            listState.scrollToItem(scrollIndex)
+    // Drawer content stays composed while closed. Reposition on each opening, including
+    // when an initially empty list receives its active chapter after the drawer opens.
+    LaunchedEffect(isOpen, activeChapterIndex) {
+        if (isOpen && activeChapterIndex != null) {
+            listState.scrollToItem(activeChapterIndex)
         }
     }
 
