@@ -1,6 +1,7 @@
 package com.novelnest.app.data.ai
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,7 +17,10 @@ class AiLiveProviderTest {
         assumeTrue("Live provider tests require explicit opt-in", System.getenv("AI_LIVE_SMOKE") == "1")
         val report = JSONArray()
         val requests = AtomicInteger()
-        val maxRequests = System.getenv("AI_LIVE_MAX_REQUESTS")?.toIntOrNull()?.coerceIn(1, 15) ?: 15
+        val maxRequests = System.getenv("AI_LIVE_MAX_REQUESTS")?.toIntOrNull()?.coerceIn(1, 45) ?: 15
+        val intervalMs = System.getenv("AI_LIVE_INTERVAL_MS")?.toLongOrNull()?.coerceIn(0, 60_000) ?: 0L
+        var previousStart = 0L
+        var cooldownThrough = 0L
         val cases = System.getenv("AI_LIVE_CASES").orEmpty().split('|').filter { it.isNotBlank() }.toSet()
         val wire = mutableListOf<JSONObject>()
         val http = AiHttpClient(OkHttpClient.Builder().addInterceptor { chain ->
@@ -57,7 +61,8 @@ class AiLiveProviderTest {
         val configuration = object : AiConfiguration {
             var route = AiProviderCatalog.models.first().route
             override suspend fun settings() = AiSettings(listOf(route), listOf(route), setOf(route.provider),
-                AiCostPolicy.FREE_ACCOUNT_PROVIDERS, listOf(route))
+                if (route.provider == AiProviderId.OPEN_ROUTER) AiCostPolicy.EXPLICIT_FREE_ONLY else AiCostPolicy.FREE_ACCOUNT_PROVIDERS,
+                listOf(route))
             override suspend fun credential(provider: AiProviderId) = credentials.getValue(provider)
         }
         val cache = object : AiCache {
@@ -91,17 +96,30 @@ class AiLiveProviderTest {
                     for (action in AiAction.entries) {
                         if (cases.isNotEmpty() && route.model + ":" + action.name !in cases) continue
                         val row = JSONObject().put("provider", provider.id.name).put("model", route.model).put("action", action.name)
+                        val elapsedMs = (System.nanoTime() - previousStart) / 1_000_000
+                        val waitMs = maxOf(if (previousStart == 0L) 0L else intervalMs - elapsedMs,
+                            cooldownThrough - System.nanoTime() / 1_000_000)
+                        if (waitMs > 0) delay(waitMs)
                         val start = System.nanoTime()
+                        previousStart = start
+                        val requestsBefore = requests.get()
                         try {
-                            val result = repository.generate(if (action == AiAction.EXTRACT) input.copy(extractionTarget = "Cultivation realms, energy and techniques") else input, action)
+                            val result = repository.generate(if (action == AiAction.EXTRACT) input.copy(extractionTarget = "Cultivation levels") else input, action)
                             row.put("status", "VALIDATED").put("terms", result.extractedTerms.size)
                                 .put("paragraphs", result.rewrittenParagraphs.size)
                             println("Live provider: ${route.model} / $action validated")
                         } catch (error: AiException) {
                             row.put("status", error.code.name).put("message", error.message)
+                            // Pace a requested model sweep without retrying the failed action or
+                            // causing every following model to be rejected by the local cooldown.
+                            if (intervalMs > 0 && error.code == AiErrorCode.RATE_LIMIT) {
+                                val seconds = error.retryAfterSeconds ?: 60L
+                                if (seconds <= 60L) cooldownThrough = System.nanoTime() / 1_000_000 + seconds * 1_000 + 1_000
+                            }
                             println("Live provider: ${route.model} / $action: ${error.code}")
                         }
                         row.put("elapsedMs", (System.nanoTime() - start) / 1_000_000)
+                            .put("generationRequests", requests.get() - requestsBefore)
                         report.put(row)
                     }
                 }

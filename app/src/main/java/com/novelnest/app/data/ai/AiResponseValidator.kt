@@ -7,7 +7,7 @@ import org.json.JSONTokener
 /** Structural/evidence checks are deliberately local. They cannot prove semantic fidelity. */
 object AiResponseValidator {
     fun parse(raw: String, action: AiAction, fingerprint: String, route: AiRoute,
-        paragraphs: List<AiParagraph>): AiResult {
+        paragraphs: List<AiParagraph>, extractionTarget: String? = null): AiResult {
         // Keep diagnostics static: never include model text, names, evidence or credentials.
         var problem = "the response exceeds the supported size"
         try {
@@ -42,25 +42,32 @@ object AiResponseValidator {
                 else "the required summary, events or terms fields are missing or have the wrong format"
             fields(json, if (action == AiAction.EXTRACT) setOf("terms") else setOf("summary", "events", "terms"))
             val byId = paragraphs.associateBy { it.id }
+            val allowedKinds = if (action == AiAction.EXTRACT) AiExtractionPolicy.forTarget(extractionTarget).kinds else AiExtractionPolicy.allKinds
             val events = if (action == AiAction.EXTRACT) JSONArray() else json.getJSONArray("events")
             val terms = json.getJSONArray("terms")
             problem = "the response returned too many events or terms"
-            require(events.length() <= 8 && terms.length() <= if (action == AiAction.EXTRACT) 320 else 20)
+            require(events.length() <= AiPromptFactory.MAX_EVENTS && terms.length() <= if (action == AiAction.EXTRACT) 320 else 20)
             problem = "the summary text is missing, empty, too long or contains unsupported characters"
             val summaryText = if (action == AiAction.SUMMARY) text(json, "summary", 6_000) else null
             val parsedEvents = (0 until events.length()).map { i ->
                 problem = "an event has missing or unexpected fields"
                 val event = events.getJSONObject(i)
                 fields(event, setOf("text", "paragraphIds"))
-                problem = "an event has missing, duplicate or invalid source paragraph references"
+                problem = "an event's paragraphIds field is missing or is not an array"
                 val refs = event.getJSONArray("paragraphIds")
-                require(refs.length() in 1..8)
+                problem = "an event has no supporting paragraph references"
+                require(refs.length() > 0)
+                problem = "an event exceeds the supported limit of eight paragraph references"
+                require(refs.length() <= AiPromptFactory.MAX_EVENT_REFERENCES)
                 val ids = (0 until refs.length()).map { index ->
+                    problem = "an event's source paragraph reference is not an integer"
                     val value = refs.get(index)
                     require(value is Number && value.toDouble() == value.toInt().toDouble())
+                    problem = "an event references a source paragraph that was not supplied"
                     value.toInt().also { require(it in byId) }
-                }
-                require(ids.distinct().size == ids.size)
+                    // Repeating the same valid citation carries no additional evidence. Canonicalize it
+                    // without dropping unknown IDs, guessing a numbering offset or making a repair call.
+                }.distinct()
                 problem = "an event description is empty, too long or contains unsupported characters"
                 AiEvent(text(event, "text", 1_500), ids)
             }
@@ -74,11 +81,16 @@ object AiResponseValidator {
                 problem = "a term's name or evidence is empty, too long or contains unsupported characters"
                 val evidence = text(term, "evidence", 200)
                 val name = text(term, "name", 160)
-                problem = "a term uses an unsupported category"
+                problem = if (action == AiAction.EXTRACT) "a term's category does not match the requested extraction topic"
+                    else "a term uses an unsupported category"
                 val kind = text(term, "kind", 32)
-                require(kind in setOf("CHARACTER", "LOCATION", "ABILITY", "ITEM", "ORGANIZATION", "CONCEPT"))
+                require(kind in allowedKinds)
                 problem = "a term's name or evidence does not exactly match its source paragraph"
                 require(source.contains(evidence) && source.contains(name))
+                if (action == AiAction.EXTRACT) {
+                    problem = "a term's evidence does not contain the extracted name or subject phrase"
+                    require(evidence.contains(name))
+                }
                 problem = "a term's meaning is empty, too long or contains unsupported characters"
                 AiTerm(name, kind, text(term, "meaning", 1_000), id, evidence)
             }.distinctBy { if (action == AiAction.EXTRACT) listOf(it.name, it.paragraphId, it.meaning) else it.name.lowercase(java.util.Locale.ROOT) }

@@ -75,7 +75,8 @@ class ReaderAiController(private val scope: CoroutineScope, private val reposito
             try {
                 // Retire the cancelled owner's repository lock before starting a replacement request.
                 previousWork?.join()
-                val requestInput = if (action == AiAction.EXTRACT) input.copy(extractionTarget = target) else input
+                val requestInput = if (action == AiAction.EXTRACT) input.copy(extractionTarget = target,
+                    extractionCacheScope = collectionId.orEmpty()) else input
                 val result = repository.generate(requestInput, action) { progress ->
                     mutable.update { if (generation.get() == epoch) it.copy(progress = progress) else it }
                 }

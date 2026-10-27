@@ -69,13 +69,18 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
@@ -100,6 +105,7 @@ fun ReaderScreen(
     val aiState by viewModel.aiState.collectAsState()
     val studyState by viewModel.studyState.collectAsStateWithLifecycle()
     val settings by viewModel.readerSettings.collectAsState()
+    val autoScroll by viewModel.autoScrollState.collectAsStateWithLifecycle()
     val playHaptic = rememberNovelNestHaptic()
     val narrationBottomPadding = LocalNarrationBottomPadding.current
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
@@ -107,6 +113,27 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val context = LocalContext.current
     val activity = context.findReaderActivity()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val readerWindowFocused = LocalWindowInfo.current.isWindowFocused
+    var readerResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    var autoScrollTouchInterrupted by remember { mutableStateOf(false) }
+    LaunchedEffect(readerWindowFocused) {
+        if (!readerWindowFocused) viewModel.pauseAutoScroll()
+    }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, _ ->
+            readerResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            if (!readerResumed) viewModel.pauseAutoScroll()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.pauseAutoScroll()
+        }
+    }
+    ReaderKeepScreenOn(settings.keepScreenOn && readerResumed)
     // The ViewModel survives rotation; leaving its destination cancels generation immediately.
     DisposableEffect(viewModel) {
         onDispose { if (activity?.isChangingConfigurations != true) viewModel.cancelAiRequest() }
@@ -138,6 +165,10 @@ fun ReaderScreen(
     val drawerState = androidx.compose.material3.rememberDrawerState(
         initialValue = androidx.compose.material3.DrawerValue.Closed
     )
+    LaunchedEffect(drawerState.currentValue, drawerState.targetValue) {
+        if (drawerState.currentValue != androidx.compose.material3.DrawerValue.Closed ||
+            drawerState.targetValue != androidx.compose.material3.DrawerValue.Closed) viewModel.pauseAutoScroll()
+    }
 
     androidx.compose.material3.ModalNavigationDrawer(
         drawerState = drawerState,
@@ -160,6 +191,14 @@ fun ReaderScreen(
             modifier = modifier
                 .fillMaxSize()
                 .background(currentTheme.backgroundColor)
+                .pointerInput(viewModel) {
+                    awaitEachGesture {
+                        // Observe before children, without consuming the touch or blocking their gestures.
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        autoScrollTouchInterrupted = viewModel.autoScrollState.value.phase == ReaderAutoScrollPhase.RUNNING
+                        if (autoScrollTouchInterrupted) viewModel.pauseAutoScroll()
+                    }
+                }
         ) {
         if (uiState.isLoading) {
             Column(
@@ -222,10 +261,16 @@ fun ReaderScreen(
                     }
                 }
                 LaunchedEffect(listState, chapterIndex, contentKey, scrollRestored) {
-                    androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-                        .collect { (item, offset) ->
-                            if (scrollRestored) viewModel.saveScrollPosition(chapterIndex, item, offset, contentKey)
+                    try {
+                        androidx.compose.runtime.snapshotFlow {
+                            Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, listState.isScrollInProgress)
+                        }.collect { (item, offset, moving) ->
+                            if (scrollRestored) {
+                                viewModel.saveScrollPosition(chapterIndex, item, offset, contentKey)
+                                if (!moving) viewModel.flushScrollPosition()
+                            }
                         }
+                    } finally { viewModel.flushScrollPosition() }
                 }
 
                 // Interactive pull offset for swipe-up (bottom) and swipe-down (top) overscroll
@@ -321,6 +366,19 @@ fun ReaderScreen(
 
                 val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 68.dp
 
+                ReaderAutoScrollEffect(
+                    listState = listState,
+                    target = if (chapterIndex == uiState.currentChapterIndex) readerAutoScrollTarget(uiState, aiState) else null,
+                    session = autoScroll,
+                    eligible = readerResumed && readerWindowFocused && scrollRestored && swipeEnabled && !fastScrolling &&
+                        pullOffset == 0f && !releasingPull && !uiState.showQuickSettingsSheet &&
+                        drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
+                        drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed,
+                    speed = settings.autoScrollSpeed,
+                    onInterrupted = { viewModel.pauseAutoScroll(it) },
+                    onFinished = viewModel::finishAutoScroll
+                )
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -335,7 +393,8 @@ fun ReaderScreen(
                                     // Do not consume side touches, scrolling, long presses, or child controls.
                                     val down = awaitFirstDown(requireUnconsumed = true)
                                     if (down.position.x !in (size.width * 0.2f)..(size.width * 0.8f) ||
-                                        !swipeEnabled || listState.isScrollInProgress || pullOffset != 0f) return@awaitEachGesture
+                                        !swipeEnabled || (listState.isScrollInProgress && !autoScrollTouchInterrupted) ||
+                                        pullOffset != 0f) return@awaitEachGesture
                                     val up = waitForUpOrCancellation() ?: return@awaitEachGesture
                                     if (up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis &&
                                         (up.position - down.position).getDistance() <= viewConfiguration.touchSlop) {
@@ -547,7 +606,7 @@ fun ReaderScreen(
                         color = textColor,
                         onDraggingChanged = { dragging ->
                             fastScrolling = dragging
-                            if (dragging) pullOffset = 0f
+                            if (dragging) { viewModel.pauseAutoScroll(); pullOffset = 0f }
                         },
                         modifier = Modifier.align(Alignment.CenterEnd)
                             .padding(top = topPadding + 8.dp, bottom = 48.dp + narrationBottomPadding)
@@ -588,7 +647,7 @@ fun ReaderScreen(
             isSyncing = uiState.isChapterLoading,
             onBack = onBack,
             onOpenSettings = { viewModel.showQuickSettings(true) },
-            onOpenChapterList = { coroutineScope.launch { drawerState.open() } },
+            onOpenChapterList = { viewModel.pauseAutoScroll(); coroutineScope.launch { drawerState.open() } },
             onToggleBookmark = { viewModel.toggleBookmark() },
             onResyncChapter = { viewModel.resyncChapter() },
             modifier = Modifier.align(Alignment.TopCenter)
@@ -619,6 +678,11 @@ fun ReaderScreen(
                 onSetLineHeight = { viewModel.setLineHeight(it) },
                 onSetFontFamily = { viewModel.setFontFamily(it) },
                 onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) },
+                autoScrollState = autoScroll,
+                onStartAutoScroll = viewModel::startAutoScroll,
+                onPauseAutoScroll = { viewModel.pauseAutoScroll() },
+                onStopAutoScroll = viewModel::stopAutoScroll,
+                onSetAutoScrollSpeed = viewModel::setAutoScrollSpeed,
                 aiState = aiState,
                 studyState = sheetStudy,
                 onSaveNote = { id, title, text ->
@@ -630,6 +694,7 @@ fun ReaderScreen(
                 onAddCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.addTermCollection(it) },
                 onSelectCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.selectTermCollection(it) },
                 onDeleteCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.deleteTermCollection(it) },
+                onClearCollection = { if (viewModel.studyState.value.key == expectedStudyKey) viewModel.clearTermCollection(it) },
                 onExtractTerms = viewModel::extractTerms,
                 onDismissStudyMessage = viewModel::dismissStudyMessage,
                 onRequestSummary = { viewModel.requestAiSummary() },

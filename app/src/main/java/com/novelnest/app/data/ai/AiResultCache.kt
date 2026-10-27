@@ -38,11 +38,11 @@ class AiResultCache(private val directory: File) : AiCache {
             if (!file.isFile) return@withLock null
             if (file.length() > ENTRY_BYTES) { file.delete(); return@withLock null }
             val json = JSONObject(file.readText())
-            require(json.getString("key") == key && json.getString("version") == AiPromptFactory.VERSION)
+            require(json.getString("key") == key && json.getString("version") == AiPromptFactory.version(action))
             val route = AiRoute(AiProviderId.valueOf(json.getString("provider")), json.getString("model"))
             AiProviderCatalog.spec(route)
             val result = AiResponseValidator.parse(json.getJSONObject("output").toString(), action, input.fingerprint(), route,
-                input.paragraphs.mapIndexed { index, text -> AiParagraph(index, text) }).copy(createdAtMs = json.getLong("createdAt"))
+                input.paragraphs.mapIndexed { index, text -> AiParagraph(index, text) }, input.extractionTarget).copy(createdAtMs = json.getLong("createdAt"))
             currentCoroutineContext().ensureActive()
             file.setLastModified(System.currentTimeMillis())
             memory[key] = result
@@ -57,7 +57,7 @@ class AiResultCache(private val directory: File) : AiCache {
         val temporary = File(directory, "$key.tmp")
         try {
             maintain()
-            val bytes = JSONObject().put("key", key).put("version", AiPromptFactory.VERSION)
+            val bytes = JSONObject().put("key", key).put("version", AiPromptFactory.version(result.action))
                 .put("provider", result.route.provider.name).put("model", result.route.model).put("createdAt", result.createdAtMs)
                 .put("output", AiResponseValidator.outputJson(result)).toString().toByteArray(Charsets.UTF_8)
             if (bytes.size > ENTRY_BYTES) return@withLock

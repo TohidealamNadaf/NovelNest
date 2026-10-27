@@ -94,7 +94,8 @@ data class ReaderSettings(
     val scrollMode: ReaderScrollMode = ReaderScrollMode.CONTINUOUS,
     val keepScreenOn: Boolean = true,
     val volumeKeyNavigation: Boolean = false,
-    val fullscreenReading: Boolean = false
+    val fullscreenReading: Boolean = false,
+    val autoScrollSpeed: Float = AutoScrollSpeed.DEFAULT
 )
 
 /**

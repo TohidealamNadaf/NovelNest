@@ -32,14 +32,19 @@ data class AiSettings(
 
 /** Contains source text only. Never build this from an AI display version. */
 data class AiChapterInput(val source: String, val novelId: String, val chapterId: String,
-    val title: String, val paragraphs: List<String>, val extractionTarget: String? = null) {
+    val title: String, val paragraphs: List<String>, val extractionTarget: String? = null,
+    val extractionCacheScope: String = "") {
     fun fingerprint(): String = aiHash(buildString {
         append(title.length).append(':').append(title)
         paragraphs.forEach { append(it.length).append(':').append(it) }
     })
     fun cacheKey(action: AiAction): String {
-        val fields = listOf(source, novelId, chapterId, fingerprint(), action.name, AiPromptFactory.VERSION)
-        return aiHash((if (action == AiAction.EXTRACT) fields + extractionTarget.orEmpty().trim() else fields).joinToString("\u0000"))
+        val fields = listOf(source, novelId, chapterId, fingerprint(), action.name, AiPromptFactory.version(action))
+        // A cleared/recreated collection gets a new identity, so stale generated results cannot
+        // repopulate it. The scope is local cache data; it is never sent to an AI provider.
+        val extractionFields = if (extractionCacheScope.isEmpty()) listOf(extractionTarget.orEmpty().trim())
+            else listOf(extractionTarget.orEmpty().trim(), extractionCacheScope)
+        return aiHash((if (action == AiAction.EXTRACT) fields + extractionFields else fields).joinToString("\u0000"))
     }
 }
 

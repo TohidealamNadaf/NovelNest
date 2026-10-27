@@ -1,7 +1,6 @@
 package com.novelnest.app.feature.reader.components
 
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
@@ -10,6 +9,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -69,18 +69,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -98,6 +92,7 @@ import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.bounceSelectable
 import com.novelnest.app.data.ai.AiAction
+import com.novelnest.app.data.ai.AiFailure
 import com.novelnest.app.data.ai.AiPhase
 import com.novelnest.app.data.ai.AiProgress
 import com.novelnest.app.data.narration.NarrationService
@@ -112,16 +107,21 @@ import com.novelnest.app.feature.reader.aiErrorHelpText
 import com.novelnest.app.feature.reader.retryAiFailure
 import com.novelnest.app.feature.reader.ReaderContentVersion
 import com.novelnest.app.feature.reader.ReaderUiState
+import com.novelnest.app.feature.reader.ReaderAutoScrollState
+import com.novelnest.app.data.preferences.ReaderScrollMode
 import kotlin.math.roundToInt
 
 private enum class QuickSettingsSheetPage {
     MAIN,
+    AUTO_SCROLL,
     SUMMARY,
     NOTES_LIST,
     NOTE_EDIT,
     EXTRACT_LIST,
     EXTRACT_DETAIL
 }
+
+private enum class NoteExit { NOTES_LIST, DISMISS }
 
 data class ChapterNoteUi(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -138,73 +138,6 @@ data class ExtractionCategoryUi(
     val lastUpdatedChapter: String = "",
     val termCount: Int = terms.size
 )
-
-/**
- * Nested scroll connection that absorbs downward scroll/fling deltas when the user reaches the top
- * of a subpage's scrollable content, preventing the parent [ModalBottomSheet] from closing accidentally.
- */
-@Composable
-internal fun rememberSubpageScrollConnection(): NestedScrollConnection = remember {
-    object : NestedScrollConnection {
-        override fun onPostScroll(
-            consumed: Offset,
-            available: Offset,
-            source: NestedScrollSource
-        ): Offset {
-            return if (available.y > 0f) {
-                Offset(0f, available.y)
-            } else {
-                Offset.Zero
-            }
-        }
-
-        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-            return if (available.y > 0f) {
-                Velocity(0f, available.y)
-            } else {
-                Velocity.Zero
-            }
-        }
-    }
-}
-
-/**
- * Allows the user to swipe down specifically from the header area or drag handle to dismiss the sheet.
- */
-internal fun Modifier.swipeDownToDismiss(
-    onDismiss: () -> Unit,
-    threshold: Float = 36f
-): Modifier = this.pointerInput(onDismiss, threshold) {
-    var totalDragY = 0f
-    var dismissed = false
-    detectVerticalDragGestures(
-        onDragStart = {
-            totalDragY = 0f
-            dismissed = false
-        },
-        onDragEnd = {
-            if (!dismissed && totalDragY > threshold) {
-                onDismiss()
-            }
-            totalDragY = 0f
-            dismissed = false
-        },
-        onDragCancel = {
-            totalDragY = 0f
-            dismissed = false
-        },
-        onVerticalDrag = { change, dragAmount ->
-            if (dragAmount > 0f) {
-                totalDragY += dragAmount
-                if (!dismissed && totalDragY > threshold) {
-                    dismissed = true
-                    change.consume()
-                    onDismiss()
-                }
-            }
-        }
-    )
-}
 
 /**
  * Compact Half-Page Quick Menu bottom sheet for the Novel Reader screen.
@@ -239,6 +172,7 @@ fun ReaderQuickSettingsSheet(
     onAddCollection: (String) -> Unit = {},
     onSelectCollection: (String?) -> Unit = {},
     onDeleteCollection: (String) -> Unit = {},
+    onClearCollection: (String) -> Unit = {},
     onExtractTerms: (String) -> Unit = {},
     onDismissStudyMessage: () -> Unit = {},
     onRequestSummary: () -> Unit = {},
@@ -246,23 +180,31 @@ fun ReaderQuickSettingsSheet(
     onCancelAi: () -> Unit = {},
     onShowVersion: (ReaderContentVersion) -> Unit = {},
     narrationContent: (@Composable () -> Unit)? = null,
+    autoScrollState: ReaderAutoScrollState = ReaderAutoScrollState(),
+    onStartAutoScroll: () -> Unit = {},
+    onPauseAutoScroll: () -> Unit = {},
+    onStopAutoScroll: () -> Unit = {},
+    onSetAutoScrollSpeed: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Theme & Font, 1: Sizing & Spacing
     var currentSheetPage by rememberSaveable(currentChapterKey(reader)) { mutableStateOf(QuickSettingsSheetPage.MAIN) }
-
-    // System back button returns hierarchically
-    BackHandler(enabled = currentSheetPage != QuickSettingsSheetPage.MAIN) {
-        currentSheetPage = when (currentSheetPage) {
-            QuickSettingsSheetPage.NOTE_EDIT -> QuickSettingsSheetPage.NOTES_LIST
-            QuickSettingsSheetPage.EXTRACT_DETAIL -> QuickSettingsSheetPage.EXTRACT_LIST
-            else -> QuickSettingsSheetPage.MAIN
-        }
-    }
+    var dismissing by remember { mutableStateOf(false) }
+    val pageTransition = updateTransition(currentSheetPage, label = "QuickSettingsPageTransition")
+    // Keep gestures disabled until nested content has completely left, including its exit animation.
+    val sheetGesturesEnabled = !dismissing && currentSheetPage == QuickSettingsSheetPage.MAIN &&
+        pageTransition.currentState == QuickSettingsSheetPage.MAIN && !pageTransition.isRunning
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Theme & Font, 1: Sizing & Spacing
 
     val currentChapter = reader?.chapters?.getOrNull(reader.currentChapterIndex)
+    val canStartAutoScroll = reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
+        currentChapter?.paragraphs?.any { it.isNotBlank() } == true &&
+        settings.scrollMode == ReaderScrollMode.CONTINUOUS
+    val autoScrollRequestKey = if (canStartAutoScroll) currentChapterKey(reader) to
+        (if (aiState?.matches(currentChapter) == true) aiState.contentKey else "original")
+        else null
+    val latestAutoScrollRequestKey by rememberUpdatedState(autoScrollRequestKey)
+    val startAutoScroll by rememberUpdatedState(onStartAutoScroll)
 
 
     val notesList = remember(studyState.notes) {
@@ -271,6 +213,10 @@ fun ReaderQuickSettingsSheet(
             format.format(java.util.Date(it.updatedAt))) }
     }
     val activeNote = studyState.editorNote?.let { ChapterNoteUi(it.id, it.title, it.markdown) }
+    val noteDraft = rememberSaveable(currentChapterKey(reader), activeNote?.id, saver = ReaderNoteDraft.Saver) {
+        ReaderNoteDraft(activeNote?.title.orEmpty(), activeNote?.content.orEmpty())
+    }
+    var pendingNoteExit by rememberSaveable(currentChapterKey(reader)) { mutableStateOf<NoteExit?>(null) }
     val termResult by produceState<Pair<String?, List<ExtractedTermItem>>>(null to emptyList(), studyState.selectedCollectionId, studyState.discoveries) {
         value = studyState.selectedCollectionId to withContext(Dispatchers.Default) {
             buildTermItems(studyState.discoveries)
@@ -287,6 +233,24 @@ fun ReaderQuickSettingsSheet(
     }
     val activeExtractCategory = extractionCategories.firstOrNull { it.id == studyState.selectedCollectionId }
     var savingNote by rememberSaveable(currentChapterKey(reader)) { mutableStateOf(false) }
+    // Keep this callback identity stable; gestures are controlled separately at the sheet.
+    // Veto only an unsaved/in-flight note exit; clean subpages still dismiss on scrim taps.
+    val canHide by rememberUpdatedState<() -> Boolean>({
+        when {
+            currentSheetPage != QuickSettingsSheetPage.NOTE_EDIT -> true
+            savingNote || studyState.saving -> false
+            noteDraft.changedFrom(activeNote) -> {
+                pendingNoteExit = NoteExit.DISMISS
+                false
+            }
+            else -> true
+        }
+    })
+    val confirmSheetChange = remember { { value: SheetValue -> value != SheetValue.Hidden || canHide() } }
+    val bottomSheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = confirmSheetChange
+    )
     val savedRevision = studyState.noteSavedRevision
     LaunchedEffect(savedRevision) {
         if (savingNote) {
@@ -318,28 +282,111 @@ fun ReaderQuickSettingsSheet(
     val hasPlayableAudio = currentNovel != null && currentChapter?.paragraphs?.any { it.isNotBlank() } == true
 
     val coroutineScope = rememberCoroutineScope()
+    var pendingAutoScrollKey by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val onSheetDismissed by rememberUpdatedState(onDismiss)
+    var dismissalDispatched by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        // A cancelled animation from a disposed instance must not close a newly opened sheet.
+        onDispose {
+            dismissalDispatched = true
+            pendingAutoScrollKey = null
+        }
+    }
+    val notifyDismissed: () -> Unit = {
+        if (!dismissalDispatched) {
+            dismissalDispatched = true
+            pendingAutoScrollKey = null
+            onSheetDismissed()
+        }
+    }
     val dismissSheet: () -> Unit = {
-        coroutineScope.launch {
-            try {
-                bottomSheetState.hide()
-            } finally {
-                onDismiss()
+        if (!dismissing && !dismissalDispatched && canHide()) {
+            dismissing = true
+            coroutineScope.launch {
+                try {
+                    bottomSheetState.hide()
+                    if (!bottomSheetState.isVisible && !dismissalDispatched) {
+                        // Do not change the card's phase/layout while its sheet is animating.
+                        // Only a completed explicit hide may hand control to the chapter runner.
+                        val shouldStart = pendingAutoScrollKey != null &&
+                            pendingAutoScrollKey == latestAutoScrollRequestKey
+                        notifyDismissed()
+                        if (shouldStart) startAutoScroll()
+                    }
+                } finally {
+                    // Cancellation, disposal or a changed chapter/content drops the request.
+                    pendingAutoScrollKey = null
+                    dismissing = false
+                }
             }
+        }
+    }
+    val requestAutoScrollStart: () -> Unit = {
+        if (!dismissing && !dismissalDispatched && latestAutoScrollRequestKey != null) {
+            pendingAutoScrollKey = latestAutoScrollRequestKey
+            dismissSheet()
+        }
+    }
+    val leaveNote: (NoteExit) -> Unit = { exit ->
+        if (exit == NoteExit.DISMISS) dismissSheet() else {
+            noteDraft.reset(activeNote)
+            currentSheetPage = QuickSettingsSheetPage.NOTES_LIST
+        }
+    }
+    val requestNoteExit: (NoteExit) -> Unit = { exit ->
+        if (!savingNote && !studyState.saving) {
+            if (noteDraft.changedFrom(activeNote)) pendingNoteExit = exit else leaveNote(exit)
         }
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = notifyDismissed,
         sheetState = bottomSheetState,
+        sheetGesturesEnabled = sheetGesturesEnabled,
         containerColor = settings.theme.surfaceColor,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = null,
+        // Own bottom insets inside; reserve stable top space outside Material's moving anchors.
+        contentWindowInsets = { WindowInsets(0) },
+        properties = remember { ModalBottomSheetProperties(shouldDismissOnBackPress = false) },
         modifier = modifier.fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
     ) {
+        ReaderSheetBackHandler {
+            when (currentSheetPage) {
+                QuickSettingsSheetPage.MAIN -> dismissSheet()
+                QuickSettingsSheetPage.NOTE_EDIT -> requestNoteExit(NoteExit.NOTES_LIST)
+                QuickSettingsSheetPage.EXTRACT_DETAIL -> {
+                    onSelectCollection(null)
+                    currentSheetPage = QuickSettingsSheetPage.EXTRACT_LIST
+                }
+                else -> currentSheetPage = QuickSettingsSheetPage.MAIN
+            }
+        }
+        pendingNoteExit?.let { exit ->
+            AlertDialog(
+                onDismissRequest = { pendingNoteExit = null },
+                title = { Text("Discard note changes?") },
+                text = { Text("Your changes have not been saved. Keep editing or discard them to leave.") },
+                confirmButton = {
+                    TextButton(enabled = !studyState.saving && !savingNote, onClick = {
+                        noteDraft.reset(activeNote)
+                        pendingNoteExit = null
+                        leaveNote(exit)
+                    }) { Text("Discard changes", color = NovelError) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingNoteExit = null }) { Text("Keep editing") }
+                }
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .wrapContentHeight()
+                .testTag("ReaderQuickSettingsContent")
+                // Do not read Material's offset-dependent top inset in measured content.
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp)
         ) {
@@ -347,7 +394,6 @@ fun ReaderQuickSettingsSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .swipeDownToDismiss(dismissSheet)
                     .padding(top = 10.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -362,8 +408,7 @@ fun ReaderQuickSettingsSheet(
 
 
             // Subpage Navigation Animated Transition (MAIN <-> SUMMARY)
-            AnimatedContent(
-                targetState = currentSheetPage,
+            pageTransition.AnimatedContent(
                 transitionSpec = {
                     if (targetState != QuickSettingsSheetPage.MAIN && initialState == QuickSettingsSheetPage.MAIN ||
                         targetState == QuickSettingsSheetPage.NOTE_EDIT ||
@@ -390,10 +435,29 @@ fun ReaderQuickSettingsSheet(
                         )
                     }.using(SizeTransform(clip = false))
                 },
-                modifier = Modifier.fillMaxWidth(),
-                label = "QuickSettingsPageTransition"
+                modifier = Modifier.fillMaxWidth()
             ) { page ->
-                when (page) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                ) {
+                    when (page) {
+                    QuickSettingsSheetPage.AUTO_SCROLL -> {
+                        ReaderAutoScrollSubPage(
+                            state = autoScrollState,
+                            speed = settings.autoScrollSpeed,
+                            canStart = canStartAutoScroll,
+                            continuousMode = settings.scrollMode == ReaderScrollMode.CONTINUOUS,
+                            textColor = textColor,
+                            secondaryColor = secondaryColor,
+                            theme = settings.theme,
+                            onBack = { currentSheetPage = QuickSettingsSheetPage.MAIN },
+                            onStart = requestAutoScrollStart,
+                            onPause = onPauseAutoScroll,
+                            onStop = onStopAutoScroll,
+                            onSetSpeed = onSetAutoScrollSpeed
+                        )
+                    }
                     QuickSettingsSheetPage.SUMMARY -> {
                         ReaderSummarySubPage(
                             currentChapter = currentChapter,
@@ -411,7 +475,6 @@ fun ReaderQuickSettingsSheet(
 
                     QuickSettingsSheetPage.NOTES_LIST -> {
                         ReaderNotesListSubPage(
-                            currentChapter = currentChapter,
                             notes = notesList,
                             textColor = textColor,
                             secondaryColor = secondaryColor,
@@ -427,9 +490,9 @@ fun ReaderQuickSettingsSheet(
                     }
                     QuickSettingsSheetPage.NOTE_EDIT -> {
                         if (studyState.selectedNoteId == null || activeNote != null) ReaderNoteEditSubPage(
-                            note = activeNote, textColor = textColor, secondaryColor = secondaryColor,
+                            note = activeNote, draft = noteDraft, textColor = textColor, secondaryColor = secondaryColor,
                             theme = settings.theme, saving = studyState.saving || studyState.key == null,
-                            onBack = { currentSheetPage = QuickSettingsSheetPage.NOTES_LIST },
+                            onBack = { requestNoteExit(NoteExit.NOTES_LIST) },
                             onSave = { title, content ->
                                 savingNote = true
                                 onSaveNote(activeNote?.id, title, content)
@@ -460,6 +523,7 @@ fun ReaderQuickSettingsSheet(
                             canSend = extractionEnabled, saving = studyState.saving || studyState.key == null,
                             savedRevision = studyState.collectionSavedRevision,
                             onDeleteCategory = onDeleteCollection,
+                            onClearCategory = onClearCollection,
                             onDismissSheet = dismissSheet
                         )
                     }
@@ -599,7 +663,7 @@ fun ReaderQuickSettingsSheet(
                                                 )
                                             }
                                         }
-                                        onDismiss()
+                                        notifyDismissed()
                                     } catch (_: RuntimeException) {
                                         Toast.makeText(context, "Could not start audio playback", Toast.LENGTH_SHORT).show()
                                     }
@@ -700,6 +764,20 @@ fun ReaderQuickSettingsSheet(
                 }
             )
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            ReaderAutoScrollEntry(
+                state = autoScrollState,
+                speed = settings.autoScrollSpeed,
+                canStart = canStartAutoScroll,
+                textColor = textColor,
+                secondaryColor = secondaryColor,
+                theme = settings.theme,
+                onStart = requestAutoScrollStart,
+                onPause = onPauseAutoScroll,
+                onStop = onStopAutoScroll,
+                onClick = { currentSheetPage = QuickSettingsSheetPage.AUTO_SCROLL }
+            )
             Spacer(modifier = Modifier.height(10.dp))
 
             // Segmented Tab Selector with Sliding Pill Indicator (2 Tabs)
@@ -1156,6 +1234,7 @@ fun ReaderQuickSettingsSheet(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -1206,11 +1285,7 @@ private fun ReaderSummarySubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .swipeDownToDismiss(onDismissSheet)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Chapter Summary",
                     color = textColor,
@@ -1270,7 +1345,6 @@ private fun ReaderSummarySubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
-                .nestedScroll(rememberSubpageScrollConnection())
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1589,7 +1663,6 @@ private fun ToolbarIconButton(label: String, tooltip: String, onClick: () -> Uni
  */
 @Composable
 private fun ReaderNotesListSubPage(
-    currentChapter: Chapter?,
     notes: List<ChapterNoteUi>,
     textColor: Color,
     secondaryColor: Color,
@@ -1637,18 +1710,14 @@ private fun ReaderNotesListSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .swipeDownToDismiss(onDismissSheet)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Chapter Notes",
+                    text = "Novel Notes",
                     color = textColor,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
-                val subtitle = "${notes.size} note${if (notes.size != 1) "s" else ""} • ${currentChapter?.title ?: "Current Chapter"}"
+                val subtitle = if (notes.isEmpty()) "No saved notes" else "${notes.size} note${if (notes.size != 1) "s" else ""}"
                 Text(
                     text = subtitle,
                     color = secondaryColor,
@@ -1717,9 +1786,8 @@ private fun ReaderNotesListSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
-                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             if (notes.isEmpty()) {
                 item {
@@ -1785,70 +1853,99 @@ private fun ReaderNotesListSubPage(
             } else {
                 items(notes, key = { it.id }) { note ->
                     Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = theme.surfaceColor),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = secondaryColor.copy(alpha = if (theme.isDark) 0.06f else 0.04f)
+                        ),
                         border = CardDefaults.outlinedCardBorder().copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(secondaryColor.copy(alpha = 0.2f))
+                            brush = androidx.compose.ui.graphics.SolidColor(secondaryColor.copy(alpha = 0.15f))
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .bounceClick(scaleDown = BounceScale.Small, onClick = { onOpenNote(note) })
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Compact Leading Icon Badge
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(NovelPrimary.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(NovelPrimary.copy(alpha = 0.12f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
-                                        contentDescription = null,
-                                        tint = NovelPrimary,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = note.title.ifBlank { "Untitled Note" },
-                                        color = textColor,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = note.updatedAt,
-                                        color = secondaryColor.copy(alpha = 0.85f),
-                                        fontSize = 10.5.sp
-                                    )
-                                }
-                                NovelNestIconButton(
-                                    icon = Icons.Rounded.DeleteOutline,
-                                    contentDescription = "Delete note",
-                                    onClick = { pendingDelete = note.id },
-                                    tint = secondaryColor.copy(alpha = 0.65f)
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                                    contentDescription = null,
+                                    tint = NovelPrimary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = note.content.ifBlank { "Empty note content" },
-                                color = secondaryColor,
-                                fontSize = 11.5.sp,
-                                lineHeight = 16.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+
+                            // Center Content: Title + Inline Timestamp & Preview
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = note.title.ifBlank { "Untitled Note" },
+                                    color = textColor,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        text = note.updatedAt,
+                                        color = secondaryColor.copy(alpha = 0.65f),
+                                        fontSize = 10.5.sp,
+                                        maxLines = 1
+                                    )
+                                    if (note.content.isNotBlank()) {
+                                        Text(
+                                            text = "•",
+                                            color = secondaryColor.copy(alpha = 0.35f),
+                                            fontSize = 10.sp
+                                        )
+                                        Text(
+                                            text = note.content.replace('\n', ' ').trim(),
+                                            color = secondaryColor.copy(alpha = 0.85f),
+                                            fontSize = 10.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Compact Delete Action Button
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .bounceClick(
+                                        scaleDown = BounceScale.Small,
+                                        onClick = { pendingDelete = note.id }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Delete note",
+                                    tint = secondaryColor.copy(alpha = 0.55f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1862,11 +1959,11 @@ private fun ReaderNotesListSubPage(
  */
 @Composable
 private fun ReaderNoteEditSubPage(
-    note: ChapterNoteUi?, textColor: Color, secondaryColor: Color, theme: ReaderTheme,
+    note: ChapterNoteUi?, draft: ReaderNoteDraft, textColor: Color, secondaryColor: Color, theme: ReaderTheme,
     saving: Boolean, onBack: () -> Unit, onSave: (String, String) -> Unit,
     onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
-) = MarkdownNoteEditor(note, textColor, secondaryColor, theme, saving, onBack, onSave, onDismissSheet, modifier)
+) = MarkdownNoteEditor(note, draft, textColor, secondaryColor, theme, saving, onBack, onSave, onDismissSheet, modifier)
 
 /**
  * Dedicated Subpage within Quick Settings to view and trigger term extraction categories.
@@ -1890,6 +1987,7 @@ private fun ReaderExtractListSubPage(
     saving: Boolean,
     savedRevision: Long,
     onDeleteCategory: (String) -> Unit,
+    onClearCategory: (String) -> Unit,
     onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -1897,11 +1995,17 @@ private fun ReaderExtractListSubPage(
     pendingDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete this collection?", fontWeight = FontWeight.Bold) },
-            text = { Text("Its saved terms will also be deleted. This cannot be undone.") },
+            title = { Text("Clear or delete this collection?", fontWeight = FontWeight.Bold) },
+            text = { Text("Clear terms removes this collection's saved discoveries from all chapters and keeps its topic. Delete collection also removes the topic. Neither action can be undone.") },
             confirmButton = {
-                TextButton(onClick = { onDeleteCategory(id); pendingDelete = null }) {
-                    Text("Delete", color = NovelError, fontWeight = FontWeight.Bold)
+                Column {
+                    TextButton(enabled = !saving && categories.any { it.id == id && it.termCount > 0 },
+                        onClick = { onClearCategory(id); pendingDelete = null }) {
+                        Text("Clear saved terms", color = NovelError, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(enabled = !saving, onClick = { onDeleteCategory(id); pendingDelete = null }) {
+                        Text("Delete collection", color = NovelError, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             dismissButton = {
@@ -1922,8 +2026,12 @@ private fun ReaderExtractListSubPage(
         }
     }
 
-    val isExtracting = aiState?.action == AiAction.EXTRACT && aiState.busy
-    val extractFailure = if (aiState?.action == AiAction.EXTRACT) aiState.failure else null
+    val extractionState = aiState?.takeIf { state ->
+        state.action == AiAction.EXTRACT && currentChapter?.let(state::matches) == true &&
+            categories.any { it.id == state.extractionCollectionId }
+    }
+    val isExtracting = extractionState?.busy == true
+    val extractFailure = extractionState?.failure
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Top Subpage Header Bar
@@ -1939,11 +2047,7 @@ private fun ReaderExtractListSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .swipeDownToDismiss(onDismissSheet)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Extract Terms",
                     color = textColor,
@@ -1973,7 +2077,7 @@ private fun ReaderExtractListSubPage(
         )
 
         // 1. Contextual AI Progress Card (Properly Positioned Inside Subpage)
-        if (isExtracting && aiState != null) {
+        if (isExtracting) {
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = NovelPrimary.copy(alpha = 0.12f)),
@@ -2003,14 +2107,14 @@ private fun ReaderExtractListSubPage(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = aiPhaseTitle(aiState.progress.phase, AiAction.EXTRACT),
+                                text = aiPhaseTitle(extractionState.progress.phase, AiAction.EXTRACT),
                                 color = textColor,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            val detail = aiState.progress.message.ifBlank {
-                                if (aiState.progress.totalChunks > 1) {
-                                    "Analyzing terms (Chunk ${aiState.progress.chunk}/${aiState.progress.totalChunks})..."
+                            val detail = extractionState.progress.message.ifBlank {
+                                if (extractionState.progress.totalChunks > 1) {
+                                    "Analyzing terms (Chunk ${extractionState.progress.chunk}/${extractionState.progress.totalChunks})..."
                                 } else "Analyzing chapter terms..."
                             }
                             Text(
@@ -2036,40 +2140,13 @@ private fun ReaderExtractListSubPage(
             }
         }
 
-        // 2. Contextual Failure Card
+        // Keep failures associated with the collection that owns the request.
         if (extractFailure != null && !isExtracting) {
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = failureColor.copy(alpha = 0.12f)),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(failureColor.copy(alpha = 0.35f))
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Warning,
-                        contentDescription = null,
-                        tint = failureColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = aiErrorHelpText(extractFailure, AiAction.EXTRACT),
-                        color = failureColor,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            ReaderExtractionFailureCard(
+                failure = extractFailure,
+                canRetry = canSend,
+                onRetry = { extractionState.extractionCollectionId?.let(onSendExtract) }
+            )
         }
 
         // 3. Saved Category / Collection Notification Message
@@ -2118,7 +2195,6 @@ private fun ReaderExtractListSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
-                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -2412,7 +2488,12 @@ private fun ReaderExtractDetailSubPage(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember(category.id) { mutableStateOf(emptySet<String>()) }
-    val isExtracting = aiState?.action == AiAction.EXTRACT && aiState.busy
+    val extractionState = aiState?.takeIf { state ->
+        state.action == AiAction.EXTRACT && state.extractionCollectionId == category.id &&
+            currentChapter?.let(state::matches) == true
+    }
+    val isExtracting = extractionState?.busy == true
+    val extractFailure = extractionState?.failure
     val failureColor = NovelError
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -2428,11 +2509,7 @@ private fun ReaderExtractDetailSubPage(
                 onClick = onBack
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .swipeDownToDismiss(onDismissSheet)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = category.name,
                     color = textColor,
@@ -2479,7 +2556,7 @@ private fun ReaderExtractDetailSubPage(
         )
 
         // Contextual AI Progress inside Detail Page
-        if (isExtracting && aiState != null) {
+        if (isExtracting) {
             Card(
                 shape = RoundedCornerShape(10.dp),
                 colors = CardDefaults.cardColors(containerColor = NovelPrimary.copy(alpha = 0.12f)),
@@ -2508,7 +2585,7 @@ private fun ReaderExtractDetailSubPage(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = aiState.progress.message.ifBlank { "Extracting terms..." },
+                            text = extractionState.progress.message.ifBlank { "Extracting terms..." },
                             color = textColor,
                             fontSize = 11.5.sp,
                             maxLines = 1,
@@ -2528,11 +2605,18 @@ private fun ReaderExtractDetailSubPage(
             }
         }
 
+        if (extractFailure != null && !isExtracting) {
+            ReaderExtractionFailureCard(
+                failure = extractFailure,
+                canRetry = canSend,
+                onRetry = { onSendExtract(category.id) }
+            )
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 360.dp)
-                .nestedScroll(rememberSubpageScrollConnection())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -2671,6 +2755,30 @@ private fun ReaderExtractDetailSubPage(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReaderExtractionFailureCard(failure: AiFailure, canRetry: Boolean, onRetry: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = NovelError.copy(alpha = 0.12f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NovelError.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Warning, contentDescription = null, tint = NovelError, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                aiErrorHelpText(failure, AiAction.EXTRACT),
+                color = NovelError, fontSize = 11.5.sp, lineHeight = 15.sp,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(enabled = canRetry, onClick = onRetry) { Text("Retry") }
         }
     }
 }

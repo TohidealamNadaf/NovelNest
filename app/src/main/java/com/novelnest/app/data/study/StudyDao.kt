@@ -5,15 +5,15 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StudyDao {
-    @Query("SELECT id, title, SUBSTR(markdown, 1, 240) AS preview, updatedAt FROM chapter_notes WHERE source=:source AND novelId=:novel AND chapterId=:chapter ORDER BY updatedAt DESC, id")
-    fun notes(source: String, novel: String, chapter: String): Flow<List<ChapterNotePreview>>
+    @Query("SELECT id, title, SUBSTR(markdown, 1, 240) AS preview, updatedAt FROM chapter_notes WHERE source=:source AND novelId=:novel ORDER BY updatedAt DESC, id")
+    fun notes(source: String, novel: String): Flow<List<ChapterNotePreview>>
     @Query("SELECT COUNT(*) FROM chapter_notes WHERE source=:source AND novelId=:novel AND chapterId=:chapter")
     suspend fun noteCount(source: String, novel: String, chapter: String): Int
     @Query("SELECT * FROM chapter_notes WHERE id=:id")
     suspend fun note(id: String): ChapterNoteEntity?
     @Upsert suspend fun saveNote(note: ChapterNoteEntity)
-    @Query("DELETE FROM chapter_notes WHERE id=:id AND source=:source AND novelId=:novel AND chapterId=:chapter")
-    suspend fun deleteNote(id: String, source: String, novel: String, chapter: String)
+    @Query("DELETE FROM chapter_notes WHERE id=:id AND source=:source AND novelId=:novel")
+    suspend fun deleteNote(id: String, source: String, novel: String)
 
     @Query("SELECT c.*, (SELECT COUNT(DISTINCT termKey) FROM term_discoveries WHERE collectionId=c.id) AS termCount FROM term_collections c WHERE source=:source AND novelId=:novel ORDER BY updatedAt DESC, id")
     fun collections(source: String, novel: String): Flow<List<TermCollectionRow>>

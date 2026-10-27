@@ -99,8 +99,12 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
                     }
                     val spec = AiProviderCatalog.spec(AiRoute(id, name))
                     val parameters = model.optJSONArray("supported_parameters") ?: JSONArray()
-                    val required = if (spec.responseMode == AiResponseMode.JSON_SCHEMA) "structured_outputs" else "response_format"
-                    val supportsOutput = (0 until parameters.length()).any { parameters.optString(it) == required }
+                    val required = when (spec.responseMode) {
+                        AiResponseMode.JSON_SCHEMA -> "structured_outputs"
+                        AiResponseMode.JSON_OBJECT -> "response_format"
+                        AiResponseMode.PROMPT_JSON -> null // Schema is in the prompt; local validation is still mandatory.
+                    }
+                    val supportsOutput = required == null || (0 until parameters.length()).any { parameters.optString(it) == required }
                     if (free && name.endsWith(":free") && supportsOutput) name else null
                 } else if (!model.optBoolean("active", true)) null else name
             } }.toSet()
@@ -131,7 +135,9 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
                 .put("reasoning_effort", if (route.model.startsWith("qwen/")) "none" else "low")
             AiProviderId.OPEN_ROUTER -> {
                 require(route.model.endsWith(":free"))
-                body.put("max_tokens", outputTokens).put("reasoning", JSONObject().put("enabled", false))
+                val reasoning = JSONObject().put("exclude", true)
+                if (!spec.mandatoryReasoning) reasoning.put("enabled", false)
+                body.put("max_tokens", outputTokens).put("reasoning", reasoning)
                     .put("provider", JSONObject().put("allow_fallbacks", false).put("require_parameters", true)
                         .put("max_price", JSONObject().put("prompt", 0).put("completion", 0).put("request", 0)))
             }

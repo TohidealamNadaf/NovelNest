@@ -56,6 +56,81 @@ class AiProviderWireTest {
     private fun gemmaMetadata(): String = requireNotNull(javaClass.getResourceAsStream("/ai/openrouter-gemma-free-models.json"))
         .bufferedReader().use { it.readText() }
 
+    private fun expandedMetadata(): String = requireNotNull(javaClass.getResourceAsStream("/ai/openrouter-free-models-2026-10-26.json"))
+        .bufferedReader().use { it.readText() }
+
+    @Test fun expandedPublicSnapshotExcludesModerationAndHarnessRestrictedModels() = runBlocking {
+        val available = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { expandedMetadata() }).available("offline-key")
+        assertEquals(13, available.size)
+        assertEquals(AiProviderCatalog.models.filter { it.route.provider == AiProviderId.OPEN_ROUTER }
+            .map { it.route.model }.toSet(), available)
+        assertFalse("nvidia/nemotron-3.5-content-safety:free" in available)
+        assertFalse("thinkingmachines/inkling:free" in available)
+        assertFalse("thinkingmachines/inkling-small:free" in available)
+    }
+
+    @Test fun promptOnlyModelStillRejectsChangedOrMissingPricing() = runBlocking {
+        val data = JSONObject(expandedMetadata())
+        val values = data.getJSONArray("data")
+        val rejected = setOf("poolside/laguna-s-2.1:free", "nvidia/nemotron-3.5-lightning:free")
+        for (i in 0 until values.length()) {
+            val entry = values.getJSONObject(i)
+            when (entry.getString("id")) {
+                "poolside/laguna-s-2.1:free" -> entry.getJSONObject("pricing").put("request", "0.001")
+                "nvidia/nemotron-3.5-lightning:free" -> entry.remove("pricing")
+            }
+        }
+        val available = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { data.toString() }).available("offline-key")
+        assertEquals(11, available.size)
+        assertTrue(available.intersect(rejected).isEmpty())
+    }
+
+    @Test fun expandedModelsUseSupportedWireOptionsAndRetainFreeRouting() = runBlocking {
+        for (spec in AiProviderCatalog.models.filter { it.route.provider == AiProviderId.OPEN_ROUTER }) {
+            val provider = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { request ->
+                val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                when (spec.responseMode) {
+                    AiResponseMode.JSON_SCHEMA -> assertTrue(body.getJSONObject("response_format").getJSONObject("json_schema").getBoolean("strict"))
+                    AiResponseMode.JSON_OBJECT -> assertEquals("json_object", body.getJSONObject("response_format").getString("type"))
+                    AiResponseMode.PROMPT_JSON -> {
+                        assertFalse(body.has("response_format"))
+                        assertTrue(body.getJSONArray("messages").getJSONObject(0).getString("content").contains(prompt.schema.toString()))
+                    }
+                }
+                val reasoning = body.getJSONObject("reasoning")
+                assertTrue(reasoning.getBoolean("exclude"))
+                if (spec.mandatoryReasoning) assertFalse(reasoning.has("enabled")) else assertFalse(reasoning.getBoolean("enabled"))
+                assertEquals(1_000, body.getInt("max_tokens"))
+                val routing = body.getJSONObject("provider")
+                assertFalse(routing.getBoolean("allow_fallbacks"))
+                assertTrue(routing.getBoolean("require_parameters"))
+                for (unit in listOf("prompt", "completion", "request")) assertEquals(0, routing.getJSONObject("max_price").getInt(unit))
+                response(spec.route.model)
+            })
+            assertEquals(validResponse(prompt), provider.generate(spec.route, "offline-key", prompt, 1_000) {})
+        }
+    }
+
+    @Test fun mandatoryReasoningSummaryHasRoomForFinalJsonAndRetainsValidation() = runBlocking {
+        val route = AiRoute(AiProviderId.OPEN_ROUTER, "recursive/flint-v1.0:free")
+        var posted = false
+        val provider = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { request ->
+            if (request.method == "GET") expandedMetadata() else {
+                posted = true
+                val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertEquals(8_192, body.getInt("max_tokens"))
+                // Neither a successful HTTP response nor mandatory reasoning makes invalid JSON safe.
+                response(route.model, "{\"summary\":\"Incomplete\"}")
+            }
+        })
+        val cache = FakeCache()
+        expectAi(AiErrorCode.INVALID_OUTPUT) {
+            ChapterAiRepository(FakeConfiguration(configured(route)), cache, listOf(provider)).generate(chapter(), AiAction.SUMMARY)
+        }
+        assertTrue(posted)
+        assertEquals(0, cache.writes)
+    }
+
     @Test fun realCatalogSnapshotFindsBothFreeGemmaInstructionModels() = runBlocking {
         val provider = ChatAiProvider(AiProviderId.OPEN_ROUTER, client { gemmaMetadata() })
         assertEquals(setOf("google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"), provider.available("offline-key"))

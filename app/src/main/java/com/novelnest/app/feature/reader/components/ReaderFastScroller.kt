@@ -3,10 +3,13 @@ package com.novelnest.app.feature.reader.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -131,35 +134,58 @@ fun ReaderFastScroller(
                     }
                 }
                 .pointerInput(listState, thumbPx) {
-                    var grabOffset = thumbPx / 2f
-                    fun fraction(y: Float) = ((y - grabOffset) /
-                        (size.height - thumbPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                    fun finish() {
-                        dragFraction?.let { requests.trySend(ScrollTarget(it, true, gesture, gestureRange)) }
-                    }
-                    try {
-                        detectVerticalDragGestures(
-                            onDragStart = { offset ->
+                    val verticalPadding = 16.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val thumb = thumbPx.coerceAtMost(size.height.toFloat())
+                        val currentFraction = dragFraction ?: listState.scrollFraction()
+                        val top = (size.height - thumb) * currentFraction
+                        val bottom = top + thumb
+                        val hitRange = (top - verticalPadding)..(bottom + verticalPadding)
+
+                        // Only activate if the initial touch is directly on the scroll handle
+                        if (down.position.y !in hitRange) {
+                            return@awaitEachGesture
+                        }
+
+                        val grabOffset = (down.position.y - top).coerceIn(0f, thumb)
+                        fun fraction(y: Float) = ((y - grabOffset) /
+                            (size.height - thumb).coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+                        var dragStarted = false
+                        try {
+                            val dragChange = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ ->
+                                change.consume()
+                            }
+
+                            if (dragChange != null) {
+                                dragStarted = true
                                 draggingChanged(true)
                                 gesture++
-                                // Keep the mapping stable as differently sized paragraphs enter view.
                                 gestureRange = listState.scrollRange()
-                                val top = (size.height - thumbPx).coerceAtLeast(0f) * listState.scrollFraction()
-                                grabOffset = if (offset.y in top..(top + thumbPx)) offset.y - top else thumbPx / 2f
-                                dragFraction = fraction(offset.y)
+                                dragFraction = fraction(dragChange.position.y)
                                 requests.trySend(ScrollTarget(checkNotNull(dragFraction), false, gesture, gestureRange))
-                            },
-                            onDragEnd = { finish() },
-                            onDragCancel = { finish() },
-                            onVerticalDrag = { change, _ ->
-                                change.consume()
-                                dragFraction = fraction(change.position.y)
-                                requests.trySend(ScrollTarget(checkNotNull(dragFraction), false, gesture, gestureRange))
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val currentChange = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!currentChange.pressed) {
+                                        break
+                                    }
+                                    if (currentChange.positionChange().y != 0f) {
+                                        currentChange.consume()
+                                        dragFraction = fraction(currentChange.position.y)
+                                        requests.trySend(ScrollTarget(checkNotNull(dragFraction), false, gesture, gestureRange))
+                                    }
+                                }
                             }
-                        )
-                    } finally {
-                        dragFraction = null
-                        draggingChanged(false)
+                        } finally {
+                            if (dragStarted) {
+                                dragFraction?.let { requests.trySend(ScrollTarget(it, true, gesture, gestureRange)) }
+                                dragFraction = null
+                                draggingChanged(false)
+                            }
+                        }
                     }
                 }
         ) {

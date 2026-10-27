@@ -1,10 +1,12 @@
 package com.novelnest.app.feature.reader.components
 
+import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.widget.EditText
 import android.widget.TextView
 import androidx.compose.foundation.BorderStroke
@@ -15,7 +17,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -57,6 +59,7 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun MarkdownNoteEditor(
     note: ChapterNoteUi?,
+    draft: ReaderNoteDraft,
     textColor: Color,
     secondaryColor: Color,
     theme: ReaderTheme,
@@ -66,8 +69,8 @@ internal fun MarkdownNoteEditor(
     onDismissSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var title by rememberSaveable(note?.id) { mutableStateOf(note?.title.orEmpty()) }
-    var content by rememberSaveable(note?.id) { mutableStateOf(note?.content.orEmpty()) }
+    val title = draft.title
+    val content = draft.content
     // Existing notes open in Preview Mode first; new notes open in Edit Mode
     var preview by rememberSaveable(note?.id) { mutableStateOf(note != null) }
     var editor by remember { mutableStateOf<EditText?>(null) }
@@ -89,11 +92,7 @@ internal fun MarkdownNoteEditor(
             )
             Spacer(modifier = Modifier.width(6.dp))
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .swipeDownToDismiss(onDismissSheet)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (preview) {
                         title.ifBlank { "Untitled Note" }
@@ -207,7 +206,6 @@ internal fun MarkdownNoteEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 380.dp)
-                .nestedScroll(rememberSubpageScrollConnection())
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -249,7 +247,7 @@ internal fun MarkdownNoteEditor(
                 // ─── EDIT VIEW ───
                 OutlinedTextField(
                     value = title,
-                    onValueChange = { if (it.length <= 160) title = it },
+                    onValueChange = { if (it.length <= 160) draft.title = it },
                     singleLine = true,
                     enabled = !saving,
                     textStyle = TextStyle(
@@ -274,7 +272,7 @@ internal fun MarkdownNoteEditor(
                         focusedContainerColor = theme.surfaceColor,
                         unfocusedContainerColor = theme.surfaceColor
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("ReaderNoteTitle")
                 )
 
                 // Formatting Toolbar
@@ -336,10 +334,10 @@ internal fun MarkdownNoteEditor(
                 }
 
                 // Native Android Multi-line Editor
-                val changed by rememberUpdatedState<(String) -> Unit>({ content = it })
+                val changed by rememberUpdatedState<(String) -> Unit>({ draft.content = it })
                 AndroidView(
                     factory = { context ->
-                        EditText(context).apply {
+                        ScrollableNoteEditText(context).apply {
                             setText(content)
                             hint = "Write Markdown: **bold**, *italic*, headings, lists, quotes, tables…"
                             gravity = android.view.Gravity.TOP or android.view.Gravity.START
@@ -409,6 +407,38 @@ internal fun MarkdownNoteEditor(
                 )
                 Spacer(Modifier.height(4.dp))
             }
+        }
+    }
+}
+
+/** Keep overflowing native text scrolls from being intercepted by the Compose form. */
+private class ScrollableNoteEditText(context: Context) : EditText(context) {
+    private var ownsScrollGesture = false
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            ownsScrollGesture = isEnabled && (canScrollVertically(-1) || canScrollVertically(1))
+            if (ownsScrollGesture) parent?.requestDisallowInterceptTouchEvent(true)
+        }
+        return try {
+            // Preserve native cursor placement, long press, selection handles and scrolling.
+            super.dispatchTouchEvent(event)
+        } finally {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                releaseScrollGesture()
+            }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        releaseScrollGesture()
+        super.onDetachedFromWindow()
+    }
+
+    private fun releaseScrollGesture() {
+        if (ownsScrollGesture) {
+            parent?.requestDisallowInterceptTouchEvent(false)
+            ownsScrollGesture = false
         }
     }
 }

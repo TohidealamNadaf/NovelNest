@@ -70,7 +70,9 @@ class ChapterAiRepository(
                             throw AiException(AiErrorCode.MODEL_UNAVAILABLE, "This model is unavailable or no longer eligible for free requests.")
                         suspend fun request(prompt: AiPrompt, refs: List<AiParagraph>, part: Int, total: Int): AiResult {
                             currentCoroutineContext().ensureActive()
-                            val output = if (action == AiAction.SUMMARY) minOf(AiSummaryPlanner.OUTPUT_TOKENS, spec.outputTokens) else spec.outputTokens
+                            // Mandatory thinking consumes the same completion budget as the final JSON.
+                            val output = if (action == AiAction.SUMMARY && !spec.mandatoryReasoning)
+                                minOf(AiSummaryPlanner.OUTPUT_TOKENS, spec.outputTokens) else spec.outputTokens
                             val reservation = policy.admit(route.provider, prompt, output,
                                 maxWaitMs = if (action == AiAction.REWRITE) 60_000 else 10_000, model = route.model) { waitMs ->
                                 progress(AiProgress(AiPhase.WAITING_FOR_SLOT, route.provider, part, total,
@@ -87,7 +89,7 @@ class ChapterAiRepository(
                             }
                             currentCoroutineContext().ensureActive()
                             progress(AiProgress(AiPhase.VALIDATING, route.provider, part, total))
-                            return AiResponseValidator.parse(raw, action, fingerprint, route, refs).also {
+                            return AiResponseValidator.parse(raw, action, fingerprint, route, refs, input.extractionTarget).also {
                                 if (action == AiAction.EXTRACT && it.extractedTerms.size > 40)
                                     throw AiException(AiErrorCode.INVALID_OUTPUT, "The model exceeded the per-segment term limit.")
                             }
@@ -102,14 +104,16 @@ class ChapterAiRepository(
                                 extractedTerms = parts.flatMap { it.extractedTerms }.distinctBy { listOf(it.name, it.paragraphId, it.meaning) })
                             parts.size == 1 -> parts.single()
                             else -> {
-                                val prompt = AiPromptFactory.merge(input.title, parts.map { requireNotNull(it.summary) })
+                                val summaries = parts.map { requireNotNull(it.summary) }
+                                val prompt = AiPromptFactory.merge(input.title, summaries)
                                 if (prompt.data.toByteArray(Charsets.UTF_8).size > spec.summaryInputBytes)
                                     throw AiException(AiErrorCode.TOO_LARGE, "The combined summary exceeds this model's supported merge budget.")
-                                request(prompt, paragraphs, requiredCalls, requiredCalls)
+                                val suppliedIds = AiPromptFactory.mergeParagraphIds(summaries).toSet()
+                                request(prompt, paragraphs.filter { it.id in suppliedIds }, requiredCalls, requiredCalls)
                             }
                         }
                         // Validate the assembled result as a whole before publishing or caching anything.
-                        val complete = AiResponseValidator.parse(AiResponseValidator.outputJson(result).toString(), action, fingerprint, route, paragraphs)
+                        val complete = AiResponseValidator.parse(AiResponseValidator.outputJson(result).toString(), action, fingerprint, route, paragraphs, input.extractionTarget)
                         currentCoroutineContext().ensureActive()
                         cache.write(key, complete, epoch)
                         return@withTimeout complete

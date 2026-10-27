@@ -25,6 +25,48 @@ For the verified action-to-route mapping, the Extract retry correction and actua
 
 ## Provider and cost boundary
 
+### Expanded OpenRouter free catalog (26 October 2026)
+
+See [OpenRouter free model verification](OPENROUTER_FREE_MODELS.md) for exact IDs,
+capabilities, expiry dates and live-check results. The expanded selector preserves
+saved route order and the three-route limit. Models without JSON mode use a fixed
+schema in the prompt plus the same local validators. Mandatory-reasoning models
+receive a bounded completion budget that includes their thinking tokens; optional
+reasoning stays disabled. Zero-price routing and explicit free model IDs remain mandatory.
+
+### Summary source-reference contract (26 October 2026)
+
+The Chapter 55 screenshots show two independent failures: an NVIDIA generation HTTP 404, and a GPT-OSS 20B
+response rejected by the event-reference checks. The latter message combined empty/oversized arrays, non-integer
+values, unknown IDs and duplicates; without the rejected response it cannot identify which case occurred.
+
+Previously the provider schema accepted any integer reference and unbounded arrays, while local validation
+required 1-8 distinct supplied IDs per event. Requests now constrain paragraph IDs to the current input: compact
+integer bounds for contiguous chunks and an exact numeric enum for sparse references. Event arrays are bounded
+to eight, each event's reference array to 1-8, and terms to the existing per-request limits. Term extraction uses
+the same input-specific ID constraints. Rewrite's response schema and completeness checks are unchanged.
+
+Merged summaries may cite only IDs actually present in the segment results, not uncited IDs elsewhere in the
+original chapter. Both their request schema and local validation use this subset. Source quotes are still checked
+against the original paragraphs. Empty citation input permits only empty events/terms arrays.
+
+All references must remain valid integers present in the supplied input. Repeated valid event references within
+the eight-entry limit are deduplicated in their original order, without changing IDs or dropping unknown values.
+Empty arrays, oversized arrays, non-integer IDs and unknown IDs now have separate static error messages. Exact
+term evidence, response completeness and final assembled-result validation remain mandatory. These structural
+checks cannot prove that a model's prose is factually faithful to the source.
+
+No repair generation, automatic retry or additional provider request was added. The existing token admission
+estimate includes the schema. Contiguous chapter input avoids a chapter-sized repeated enum; sparse merge input
+is bounded by the existing segment/event/term limits. Output/cache format is unchanged, so validated saved results
+remain reusable. No new dependency, database migration, permission or UI change is required.
+
+Provider-side schema enforcement varies; local checks remain authoritative even when a provider ignores a keyword.
+The NVIDIA 404 remains a generation-access/deployment issue and continues through the user's configured fallback
+routes. This change does not establish NVIDIA access, remove provider quotas or claim successful live generation.
+Schema references: https://console.groq.com/docs/structured-outputs and
+https://ai.google.dev/gemini-api/docs/structured-output . No failing live response or current credential was used.
+
 ### Summary validation diagnostics (25 October 2026)
 
 A reported Summary failure used NVIDIA Nemotron 3 Super, followed by Groq GPT-OSS 120B/20B. The old message

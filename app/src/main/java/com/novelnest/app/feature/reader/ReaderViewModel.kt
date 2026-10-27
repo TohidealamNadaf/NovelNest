@@ -1,6 +1,7 @@
 package com.novelnest.app.feature.reader
 
 import androidx.lifecycle.SavedStateHandle
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.bookmark.BookmarkManager
@@ -24,6 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.combine
 import com.novelnest.app.data.ai.AiAction
 import com.novelnest.app.data.ai.AiChapterInput
 import com.novelnest.app.data.ai.ChapterAiRepository
@@ -65,6 +67,9 @@ class ReaderViewModel(
 ) : ViewModel() {
 
     val readerSettings: StateFlow<ReaderSettings> = preferencesManager.readerSettings
+    private val autoScrollController = ReaderAutoScrollController()
+    val autoScrollState = autoScrollController.state
+    private val scrollCheckpoint = ReaderScrollCheckpoint()
 
     private val _uiState = MutableStateFlow(
         ReaderUiState(
@@ -84,6 +89,15 @@ class ReaderViewModel(
     init {
         loadNovelAndChapters()
         observeReadingProgress()
+        viewModelScope.launch {
+            combine(uiState, aiState, readerSettings) { reader, ai, settings ->
+                if (settings.scrollMode == com.novelnest.app.data.preferences.ReaderScrollMode.CONTINUOUS)
+                    readerAutoScrollTarget(reader, ai) else null
+            }.distinctUntilChanged().collect {
+                flushScrollPosition()
+                autoScrollController.sourceChanged(it)
+            }
+        }
         studyController?.let { controller -> viewModelScope.launch {
             uiState.map { state ->
                 val novel = state.novel
@@ -122,7 +136,10 @@ class ReaderViewModel(
         aiController?.request(action)
     }
     fun cancelAiRequest() { aiController?.cancel() }
-    fun showAiContentVersion(version: ReaderContentVersion) { aiController?.showVersion(version) }
+    fun showAiContentVersion(version: ReaderContentVersion) {
+        stopAutoScroll()
+        aiController?.showVersion(version)
+    }
     fun displayedChapterParagraphs(chapter: Chapter): List<String> = aiState.value.paragraphs(chapter)
     fun saveChapterNote(id: String?, title: String, markdown: String) { studyController?.saveNote(id, title, markdown) }
     fun deleteChapterNote(id: String) { studyController?.deleteNote(id) }
@@ -134,8 +151,12 @@ class ReaderViewModel(
         studyController?.deleteCollection(id)
     }
     fun dismissStudyMessage() { studyController?.clearMessage() }
+    fun clearTermCollection(id: String) {
+        if (aiState.value.action == AiAction.EXTRACT && aiState.value.extractionCollectionId == id) aiController?.cancel()
+        studyController?.clearCollection(id)
+    }
     fun extractTerms(id: String) {
-        if (aiForeground?.value == false || aiState.value.busy) return
+        if (aiForeground?.value == false || aiState.value.busy || studyState.value.saving) return
         val input = aiInput(uiState.value) ?: return
         val key = com.novelnest.app.data.study.StudyChapterKey(input.source, input.novelId, input.chapterId)
         val collection = studyState.value.collections.firstOrNull { it.collection.id == id }?.collection ?: return
@@ -169,8 +190,21 @@ class ReaderViewModel(
     }
 
     fun showQuickSettings(show: Boolean) {
+        if (show) pauseAutoScroll()
         _uiState.update { it.copy(showQuickSettingsSheet = show) }
     }
+
+    fun startAutoScroll() {
+        if (readerSettings.value.scrollMode != com.novelnest.app.data.preferences.ReaderScrollMode.CONTINUOUS) return
+        readerAutoScrollTarget(uiState.value, aiState.value)?.let(autoScrollController::start)
+    }
+    fun pauseAutoScroll(runId: Long? = null) {
+        autoScrollController.pause(runId)
+        flushScrollPosition()
+    }
+    fun stopAutoScroll() { autoScrollController.stop(); flushScrollPosition() }
+    fun finishAutoScroll(runId: Long) { autoScrollController.finish(runId); flushScrollPosition() }
+    fun setAutoScrollSpeed(speed: Float) = preferencesManager.updateAutoScrollSpeed(speed)
 
     fun toggleBookmark() {
         val currentNovel = _uiState.value.novel ?: return
@@ -179,6 +213,7 @@ class ReaderViewModel(
     }
 
     fun resyncChapter() {
+        stopAutoScroll()
         val state = _uiState.value
         val currentChapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return
         aiController?.sourceChanged(null)
@@ -200,22 +235,32 @@ class ReaderViewModel(
     fun saveScrollPosition(chapterIndex: Int, item: Int, offset: Int, contentKey: String = "original") {
         if (_uiState.value.currentChapterIndex != chapterIndex) return
         if (aiState.value.contentKey != contentKey) return
-        if (contentKey != "original") {
-            savedStateHandle["aiScrollChapter"] = chapterIndex
-            savedStateHandle["aiScrollContent"] = contentKey
-            savedStateHandle["aiScrollItem"] = item
-            savedStateHandle["aiScrollOffset"] = offset
+        scrollCheckpoint.record(ReaderScrollPosition(chapterIndex, item, offset, contentKey), SystemClock.elapsedRealtime())
+            ?.let(::writeScrollPosition)
+    }
+
+    fun flushScrollPosition() {
+        scrollCheckpoint.flush(SystemClock.elapsedRealtime())?.let(::writeScrollPosition)
+    }
+
+    private fun writeScrollPosition(position: ReaderScrollPosition) {
+        if (position.content != "original") {
+            savedStateHandle["aiScrollChapter"] = position.chapter
+            savedStateHandle["aiScrollContent"] = position.content
+            savedStateHandle["aiScrollItem"] = position.item
+            savedStateHandle["aiScrollOffset"] = position.offset
             return
         }
-        savedStateHandle["scrollChapter"] = chapterIndex
-        savedStateHandle["scrollItem"] = item
-        savedStateHandle["scrollOffset"] = offset
+        savedStateHandle["scrollChapter"] = position.chapter
+        savedStateHandle["scrollItem"] = position.item
+        savedStateHandle["scrollOffset"] = position.offset
     }
 
     fun nextChapter(expectedChapterIndex: Int? = null) {
         val state = _uiState.value
         if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
         if (state.currentChapterIndex < state.chapters.size - 1) {
+            stopAutoScroll()
             aiController?.sourceChanged(null)
             val nextIndex = state.currentChapterIndex + 1
             savedStateHandle["readerChapterIndex"] = nextIndex
@@ -229,6 +274,7 @@ class ReaderViewModel(
         val state = _uiState.value
         if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
         if (state.currentChapterIndex > 0) {
+            stopAutoScroll()
             aiController?.sourceChanged(null)
             val prevIndex = state.currentChapterIndex - 1
             savedStateHandle["readerChapterIndex"] = prevIndex
@@ -241,6 +287,7 @@ class ReaderViewModel(
     fun selectChapter(index: Int) {
         val state = _uiState.value
         if (index in state.chapters.indices) {
+            stopAutoScroll()
             if (index != state.currentChapterIndex) aiController?.sourceChanged(null)
             savedStateHandle["readerChapterIndex"] = index
             _uiState.update { it.copy(currentChapterIndex = index, chapters = retainReaderContent(it.chapters, index)) }
@@ -249,13 +296,14 @@ class ReaderViewModel(
         }
     }
 
-    fun setFontSize(size: Float) = preferencesManager.updateFontSize(size)
+    fun setFontSize(size: Float) { pauseAutoScroll(); preferencesManager.updateFontSize(size) }
     fun setTheme(theme: ReaderTheme) = preferencesManager.updateTheme(theme)
-    fun setLineHeight(multiplier: Float) = preferencesManager.updateLineHeight(multiplier)
-    fun setFontFamily(font: ReaderFont) = preferencesManager.updateFontFamily(font)
-    fun setParagraphSpacing(spacingDp: Float) = preferencesManager.updateParagraphSpacing(spacingDp)
+    fun setLineHeight(multiplier: Float) { pauseAutoScroll(); preferencesManager.updateLineHeight(multiplier) }
+    fun setFontFamily(font: ReaderFont) { pauseAutoScroll(); preferencesManager.updateFontFamily(font) }
+    fun setParagraphSpacing(spacingDp: Float) { pauseAutoScroll(); preferencesManager.updateParagraphSpacing(spacingDp) }
 
     fun retryCurrentChapter() {
+        stopAutoScroll()
         val state = _uiState.value
         // Reset circuit breaker on explicit retry
         val source = state.novel?.source ?: NovelSourceType.NOVEL_PHOENIX
