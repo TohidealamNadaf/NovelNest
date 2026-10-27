@@ -22,7 +22,7 @@ enum class NovelSourceType(
     ASURA_SCANS(
         displayName = "Asura Scans",
         shortName = "Asura",
-        baseUrl = "https://asuracomic.net",
+        baseUrl = "https://asurascans.com",
         subtitle = "Action & Fantasy Manhwa",
         isManhwa = true
     );

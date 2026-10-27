@@ -73,6 +73,8 @@ class HomeViewModel(
         val slug = id.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
         val url = if (source == NovelSourceType.FREE_WEB_NOVEL)
             runCatching { FreeWebNovelUrls.novelUrl(id) }.getOrDefault("")
+        else if (source == NovelSourceType.ASURA_SCANS)
+            runCatching { com.novelnest.app.data.remote.asura.AsuraUrls.seriesUrl(id) }.getOrDefault("")
         else "${source.baseUrl}/novel/$slug"
         return Novel(id, slug.split('-').joinToString(" ") { it.replaceFirstChar(Char::titlecase) },
             "", source, url, latestChapter = "")

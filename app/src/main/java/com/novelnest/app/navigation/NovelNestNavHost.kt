@@ -13,6 +13,7 @@ import com.novelnest.app.feature.browse.BrowseViewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,6 +32,8 @@ import com.novelnest.app.feature.discover.DiscoverScreen
 import com.novelnest.app.feature.discover.DiscoverViewModel
 import com.novelnest.app.feature.home.HomeScreen
 import com.novelnest.app.feature.home.HomeViewModel
+import com.novelnest.app.feature.manhwa.ManhwaReaderScreen
+import com.novelnest.app.feature.manhwa.ManhwaReaderViewModel
 import com.novelnest.app.feature.notification.NotificationScreen
 import com.novelnest.app.feature.reader.ReaderScreen
 import com.novelnest.app.feature.reader.ReaderViewModel
@@ -70,7 +73,12 @@ fun NovelNestNavHost(
                 onContinueReading = { novel, chapterIndex ->
                     app.navigationPreferences.selectSource(novel.source)
                     repository.rememberNovel(novel)
-                    navController.navigate(NovelNestDestination.Reader.createRoute(novel.id, chapterIndex.coerceAtLeast(0)))
+                    val isAsura = novel.source.isManhwa
+                    if (isAsura) {
+                        navController.navigate(NovelNestDestination.ManhwaReader.createRoute(novel.id, chapterIndex.coerceAtLeast(0)))
+                    } else {
+                        navController.navigate(NovelNestDestination.Reader.createRoute(novel.id, chapterIndex.coerceAtLeast(0)))
+                    }
                 },
                 onNavigateToSearch = { source ->
                     navController.navigate(NovelNestDestination.Search.createRoute(source.ordinal))
@@ -235,8 +243,15 @@ fun NovelNestNavHost(
                 viewModel = detailViewModel,
                 onBack = { navController.popBackStack() },
                 onStartReading = { id, chapterIndex ->
-                    detailViewModel.uiState.value.novel?.source?.let(app.navigationPreferences::selectSource)
-                    navController.navigate(NovelNestDestination.Reader.createRoute(id, chapterIndex))
+                    val novel = detailViewModel.uiState.value.novel
+                    val isAsura = novel?.source?.isManhwa ?: id.startsWith("asura-")
+                    if (isAsura) {
+                        app.navigationPreferences.selectSource(NovelSourceType.ASURA_SCANS)
+                        navController.navigate(NovelNestDestination.ManhwaReader.createRoute(id, chapterIndex))
+                    } else {
+                        novel?.source?.let(app.navigationPreferences::selectSource)
+                        navController.navigate(NovelNestDestination.Reader.createRoute(id, chapterIndex))
+                    }
                 }
             )
         }
@@ -290,8 +305,58 @@ fun NovelNestNavHost(
                 ) + fadeOut(animationSpec = tween(250))
             }
         ) { backStackEntry ->
-            val novelId = backStackEntry.arguments?.getString("novelId") ?: ""
-            val chapterIndex = backStackEntry.arguments?.getInt("chapterIndex") ?: -1
+            ReaderDestination(backStackEntry, navController, repository, app)
+        }
+
+        // MANHWA READER SCREEN (Dedicated vertical webtoon image canvas)
+        composable(
+            route = NovelNestDestination.ManhwaReader.route,
+            arguments = listOf(
+                navArgument("novelId") {
+                    type = NavType.StringType
+                },
+                navArgument("chapterIndex") {
+                    type = NavType.IntType
+                    defaultValue = -1
+                }
+            ),
+            enterTransition = {
+                slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight / 3 },
+                    animationSpec = tween(300)
+                ) + fadeIn(animationSpec = tween(300))
+            },
+            exitTransition = {
+                slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight / 3 },
+                    animationSpec = tween(250)
+                ) + fadeOut(animationSpec = tween(250))
+            }
+        ) { backStackEntry ->
+            ReaderDestination(backStackEntry, navController, repository, app)
+        }
+    }
+}
+
+@Composable
+private fun ReaderDestination(
+    entry: NavBackStackEntry,
+    navController: NavHostController,
+    repository: NovelRepository,
+    app: NovelNestApplication
+) {
+    val novelId = entry.arguments?.getString("novelId") ?: ""
+    val chapterIndex = entry.arguments?.getInt("chapterIndex") ?: -1
+    ReaderEntryContent(
+        novelId = novelId,
+        repository = repository,
+        bookmarkManager = app.bookmarkManager,
+        onSourceResolved = { source ->
+            // An outgoing entry must not overwrite the active page's source choice.
+            if (navController.currentBackStackEntry == entry) app.navigationPreferences.selectSource(source)
+        },
+        onBack = { navController.popBackStack() },
+        textReader = {
             val readerViewModel: ReaderViewModel = viewModel(
                 key = "reader_${novelId}_$chapterIndex",
                 factory = object : ViewModelProvider.Factory {
@@ -313,21 +378,32 @@ fun NovelNestNavHost(
                     }
                 }
             )
-
-            val readerState by readerViewModel.uiState.collectAsState()
-            LaunchedEffect(readerState.novel?.source) {
-                // Save the actual source even for restored/deep-linked reader entries.
-                // An outgoing reader composition must not overwrite a newer source choice.
-                if (navController.currentBackStackEntry == backStackEntry) {
-                    readerState.novel?.source?.let(app.navigationPreferences::selectSource)
+            ReaderScreen(viewModel = readerViewModel, onBack = { navController.popBackStack() })
+        },
+        manhwaReader = {
+            val manhwaViewModel: ManhwaReaderViewModel = viewModel(
+                key = "manhwa_reader_${novelId}_$chapterIndex",
+                factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T {
+                        return ManhwaReaderViewModel(
+                            novelId = novelId,
+                            repository = repository,
+                            bookmarkManager = app.bookmarkManager,
+                            progressManager = app.readingProgressManager,
+                            savedStateHandle = extras.createSavedStateHandle(),
+                            initialChapterIndex = chapterIndex
+                        ) as T
+                    }
                 }
-            }
-            ReaderScreen(
-                viewModel = readerViewModel,
+            )
+
+            ManhwaReaderScreen(
+                viewModel = manhwaViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
-    }
+    )
 }
 
 private fun <VM : ViewModel> screenFactory(create: () -> VM): ViewModelProvider.Factory =

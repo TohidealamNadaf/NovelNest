@@ -23,6 +23,8 @@ import com.novelnest.app.data.remote.NovelPhoenixSource
 import com.novelnest.app.data.remote.NovelSource
 import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
+import com.novelnest.app.data.remote.asura.AsuraUrls
+import com.novelnest.app.data.remote.ManhwaSource
 import com.novelnest.app.data.remote.network.CircuitBreaker
 import com.novelnest.app.data.remote.network.HostRateLimiter
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +94,8 @@ class NovelRepositoryImpl(
                 return@withLock Result.success(cached.second.copy(novels = cached.second.novels.map(::withKnownRating)))
             }
             val remote = sources[source] ?: return@withLock Result.failure(IOException("Source is unavailable"))
-            val result = remote.getBrowsePage(canonicalUrl).map { page ->
+            val fetched = if (remote is AsuraSource) remote.getBrowsePage(canonicalUrl, forceRefresh) else remote.getBrowsePage(canonicalUrl)
+            val result = fetched.map { page ->
                 page.copy(novels = page.novels.filter { it.source == source }.distinctBy { it.id }.map(::withKnownRating))
             }
             result.onSuccess { page ->
@@ -110,7 +113,10 @@ class NovelRepositoryImpl(
             return Result.success(cached.second)
         }
         val remote = sources[source] ?: return Result.failure(IOException("Source is unavailable"))
-        val result = remote.getPopularNovels().map { novels -> novels.filter { it.source == source }.distinctBy { it.id }.take(12) }
+        val fetched = if (remote is AsuraSource && forceRefresh) remote.getHomeSections(true).map { sections ->
+            sections.firstOrNull { it.id == "asura-live-popular" }?.novels.orEmpty()
+        } else remote.getPopularNovels()
+        val result = fetched.map { novels -> novels.filter { it.source == source }.distinctBy { it.id }.take(12) }
         result.onSuccess { novels ->
             novels.forEach(::rememberNovel)
             popularCache[source] = System.currentTimeMillis() to novels
@@ -128,7 +134,7 @@ class NovelRepositoryImpl(
     override fun rememberNovel(novel: Novel) {
         val canonical = if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
             runCatching { novel.copy(id = FreeWebNovelUrls.novelId(novel.sourceUrl), sourceUrl = FreeWebNovelUrls.novelUrl(novel.sourceUrl)) }.getOrDefault(novel)
-        } else novel
+        } else if (novel.source == NovelSourceType.ASURA_SCANS) NovelIdentity.normalize(novel) else novel
         val existing = memoryNovels[canonical.id]
         val merged = if (existing != null && canonical.synopsis.isBlank()) canonical.copy(
             rating = withKnownRating(canonical).rating,
@@ -142,6 +148,16 @@ class NovelRepositoryImpl(
 
     private fun isLiveFreeWebNovel(novel: Novel): Boolean = novel.source == NovelSourceType.FREE_WEB_NOVEL &&
         runCatching { novel.id == FreeWebNovelUrls.novelId(novel.sourceUrl) }.getOrDefault(false)
+
+    private fun liveOnly(source: NovelSourceType) = source in setOf(NovelSourceType.FREE_WEB_NOVEL, NovelSourceType.ASURA_SCANS)
+    private fun genuine(novel: Novel): Boolean = when (novel.source) {
+        NovelSourceType.FREE_WEB_NOVEL -> isLiveFreeWebNovel(novel)
+        NovelSourceType.ASURA_SCANS -> runCatching {
+            novel.id == AsuraUrls.novelId(novel.sourceUrl) &&
+                (novel.coverUrl.isBlank() || AsuraUrls.image(novel.coverUrl).isNotBlank())
+        }.getOrDefault(false)
+        else -> true
+    }
 
     private fun chapterSnapshot(source: NovelSourceType, novelSlugOrUrl: String) =
         chapterSnapshots.get(buildChapterCacheKey(source, novelSlugOrUrl))
@@ -185,7 +201,7 @@ class NovelRepositoryImpl(
         // 3. Stale-While-Revalidate: Fetch from remote source with rate limiting & circuit breaker
         if (!circuitBreaker.canExecute(source.name)) {
             if (cachedFromDb.isNotEmpty()) return@flow
-            if (source == NovelSourceType.FREE_WEB_NOVEL) emit(Result.failure(IOException("FreeWebNovel is temporarily unavailable")))
+            if (liveOnly(source)) emit(Result.failure(IOException("${source.displayName} is temporarily unavailable")))
             else emit(Result.success(SeedData.getSectionsFor(source)))
             return@flow
         }
@@ -194,8 +210,8 @@ class NovelRepositoryImpl(
 
         val remoteSource = sources[source]
         if (remoteSource == null) {
-            if (source == NovelSourceType.FREE_WEB_NOVEL && cachedFromDb.isEmpty()) {
-                emit(Result.failure(IOException("FreeWebNovel source is unavailable")))
+            if (liveOnly(source) && cachedFromDb.isEmpty()) {
+                emit(Result.failure(IOException("${source.displayName} source is unavailable")))
                 return@flow
             }
             val fallback = if (cachedFromDb.isNotEmpty()) cachedFromDb else SeedData.getSectionsFor(source)
@@ -203,7 +219,8 @@ class NovelRepositoryImpl(
             return@flow
         }
 
-        val remoteResult = remoteSource.getHomeSections().map(::availableSectionRatings)
+        val fetched = if (remoteSource is AsuraSource) remoteSource.getHomeSections(forceRefresh) else remoteSource.getHomeSections()
+        val remoteResult = fetched.map(::availableSectionRatings)
         remoteResult.fold(
             onSuccess = { sections ->
                 sections.flatMap { it.novels }.forEach(::rememberNovel)
@@ -231,7 +248,7 @@ class NovelRepositoryImpl(
                     emit(Result.success(cachedFromDb))
                 } else {
                     // Ultimate graceful fallback
-                    if (source == NovelSourceType.FREE_WEB_NOVEL) emit(Result.failure(error))
+                    if (liveOnly(source)) emit(Result.failure(error))
                     else emit(Result.success(SeedData.getSectionsFor(source)))
                 }
             }
@@ -241,33 +258,33 @@ class NovelRepositoryImpl(
     override suspend fun searchNovels(source: NovelSourceType, query: String): Result<List<Novel>> {
         val q = query.trim()
         if (q.isBlank()) {
-            return Result.success(if (source == NovelSourceType.FREE_WEB_NOVEL) emptyList() else SeedData.search(source, ""))
+            return Result.success(if (liveOnly(source)) emptyList() else SeedData.search(source, ""))
         }
 
         // Check local DB first for matches to reduce scraper stress
         var cachedMatches = NovelIdentity.distinct(memoryNovels.valuesSnapshot()).filter {
             it.source == source && it.title.contains(q, ignoreCase = true) &&
-                (source != NovelSourceType.FREE_WEB_NOVEL || isLiveFreeWebNovel(it))
+                (!liveOnly(source) || genuine(it))
         }
         if (database != null) {
             val localMatches = database.novelDao().searchNovels(source.name, q).firstOrNull().orEmpty()
             cachedMatches = NovelIdentity.distinct(cachedMatches + localMatches.map { it.toDomain() })
-                .filter { source != NovelSourceType.FREE_WEB_NOVEL || isLiveFreeWebNovel(it) }
-            if (source != NovelSourceType.FREE_WEB_NOVEL && localMatches.isNotEmpty()) {
+                .filter { !liveOnly(source) || genuine(it) }
+            if (!liveOnly(source) && localMatches.isNotEmpty()) {
                 return Result.success(cachedMatches)
             }
         }
 
         // Polite remote fetch
         if (!circuitBreaker.canExecute(source.name)) {
-            if (source == NovelSourceType.FREE_WEB_NOVEL) return if (cachedMatches.isNotEmpty()) Result.success(cachedMatches)
-                else Result.failure(IOException("FreeWebNovel is temporarily unavailable"))
+            if (liveOnly(source)) return if (cachedMatches.isNotEmpty()) Result.success(cachedMatches)
+                else Result.failure(IOException("${source.displayName} is temporarily unavailable"))
             return Result.success(SeedData.search(source, q))
         }
 
         rateLimiter.acquire(source.name)
-        val remoteSource = sources[source] ?: return if (source == NovelSourceType.FREE_WEB_NOVEL)
-            Result.failure(IOException("FreeWebNovel source is unavailable")) else Result.success(SeedData.search(source, q))
+        val remoteSource = sources[source] ?: return if (liveOnly(source))
+            Result.failure(IOException("${source.displayName} source is unavailable")) else Result.success(SeedData.search(source, q))
 
         val result = remoteSource.search(q).map { NovelIdentity.distinct(it.filter { novel -> novel.source == source }) }
         result.onSuccess { novels ->
@@ -289,7 +306,7 @@ class NovelRepositoryImpl(
             }
         }
 
-        return if (source == NovelSourceType.FREE_WEB_NOVEL && result.isFailure && cachedMatches.isNotEmpty()) Result.success(cachedMatches) else result
+        return if (liveOnly(source) && result.isFailure && cachedMatches.isNotEmpty()) Result.success(cachedMatches) else result
     }
 
     override suspend fun getNovelById(novelId: String): Novel? {
@@ -301,7 +318,7 @@ class NovelRepositoryImpl(
                 return memoryNovels[novelId]
             }
         }
-        return SeedData.findNovelById(novelId)
+        return SeedData.findNovelById(novelId)?.takeUnless { it.source == NovelSourceType.ASURA_SCANS }
     }
 
     override suspend fun getNovelDetails(source: NovelSourceType, novelUrl: String): Result<Novel> {
@@ -322,7 +339,27 @@ class NovelRepositoryImpl(
         return result
     }
 
+    override suspend fun getManhwaDetails(source: NovelSourceType, seriesUrlOrId: String, forceRefresh: Boolean): Result<com.novelnest.app.data.model.ManhwaDetails> {
+        val remote = sources[source] as? ManhwaSource
+            ?: return Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+        return remote.getManhwaDetails(seriesUrlOrId, forceRefresh).onSuccess { details ->
+            rememberNovel(details.novel)
+            database?.let { db -> repositoryScope.launch {
+                try { db.novelDao().upsertNovel(details.novel.toEntity()) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { android.util.Log.w("NovelRepository", "Unable to cache manhwa metadata", error) }
+            } }
+        }
+    }
+
+    override suspend fun getManhwaChapter(source: NovelSourceType, chapterUrl: String, forceRefresh: Boolean): Result<com.novelnest.app.data.model.ManhwaChapterContent> {
+        val remote = sources[source] as? ManhwaSource
+            ?: return Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+        return remote.getManhwaChapter(chapterUrl, forceRefresh)
+    }
+
     private fun buildChapterCacheKey(source: NovelSourceType, slugOrUrl: String): String {
+        if (source == NovelSourceType.ASURA_SCANS) return "${source.name}_${AsuraUrls.slug(slugOrUrl)}"
         if (source == NovelSourceType.FREE_WEB_NOVEL) return "${source.name}_${FreeWebNovelUrls.slug(slugOrUrl)}"
         val trimmed = slugOrUrl.trim()
         val path = runCatching { java.net.URI(trimmed).path }.getOrNull()
@@ -353,7 +390,7 @@ class NovelRepositoryImpl(
         forceRefresh: Boolean
     ): Result<List<com.novelnest.app.feature.reader.Chapter>> {
         val cacheKey = buildChapterCacheKey(source, novelSlugOrUrl)
-        val useRepositoryCache = source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL)
+        val useRepositoryCache = source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL, NovelSourceType.ASURA_SCANS)
         val cached = if (useRepositoryCache) memoryChapterCache[cacheKey] else null
         if (useRepositoryCache && !forceRefresh && !cached.isNullOrEmpty()) {
             return Result.success(cached)
@@ -393,7 +430,7 @@ class NovelRepositoryImpl(
         warmFirstChapter: Boolean
     ): Flow<Result<List<Chapter>>> = flow {
         val cacheKey = buildChapterCacheKey(source, novelSlugOrUrl)
-        val useRepositoryCache = source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL)
+        val useRepositoryCache = source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL, NovelSourceType.ASURA_SCANS)
         val cached = if (useRepositoryCache) memoryChapterCache[cacheKey] else null
         if (useRepositoryCache && !forceRefresh && !cached.isNullOrEmpty()) {
             emit(Result.success(cached))
@@ -528,8 +565,11 @@ class NovelRepositoryImpl(
                 .map { it.toDomain() }
 
             sectionEntity.toDomain(novels)
-        }.filter { it.novels.isNotEmpty() && (source != NovelSourceType.FREE_WEB_NOVEL ||
-            (it.id.startsWith("fwn-live-") && it.novels.all(::isLiveFreeWebNovel))) }
+        }.filter { it.novels.isNotEmpty() && when (source) {
+            NovelSourceType.FREE_WEB_NOVEL -> it.id.startsWith("fwn-live-") && it.novels.all(::isLiveFreeWebNovel)
+            NovelSourceType.ASURA_SCANS -> it.id.startsWith("asura-live-") && it.novels.all(::genuine)
+            else -> true
+        } }
     }
 
     private fun saveSectionsToDatabase(source: NovelSourceType, sections: List<NovelSection>) {

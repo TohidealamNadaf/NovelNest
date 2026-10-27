@@ -683,8 +683,16 @@ private fun NovelDetailHeroHeader(
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
+                        val authorText = remember(novel.author, uiState.manhwaDetails?.artist) {
+                            val artist = uiState.manhwaDetails?.artist.orEmpty().trim()
+                            if (artist.isNotBlank() && !novel.author.contains(artist, ignoreCase = true)) {
+                                "${novel.author} • Art: $artist"
+                            } else {
+                                novel.author
+                            }
+                        }
                         Text(
-                            text = novel.author,
+                            text = authorText,
                             style = MaterialTheme.typography.bodyMedium,
                             color = NovelTextSecondary,
                             maxLines = 1,
@@ -735,8 +743,15 @@ private fun NovelDetailHeroHeader(
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
+                            val originalRating = uiState.manhwaDetails?.sourceRating
+                            val ratingScale = uiState.manhwaDetails?.ratingScale ?: 10
+                            val ratingText = if (originalRating != null && originalRating > 0f) {
+                                String.format("%.1f/%d", originalRating, ratingScale)
+                            } else {
+                                String.format("%.1f", novel.rating)
+                            }
                             Text(
-                                text = String.format("%.1f", novel.rating),
+                                text = ratingText,
                                 color = NovelTextPrimary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,

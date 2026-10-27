@@ -30,7 +30,7 @@ class NovelRepositoryTest {
 
     @Test
     fun getHomeSections_emitsSectionsForAsuraScans() = runBlocking {
-        val result = repository.getHomeSections(NovelSourceType.ASURA_SCANS).first()
+        val result = asuraRepository().getHomeSections(NovelSourceType.ASURA_SCANS).first()
         assertTrue(result.isSuccess)
         val sections = result.getOrNull()
         assertNotNull(sections)
@@ -48,10 +48,17 @@ class NovelRepositoryTest {
 
     @Test
     fun searchNovels_inAsuraScans_findsManhwa() = runBlocking {
-        val result = repository.searchNovels(NovelSourceType.ASURA_SCANS, "Solo Leveling")
+        val result = asuraRepository().searchNovels(NovelSourceType.ASURA_SCANS, "Zenith")
         assertTrue(result.isSuccess)
         val manhwa = result.getOrNull()
         assertNotNull(manhwa)
-        assertTrue(manhwa!!.any { it.title.contains("Solo Leveling", ignoreCase = true) })
+        assertTrue(manhwa!!.any { it.title.contains("Zenith", ignoreCase = true) })
+    }
+
+    private fun asuraRepository(): NovelRepositoryImpl {
+        val source = com.novelnest.app.data.remote.asura.AsuraSource(http = com.novelnest.app.data.remote.asura.AsuraHttp { url, _ ->
+            com.novelnest.app.data.remote.asura.asuraFixture(if (url.contains("/api/")) "search.json" else "home.html")
+        })
+        return NovelRepositoryImpl(sources = mapOf(NovelSourceType.ASURA_SCANS to source))
     }
 }

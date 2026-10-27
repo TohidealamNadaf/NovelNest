@@ -25,6 +25,12 @@ interface NovelRepository {
     /** Retain the exact clicked record before navigating to details. */
     fun rememberNovel(novel: Novel) {}
 
+    suspend fun getManhwaDetails(source: NovelSourceType, seriesUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.ManhwaDetails> =
+        Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+
+    suspend fun getManhwaChapter(source: NovelSourceType, chapterUrl: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.ManhwaChapterContent> =
+        Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+
     suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.feature.reader.Chapter>>
 
     /**

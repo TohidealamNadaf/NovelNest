@@ -81,6 +81,9 @@ class SettingsViewModel(
                     (ctx.applicationContext as? NovelNestApplication)?.readerCacheStore?.clear() ?: false
                 }
                 clearOwnedCache {
+                    (ctx.applicationContext as? NovelNestApplication)?.manhwaImageStore?.clear() ?: false
+                }
+                clearOwnedCache {
                     (ctx.applicationContext as? NovelNestApplication)?.aiResultCache?.clear() ?: false
                 }
                 val audio = NarrationCache.clear(ctx)

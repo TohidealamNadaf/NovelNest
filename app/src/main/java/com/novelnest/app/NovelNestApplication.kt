@@ -39,6 +39,10 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume"))
     }
 
+    val manhwaImageStore by lazy {
+        com.novelnest.app.data.manhwa.ManhwaImageStore(java.io.File(cacheDir, "manhwa_images"))
+    }
+
     val novelRepository: NovelRepository by lazy {
         NovelRepositoryImpl(database = database, readerCache = readerCacheStore)
     }

@@ -42,7 +42,15 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE reading_progress ADD COLUMN manhwaPageIndex INTEGER NOT NULL DEFAULT -1")
+            db.execSQL("ALTER TABLE reading_progress ADD COLUMN manhwaPageOffset REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE reading_progress ADD COLUMN manhwaPageCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4
+        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5
     )
 }

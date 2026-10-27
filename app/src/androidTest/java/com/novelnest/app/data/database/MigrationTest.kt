@@ -52,6 +52,25 @@ class MigrationTest {
     @Test
     fun migrateOldestSupportedDatabaseToCurrentSchema() {
         helper.createDatabase("study-migration-all", 1).close()
-        helper.runMigrationsAndValidate("study-migration-all", 4, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
+        helper.runMigrationsAndValidate("study-migration-all", 5, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
+    }
+
+    @Test
+    fun migrateFrom4To5PreservesNovelsNotesAndAllowsManhwaPositions() {
+        helper.createDatabase("manhwa-progress-migration", 4).apply {
+            execSQL("INSERT INTO reading_progress VALUES ('np-book', 'chapter-87', 86, 'Chapter 87', 123, '[\"chapter-87\"]')")
+            execSQL("INSERT INTO chapter_notes VALUES ('note', 'NOVEL_PHOENIX', 'np-book', 'chapter-87', 'Title', '**Saved**', 123)")
+            close()
+        }
+        helper.runMigrationsAndValidate("manhwa-progress-migration", 5, true, DatabaseMigrations.MIGRATION_4_5).apply {
+            query("SELECT lastReadChapterIndex, manhwaPageIndex, manhwaPageOffset, manhwaPageCount FROM reading_progress WHERE novelId='np-book'").use {
+                it.moveToFirst(); assertEquals(86, it.getInt(0)); assertEquals(-1, it.getInt(1)); assertEquals(0f, it.getFloat(2), 0f); assertEquals(0, it.getInt(3))
+            }
+            query("SELECT markdown FROM chapter_notes WHERE id='note'").use {
+                it.moveToFirst(); assertEquals("**Saved**", it.getString(0))
+            }
+            execSQL("INSERT INTO reading_progress VALUES ('asura-book', 'asura-book:chapter:83', 82, 'Chapter 83', 456, '[]', 7, 0.5, 14)")
+            close()
+        }
     }
 }

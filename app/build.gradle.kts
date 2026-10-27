@@ -68,7 +68,8 @@ ksp {
 
 // Explicit live checks must never replay a cached test result; never use credentials as task inputs.
 tasks.withType<Test>().configureEach {
-    if (providers.environmentVariable("AI_LIVE_SMOKE").orNull == "1") {
+    if (providers.environmentVariable("AI_LIVE_SMOKE").orNull == "1" ||
+        providers.environmentVariable("ASURA_LIVE_SMOKE").orNull == "1") {
         outputs.upToDateWhen { false }
         outputs.doNotCacheIf("Live provider verification requires actual requests") { true }
     }

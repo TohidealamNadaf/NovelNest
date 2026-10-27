@@ -22,7 +22,7 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
         com.novelnest.app.data.study.TermCollectionEntity::class,
         com.novelnest.app.data.study.TermDiscoveryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
