@@ -25,9 +25,18 @@ interface NovelRepository {
     /** Retain the exact clicked record before navigating to details. */
     fun rememberNovel(novel: Novel) {}
 
+    suspend fun getManhwaDetails(source: NovelSourceType, seriesUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.ManhwaDetails> =
+        Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+
+    suspend fun getManhwaChapter(source: NovelSourceType, chapterUrl: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.ManhwaChapterContent> =
+        Result.failure(UnsupportedOperationException("This source does not support image chapters"))
+
     suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.feature.reader.Chapter>>
 
-    /** Already fetched chapters for navigation; a snapshot does not imply all pages are loaded. */
+    /**
+     * Already fetched chapters for navigation; a snapshot does not imply all pages are loaded.
+     * Partial refreshes preserve known chapters; removals require successful full completion.
+     */
     fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.feature.reader.Chapter>> =
         MutableStateFlow(emptyList())
 
@@ -35,6 +44,10 @@ interface NovelRepository {
         kotlinx.coroutines.flow.flow {
             emit(getChapters(source, novelSlugOrUrl, forceRefresh))
         }
+
+    /** Interactive startup: implementations can avoid warming an unrelated first chapter. */
+    fun getReaderChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String): Flow<Result<List<com.novelnest.app.feature.reader.Chapter>>> =
+        getChaptersFlow(source, novelSlugOrUrl, forceRefresh = false)
 
     suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.feature.reader.Chapter>
 

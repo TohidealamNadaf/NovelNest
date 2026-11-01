@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.detail
 
+import com.novelnest.app.core.ui.LocalNarrationBottomPadding
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -71,9 +73,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
-import com.novelnest.app.core.ui.ReadingProgressBar
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import com.novelnest.app.data.progress.NovelProgress
+import com.novelnest.app.data.progress.ReadingCompletion
 import com.novelnest.app.data.progress.readingCompletion
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +91,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -118,9 +127,12 @@ fun NovelDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val narrationBottomPadding = LocalNarrationBottomPadding.current
     val novel = uiState.novel
     val playHaptic = rememberNovelNestHaptic()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val showScrollToTop by remember {
@@ -181,10 +193,10 @@ fun NovelDetailScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 60.dp)
+                contentPadding = PaddingValues(bottom = 60.dp + narrationBottomPadding)
             ) {
                 // 1. HERO POSTER & METADATA SECTION
-                item {
+                item(key = "detail:hero", contentType = "hero") {
                     NovelDetailHeroHeader(
                         novel = novel,
                         uiState = uiState,
@@ -197,14 +209,26 @@ fun NovelDetailScreen(
                     )
                 }
 
-                item {
+                item(key = "detail:progress", contentType = "progress") {
                     val completion = remember(novel, uiState.readingProgress) { novel.readingCompletion(uiState.readingProgress) }
-                    ReadingProgressBar(completion,
-                        Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    val targetIndex = remember(uiState.readingProgress, uiState.chapters) {
+                        val lastReadIndex = uiState.readingProgress?.lastReadChapterIndex ?: 0
+                        if (uiState.chapters.isNotEmpty()) {
+                            lastReadIndex.coerceIn(0, uiState.chapters.lastIndex)
+                        } else {
+                            lastReadIndex.coerceAtLeast(0)
+                        }
+                    }
+                    NovelReadingProgressCard(
+                        completion = completion,
+                        progress = uiState.readingProgress,
+                        onContinueReading = { onStartReading(novel.id, targetIndex) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
                 }
 
                 // 2. SYNOPSIS / SUMMARY SECTION
-                item {
+                item(key = "detail:synopsis", contentType = "synopsis") {
                     NovelSynopsisCard(
                         synopsis = novel.synopsis,
                         isExpanded = uiState.isSynopsisExpanded,
@@ -213,7 +237,7 @@ fun NovelDetailScreen(
                 }
 
                 // 3. CHAPTERS FILTER & SORT CONTROLS
-                item {
+                item(key = "detail:chapter_controls", contentType = "chapter_controls") {
                     ChapterListHeader(
                         totalChapters = uiState.chapters.size,
                         filteredCount = uiState.filteredChapters.size,
@@ -234,7 +258,7 @@ fun NovelDetailScreen(
 
                 // 3b. FALLBACK / ERROR NOTIFICATION BANNER
                 if (uiState.chaptersErrorMessage != null || uiState.errorMessage != null) {
-                    item {
+                    item(key = "detail:chapter_error", contentType = "chapter_error") {
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = NovelSurfaceVariant),
@@ -297,16 +321,19 @@ fun NovelDetailScreen(
                 // 4. CHAPTER LIST ITEMS
                 itemsIndexed(
                     items = uiState.filteredChapters,
-                    key = { _, ch -> ch.id }
-                ) { index, chapter ->
+                    key = { _, ch -> ch.id },
+                    contentType = { _, _ -> "chapter" }
+                ) { _, chapter ->
                     val isRead = uiState.readChapterIds.contains(chapter.id)
+                    val actualIndex = viewModel.readerChapterIndex(chapter.id)
+                    val isCurrent = uiState.readingProgress != null && actualIndex == uiState.readingProgress?.lastReadChapterIndex
                     ChapterListItem(
                         chapterTitle = chapter.title,
-                        chapterNumber = index + 1,
+                        chapterNumber = actualIndex + 1,
                         isRead = isRead,
+                        isCurrent = isCurrent,
                         onClick = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
-                            val actualIndex = viewModel.readerChapterIndex(chapter.id)
                             onStartReading(novel.id, actualIndex)
                         }
                     )
@@ -440,15 +467,19 @@ fun NovelDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, bottom = 24.dp)
+                    .padding(start = 20.dp, bottom = 24.dp + narrationBottomPadding)
             ) {
                 NovelNestIconButton(
                     icon = Icons.Rounded.KeyboardArrowUp,
                     contentDescription = "Scroll to top instantly",
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        // A focused search field must not request visibility again after the jump.
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
                         coroutineScope.launch {
-                            listState.animateScrollToItem(0)
+                            // Skip measuring/animating through the variable-height header sections.
+                            listState.scrollToItem(index = 0, scrollOffset = 0)
                         }
                     },
                     tint = NovelOnPrimary,
@@ -467,7 +498,7 @@ fun NovelDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(end = 20.dp, bottom = 24.dp)
+                    .padding(end = 20.dp, bottom = 24.dp + narrationBottomPadding)
             ) {
                 val lastReadIdx = uiState.readingProgress?.lastReadChapterIndex?.coerceIn(0, (uiState.chapters.size - 1).coerceAtLeast(0)) ?: 0
                 Button(
@@ -652,8 +683,16 @@ private fun NovelDetailHeroHeader(
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
+                        val authorText = remember(novel.author, uiState.manhwaDetails?.artist) {
+                            val artist = uiState.manhwaDetails?.artist.orEmpty().trim()
+                            if (artist.isNotBlank() && !novel.author.contains(artist, ignoreCase = true)) {
+                                "${novel.author} • Art: $artist"
+                            } else {
+                                novel.author
+                            }
+                        }
                         Text(
-                            text = novel.author,
+                            text = authorText,
                             style = MaterialTheme.typography.bodyMedium,
                             color = NovelTextSecondary,
                             maxLines = 1,
@@ -704,8 +743,15 @@ private fun NovelDetailHeroHeader(
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
+                            val originalRating = uiState.manhwaDetails?.sourceRating
+                            val ratingScale = uiState.manhwaDetails?.ratingScale ?: 10
+                            val ratingText = if (originalRating != null && originalRating > 0f) {
+                                String.format("%.1f/%d", originalRating, ratingScale)
+                            } else {
+                                String.format("%.1f", novel.rating)
+                            }
                             Text(
-                                text = String.format("%.1f", novel.rating),
+                                text = ratingText,
                                 color = NovelTextPrimary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -848,6 +894,193 @@ private fun NovelDetailHeroHeader(
                             onToggle = { onToggleBookmark() }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Modern Reading Progress Card reflecting application and detail page theme.
+ */
+@Composable
+private fun NovelReadingProgressCard(
+    completion: ReadingCompletion,
+    progress: NovelProgress?,
+    onContinueReading: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val focused by interactions.collectIsFocusedAsState()
+    val surfaceColor by animateColorAsState(
+        targetValue = if (pressed || focused) NovelSurfaceVariant else NovelSurface,
+        label = "progress_card_press"
+    )
+
+    val animatedFraction by animateFloatAsState(
+        targetValue = completion.fraction,
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "progress_fraction"
+    )
+
+    val percent = (completion.fraction * 100).toInt()
+    val hasStarted = completion.read > 0 || (progress != null && progress.lastReadChapterIndex >= 0)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = surfaceColor),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = interactions,
+                indication = null,
+                role = Role.Button,
+                onClickLabel = if (hasStarted) "Continue reading" else "Start reading",
+                onClick = onContinueReading
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            // Header: Icon + Title/Subtitle + Percentage Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Book Icon in theme accent container
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(NovelPrimary.copy(alpha = 0.14f))
+                        .border(1.dp, NovelPrimary.copy(alpha = 0.28f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoStories,
+                        contentDescription = null,
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Reading Progress",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NovelTextPrimary
+                    )
+
+                    val subtitleText = when {
+                        progress != null && progress.lastReadChapterTitle.isNotBlank() ->
+                            "Last: ${progress.lastReadChapterTitle}"
+                        hasStarted ->
+                            "${completion.read} chapters completed"
+                        else ->
+                            "Not started yet"
+                    }
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NovelTextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Percentage Badge Pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (percent > 0) NovelPrimary.copy(alpha = 0.15f)
+                            else NovelSurfaceVariant
+                        )
+                        .border(
+                            1.dp,
+                            if (percent > 0) NovelPrimary.copy(alpha = 0.45f)
+                            else NovelSurfaceBorder,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$percent%",
+                        color = if (percent > 0) NovelPrimary else NovelTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Sleek Gradient Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(NovelSurfaceVariant)
+            ) {
+                if (animatedFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(animatedFraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(NovelPrimary, NovelGold)
+                                )
+                            )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Footer: Chapter count & Action prompt
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = completion.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NovelTextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (hasStarted) "Continue" else "Start Reading",
+                        color = NovelPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = null,
+                        tint = NovelPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }
@@ -1100,16 +1333,25 @@ private fun ChapterListItem(
     chapterTitle: String,
     chapterNumber: Int,
     isRead: Boolean = false,
+    isCurrent: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isRead) NovelSurface.copy(alpha = 0.55f) else NovelSurface
+            containerColor = when {
+                isCurrent -> NovelSurfaceVariant.copy(alpha = 0.65f)
+                isRead -> NovelSurface.copy(alpha = 0.55f)
+                else -> NovelSurface
+            }
         ),
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isRead) NovelSurfaceBorder.copy(alpha = 0.4f) else NovelSurfaceBorder.copy(alpha = 0.7f)
+            when {
+                isCurrent -> NovelSurfaceBorder.copy(alpha = 0.8f)
+                isRead -> NovelSurfaceBorder.copy(alpha = 0.35f)
+                else -> NovelSurfaceBorder.copy(alpha = 0.6f)
+            }
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -1119,54 +1361,84 @@ private fun ChapterListItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = chapterTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (isRead) NovelTextTertiary.copy(alpha = 0.65f) else NovelTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = if (isRead) FontWeight.Normal else FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isRead) {
+            // Redesigned Index Card:
+            // - Read: dark emerald container with circular outline tick mark
+            // - Current: background does NOT turn amber gold; title text indicates amber gold
+            // - Unread: clean surface badge with chapter number
+            val indexBg = when {
+                isRead -> Color(0xFF0D251D)
+                else -> NovelSurfaceVariant
+            }
+            val indexBorder = when {
+                isRead -> Color(0x3310B981)
+                isCurrent -> NovelSurfaceBorder.copy(alpha = 0.8f)
+                else -> NovelSurfaceBorder.copy(alpha = 0.5f)
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(indexBg)
+                    .border(1.dp, indexBorder, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isRead) {
+                    // Circular outline tick mark as in reference image
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .border(1.5.dp, Color(0xFF10B981), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = Color(0xFF22C55E),
+                            contentDescription = "Read",
+                            tint = Color(0xFF10B981),
                             modifier = Modifier.size(12.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                     }
+                } else {
                     Text(
-                        text = if (isRead) "Read" else "Ready to read",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isRead) Color(0xFF22C55E).copy(alpha = 0.8f) else NovelTextSecondary,
-                        fontSize = 11.sp
+                        text = "$chapterNumber",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCurrent) NovelPrimary else NovelTextPrimary
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isRead) Color(0x1F22C55E) else NovelPrimary.copy(alpha = 0.12f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isRead) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.MenuBook,
-                    contentDescription = null,
-                    tint = if (isRead) Color(0xFF22C55E) else NovelPrimary,
-                    modifier = Modifier.size(14.dp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = chapterTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = when {
+                        isCurrent -> NovelPrimary // ONLY text color indicates amber gold
+                        isRead -> NovelTextTertiary.copy(alpha = 0.65f)
+                        else -> NovelTextPrimary
+                    },
+                    fontSize = 13.sp,
+                    fontWeight = if (isCurrent) FontWeight.Bold else if (isRead) FontWeight.Normal else FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = when {
+                        isCurrent -> "Currently reading"
+                        isRead -> "Read"
+                        else -> "Ready to read"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        isCurrent -> NovelPrimary.copy(alpha = 0.85f)
+                        isRead -> Color(0xFF10B981).copy(alpha = 0.85f)
+                        else -> NovelTextSecondary
+                    },
+                    fontSize = 11.sp
                 )
             }
         }

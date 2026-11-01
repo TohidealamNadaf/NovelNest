@@ -3,6 +3,20 @@ package com.novelnest.app.data.notification
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.totalChapterCount
 
+/** Confirmation of an actual add action, independent of later chapter-release polling. */
+fun bookmarkConfirmation(novel: Novel, now: Long = System.currentTimeMillis()): AppNotification {
+    val canonical = com.novelnest.app.data.model.NovelIdentity.normalize(novel)
+    return AppNotification("bookmark:" + canonical.id + ":" + java.util.UUID.randomUUID(),
+        "Novel bookmarked", canonical.title + " is saved to your library. Tap to open it.",
+        now, novelId = canonical.id, bookmark = true)
+}
+
+fun NotificationPreferences.allows(item: AppNotification): Boolean = enabled && when {
+    item.reminder -> reminders
+    item.bookmark -> bookmarkConfirmations
+    else -> chapterUpdates
+}
+
 const val INACTIVITY_MILLIS = 24 * 60 * 60 * 1_000L
 data class ChapterMarker(val count: Int, val title: String)
 fun Novel.chapterMarker() = ChapterMarker(totalChapterCount(), latestChapter.trim())

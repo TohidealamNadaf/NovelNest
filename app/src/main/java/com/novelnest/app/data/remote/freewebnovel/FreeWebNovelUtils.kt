@@ -1,5 +1,6 @@
 package com.novelnest.app.data.remote.freewebnovel
 
+import com.novelnest.app.data.remote.RatingParser
 import java.net.URI
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -19,15 +20,11 @@ object FreeWebNovelUtils {
         URI(uri.scheme, uri.authority, path, uri.query, null).toASCIIString()
     }.getOrDefault(value)
 
-    private val ratingNumber = Regex("""^([0-5](?:[.,][0-9]+)?)(?:\s*/\s*5)?$""")
-
-    /** Read only explicit rating elements, skipping decorative spans and invalid values. */
-    fun rating(item: Element): Float = item.select(FreeWebNovelSelectors.RATING)
-        .asSequence().mapNotNull { element ->
-            val raw = element.attr("content").ifBlank { element.text() }.trim()
-            ratingNumber.matchEntire(raw)?.groupValues?.get(1)?.replace(',', '.')?.toFloatOrNull()
-                ?.takeIf { it > 0f && it <= 5f }
-        }.firstOrNull() ?: 0f
+    /** Skip decorative spans and read only explicit source rating elements. */
+    fun rating(item: Element): Float = item.select(FreeWebNovelSelectors.RATING).firstNotNullOfOrNull { element ->
+        sequenceOf(element.attr("data-rating"), element.attr("data-score"), element.attr("content"), element.text())
+            .firstNotNullOfOrNull { RatingParser.score(it) }
+    } ?: 0f
 
     fun document(html: String, url: String): Document {
         val doc = Jsoup.parse(html, url)

@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.browse
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -39,6 +41,7 @@ import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.header.NovelNestHeader
 import com.novelnest.app.data.model.Novel
@@ -101,14 +104,15 @@ fun BrowseScreen(
             }
         }
 
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+        val bottomPadding = rememberPageBottomPadding(24.dp)
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(132.dp),
+            columns = GridCells.Fixed(4),
             state = currentGridState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = bottomPadding),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            modifier = Modifier.weight(1f).fillMaxWidth()
+                .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource),
+            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = bottomPadding),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
                 Column(
@@ -333,7 +337,7 @@ fun BrowseScreen(
                         }
                     }
                     items(state.filteredNovels, key = { it.id }, contentType = { "novel" }) { novel ->
-                        NovelCard(novel, Modifier.fillMaxWidth(), onClick = { onNovelClick(novel) })
+                        NovelCard(novel, Modifier.fillMaxWidth(), isCompact = true, onClick = { onNovelClick(novel) })
                     }
                     if (state.nextPageUrl != null) item(span = { GridItemSpan(maxLineSpan) }) {
                         Surface(

@@ -15,7 +15,7 @@ import org.json.JSONObject
  * Persists and reactively exposes user bookmarked novels.
  * Ensures bookmarks survive app restarts and are accessible everywhere (Home, Detail, Reader).
  */
-class BookmarkManager(context: Context) {
+class BookmarkManager(context: Context, private val onBookmarked: (Novel) -> Unit = {}) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,6 +38,10 @@ class BookmarkManager(context: Context) {
             else -> NovelSourceType.NOVEL_PHOENIX
         }
         val sameSource = list.filter { it.source == source }
+        if (source == NovelSourceType.ASURA_SCANS) {
+            val canonicalId = runCatching { com.novelnest.app.data.remote.asura.AsuraUrls.novelId(novelId) }.getOrNull() ?: return null
+            return sameSource.find { normalize(it).id == canonicalId }
+        }
         if (source == NovelSourceType.FREE_WEB_NOVEL) {
             val canonicalId = runCatching { FreeWebNovelUrls.novelId(novelId) }.getOrNull() ?: return null
             return sameSource.find { normalize(it).id == canonicalId }
@@ -64,7 +68,7 @@ class BookmarkManager(context: Context) {
             novel.copy(id = FreeWebNovelUrls.novelId(url), sourceUrl = url,
                 coverUrl = com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUtils.posterUrl(novel.coverUrl))
         }.getOrDefault(novel)
-    } else novel
+    } else if (novel.source == NovelSourceType.ASURA_SCANS) com.novelnest.app.data.model.NovelIdentity.normalize(novel) else novel
 
     private fun sameNovel(left: Novel, right: Novel): Boolean {
         if (left.source != right.source) return false
@@ -105,6 +109,7 @@ class BookmarkManager(context: Context) {
 
         saveBookmarks(current)
         _bookmarks.value = current
+        if (isNowBookmarked) notifyBookmarked(normalized)
         return isNowBookmarked
     }
 
@@ -116,6 +121,13 @@ class BookmarkManager(context: Context) {
         if (existing < 0) current.add(0, normalized) else current[existing] = normalized
         saveBookmarks(current)
         _bookmarks.value = current
+        if (existing < 0) notifyBookmarked(normalized)
+    }
+
+    private fun notifyBookmarked(novel: Novel) {
+        try { onBookmarked(novel) } catch (error: RuntimeException) {
+            android.util.Log.w("BookmarkManager", "Bookmark notification callback failed", error)
+        }
     }
 
     @Synchronized

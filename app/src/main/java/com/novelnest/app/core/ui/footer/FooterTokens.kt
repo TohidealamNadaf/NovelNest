@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.novelnest.app.core.ui.LocalNarrationBottomPadding
 
 /**
  * Shared layout dimension tokens for the pill-shaped navigation footer.
@@ -24,6 +25,12 @@ object FooterTokens {
  */
 @Composable
 fun rememberFooterBottomPadding(extraMargin: Dp = 16.dp): Dp {
+    return FooterTokens.TotalFooterHeight + rememberPageBottomPadding(extraMargin)
+}
+
+/** For pages without the floating footer; include the shared player body once. */
+@Composable
+fun rememberPageBottomPadding(extraMargin: Dp = 16.dp): Dp {
     val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    return FooterTokens.TotalFooterHeight + navBarInset + extraMargin
+    return navBarInset + extraMargin + LocalNarrationBottomPadding.current
 }

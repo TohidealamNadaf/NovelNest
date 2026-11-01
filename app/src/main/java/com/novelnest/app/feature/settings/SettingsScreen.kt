@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -48,13 +49,17 @@ enum class SettingsSubPage {
     MAIN,
     READING_DISPLAY,
     READING_BEHAVIOR,
+    AUDIO_NARRATION,
+    AI_READING_TOOLS,
     APP_EXPERIENCE,
+    NOTIFICATIONS,
     STORAGE_CACHE
 }
 
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    aiViewModel: AiReadingToolsViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     val readerSettings by viewModel.readerSettings.collectAsState()
@@ -127,10 +132,43 @@ fun SettingsScreen(
                     )
                 }
 
+                SettingsSubPage.AUDIO_NARRATION -> {
+                    AudioNarrationPage(
+                        onBack = { currentSubPage = SettingsSubPage.MAIN }
+                    )
+                }
+
+                SettingsSubPage.AI_READING_TOOLS -> {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val effectiveAiViewModel = aiViewModel ?: run {
+                        val app = context.applicationContext as? com.novelnest.app.NovelNestApplication
+                        if (app != null) {
+                            androidx.lifecycle.viewmodel.compose.viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                                @Suppress("UNCHECKED_CAST")
+                                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                    return AiReadingToolsViewModel(app.aiConfiguration, app.aiModelDirectory, app.aiResultCache) as T
+                                }
+                            })
+                        } else null
+                    }
+                    if (effectiveAiViewModel != null) {
+                        AiReadingToolsPage(
+                            viewModel = effectiveAiViewModel,
+                            onBack = { currentSubPage = SettingsSubPage.MAIN }
+                        )
+                    }
+                }
+
                 SettingsSubPage.APP_EXPERIENCE -> {
                     AppExperiencePage(
                         appSettings = appSettings,
                         viewModel = viewModel,
+                        onBack = { currentSubPage = SettingsSubPage.MAIN }
+                    )
+                }
+
+                SettingsSubPage.NOTIFICATIONS -> {
+                    NotificationSettingsPage(
                         onBack = { currentSubPage = SettingsSubPage.MAIN }
                     )
                 }
@@ -180,10 +218,17 @@ fun SettingsScreen(
                             viewModel.resetReadingDefaults()
                             showResetDialog = false
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = NovelPrimary, contentColor = NovelOnPrimary),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NovelPrimary,
+                            contentColor = NovelOnPrimary
+                        ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Reset Defaults")
+                        Text(
+                            text = "Reset Defaults",
+                            color = NovelOnPrimary,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 },
                 dismissButton = {

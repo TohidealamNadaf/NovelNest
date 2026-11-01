@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
@@ -27,6 +27,11 @@ import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,8 +55,20 @@ fun NovelSectionRow(
     selectedNovelId: String? = null,
     onNovelLongClick: ((Novel) -> Unit)? = null,
     onNovelClick: (Novel) -> Unit = {},
-    onSeeAllClick: () -> Unit = {}
+    onSeeAllClick: () -> Unit = {},
+    onNovelVisibility: (Novel, Boolean) -> Unit = { _, _ -> },
+    isSectionVisible: Boolean = true
 ) {
+    val rowState = rememberLazyListState()
+    val itemKeys = remember(section.novels) {
+        val seen = HashSet<String>(section.novels.size)
+        section.novels.mapIndexed { index, novel ->
+            if (seen.add(novel.id)) novel.id else "${novel.id}#$index"
+        }
+    }
+    val visibleKeys by remember(rowState) {
+        derivedStateOf { rowState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
+    }
     Column(modifier = modifier.fillMaxWidth()) {
         // Section Header
         Row(
@@ -135,10 +152,17 @@ fun NovelSectionRow(
 
         // Horizontal list of novel cards
         LazyRow(
+            state = rowState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(section.novels, key = { it.id }) { novel ->
+            itemsIndexed(section.novels, key = { index, novel -> itemKeys.getOrElse(index) { novel.id } }) { index, novel ->
+                val itemKey = itemKeys.getOrElse(index) { novel.id }
+                val visible = isSectionVisible && itemKey in visibleKeys
+                DisposableEffect(novel.source, novel.id, visible) {
+                    if (visible) onNovelVisibility(novel, true)
+                    onDispose { if (visible) onNovelVisibility(novel, false) }
+                }
                 NovelCard(
                     novel = novel,
                     isSelected = selectedNovelId == novel.id,

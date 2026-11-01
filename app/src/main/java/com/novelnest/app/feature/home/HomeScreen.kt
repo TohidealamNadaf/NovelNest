@@ -12,11 +12,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelCard
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.SearchBarTrigger
+import com.novelnest.app.core.ui.sourceSwipeNavigation
 import com.novelnest.app.core.ui.SourceTabRow
 import com.novelnest.app.core.ui.footer.rememberFooterBottomPadding
 import com.novelnest.app.core.ui.header.NovelNestHeader
@@ -36,6 +40,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
+    val app = LocalContext.current.applicationContext as NovelNestApplication
+    val profile by app.profileManager.profile.collectAsStateWithLifecycle()
     val gridStates = remember { NovelSourceType.entries.associateWith { LazyGridState() } }
     var selected by remember { mutableStateOf<Novel?>(null) }
     val shownHistory = remember { mutableSetOf<NovelSourceType>() }
@@ -44,8 +50,15 @@ fun HomeScreen(
             gridStates.getValue(state.selectedSource).scrollToItem(0)
         }
     }
-    LaunchedEffect(state.selectedSource, state.bookmarkedNovels) {
-        if (state.visibleBookmarks.none { it.id == selected?.id }) selected = null
+    LaunchedEffect(state.selectedSource, state.bookmarkedNovels, state.recentlyRead) {
+        if (state.visibleBookmarks.none { it.id == selected?.id } &&
+            state.recentlyRead.none { it.novel.id == selected?.id }) selected = null
+    }
+    val onSelectNovel: (Novel) -> Unit = { novel ->
+        selected = if (selected?.id == novel.id) null else novel
+    }
+    val onOpenNovel: (Novel) -> Unit = { novel ->
+        if (selected != null) selected = null else onNovelClick(novel)
     }
     val currentGridState = gridStates.getValue(state.selectedSource)
     val isScrolled by remember(currentGridState) {
@@ -81,7 +94,13 @@ fun HomeScreen(
                         )
                     }
                     NovelNestIconButton(Icons.Rounded.NotificationsNone, "Notifications", onClick = onNavigateToNotifications)
-                    NovelNestIconButton(Icons.Rounded.PersonOutline, "Profile", onClick = onNavigateToProfile)
+                    NovelNestIconButton(
+                        icon = Icons.Rounded.Person,
+                        contentDescription = "Profile",
+                        onClick = onNavigateToProfile,
+                        imageUri = profile.photoUri,
+                        isAvatar = true
+                    )
                 }
             }
         )
@@ -100,7 +119,8 @@ fun HomeScreen(
             }
         }
         val bottomPadding = rememberFooterBottomPadding()
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()
+            .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)) {
             val cardWidth = (maxWidth - 32.dp - 24.dp) / 3
             LazyVerticalGrid(columns = GridCells.Fixed(3),
                 state = gridStates.getValue(state.selectedSource),
@@ -126,7 +146,9 @@ fun HomeScreen(
                                     items(state.recentlyRead, key = { it.novel.id }) { entry ->
                                         val completion = remember(entry) { entry.novel.readingCompletion(entry.progress) }
                                         NovelCard(entry.novel, modifier = Modifier.width(cardWidth), readingCompletion = completion,
-                                            onClick = { onNovelClick(entry.novel) })
+                                            isSelected = selected?.id == entry.novel.id,
+                                            onLongClick = { onSelectNovel(entry.novel) },
+                                            onClick = { onOpenNovel(entry.novel) })
                                     }
                                 }
                             }
@@ -142,12 +164,31 @@ fun HomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Rounded.Bookmark, null, tint = NovelPrimary, modifier = Modifier.size(36.dp))
                             Spacer(Modifier.height(12.dp))
-                            Text("No saved novels from ${state.selectedSource.shortName}", color = NovelTextPrimary,
+                            val isManhwa = state.selectedSource == NovelSourceType.ASURA_SCANS
+                            val mediaTypePlural = if (isManhwa) "manhwas" else "novels"
+                            val mediaTypeSingular = if (isManhwa) "manhwa" else "novel"
+                            val discoverButtonText = if (isManhwa) "Discover manhwas" else "Discover novels"
+                            Text("No saved $mediaTypePlural from ${state.selectedSource.shortName}", color = NovelTextPrimary,
                                 style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(8.dp))
-                            Text("Bookmark a novel to keep it here.", color = NovelTextSecondary)
+                            Text("Bookmark a $mediaTypeSingular to keep it here.", color = NovelTextSecondary)
                             Spacer(Modifier.height(16.dp))
-                            Button(onClick = { onNavigateToDiscover(state.selectedSource) }) { Text("Discover novels") }
+                            Button(
+                                onClick = { onNavigateToDiscover(state.selectedSource) },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NovelPrimary,
+                                    contentColor = NovelOnPrimary
+                                )
+                            ) {
+                                Text(
+                                    text = discoverButtonText,
+                                    color = NovelOnPrimary,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -156,8 +197,8 @@ fun HomeScreen(
                     val completion = remember(novel, progress) { novel.readingCompletion(progress) }
                     NovelCard(novel, readingCompletion = completion, modifier = Modifier.fillMaxWidth(),
                         isSelected = selected?.id == novel.id,
-                        onLongClick = { selected = if (selected?.id == novel.id) null else novel },
-                        onClick = { if (selected != null) selected = null else onNovelClick(novel) })
+                        onLongClick = { onSelectNovel(novel) },
+                        onClick = { onOpenNovel(novel) })
                 }
             }
         }

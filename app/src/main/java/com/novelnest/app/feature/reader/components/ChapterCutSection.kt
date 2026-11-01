@@ -106,7 +106,7 @@ fun ChapterCutSection(
                 "You've reached the latest chapter"
             },
             color = if (hasNextChapter) NovelPrimary else secondaryColor.copy(alpha = 0.7f),
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             fontWeight = if (hasNextChapter) FontWeight.SemiBold else FontWeight.Normal,
             textAlign = TextAlign.Center
         )
@@ -122,8 +122,8 @@ fun ChapterCutSection(
             Text(
                 text = nextChapterTitle?.takeIf { it.isNotBlank() } ?: "Next chapter",
                 color = textColor,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 3,

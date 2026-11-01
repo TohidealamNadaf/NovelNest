@@ -46,7 +46,7 @@ val NovelTypography = Typography(
         fontSize = 15.sp,
         lineHeight = 22.sp,
         letterSpacing = 0.25.sp,
-        color = NovelTextSecondary
+        color = NovelTextPrimary
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -54,6 +54,14 @@ val NovelTypography = Typography(
         fontSize = 13.sp,
         lineHeight = 18.sp,
         letterSpacing = 0.2.sp,
+        color = NovelTextPrimary
+    ),
+    bodySmall = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.4.sp,
         color = NovelTextSecondary
     ),
     labelLarge = TextStyle(

@@ -12,12 +12,39 @@ import com.novelnest.app.data.repository.NovelRepositoryImpl
 
 class NovelNestApplication : Application(), ImageLoaderFactory {
 
+    val aiForeground = com.novelnest.app.data.ai.AiForegroundState()
+    val aiConfiguration by lazy { com.novelnest.app.data.ai.AiConfigurationStore(this) }
+    val aiResultCache by lazy { com.novelnest.app.data.ai.AiResultCache(java.io.File(cacheDir, "ai_results")) }
+    private val aiHttp by lazy { com.novelnest.app.data.ai.AiHttpClient() }
+    // Quota windows/metadata TTL must advance while the device is in deep sleep.
+    private val aiElapsedClock: () -> Long = { android.os.SystemClock.elapsedRealtime() }
+    private val aiProviders by lazy { listOf(
+        com.novelnest.app.data.ai.GeminiAiProvider(aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.GROQ, aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.OPEN_ROUTER, aiHttp),
+        com.novelnest.app.data.ai.ChatAiProvider(com.novelnest.app.data.ai.AiProviderId.NVIDIA, aiHttp)
+    ) }
+    val aiModelDirectory by lazy { com.novelnest.app.data.ai.AiModelDirectory(aiProviders, aiElapsedClock) }
+    val chapterAiRepository by lazy { com.novelnest.app.data.ai.ChapterAiRepository(
+        aiConfiguration, aiResultCache, aiProviders,
+        policy = com.novelnest.app.data.ai.AiRequestPolicy(aiElapsedClock), directory = aiModelDirectory
+    ) }
+
     val database: NovelNestDatabase by lazy {
         NovelNestDatabase.getInstance(this)
     }
+    val studyRepository by lazy { com.novelnest.app.data.study.StudyRepository(database) }
+
+    val readerCacheStore by lazy {
+        com.novelnest.app.data.cache.ReaderCacheStore(java.io.File(cacheDir, "reader_resume"))
+    }
+
+    val manhwaImageStore by lazy {
+        com.novelnest.app.data.manhwa.ManhwaImageStore(java.io.File(cacheDir, "manhwa_images"))
+    }
 
     val novelRepository: NovelRepository by lazy {
-        NovelRepositoryImpl(database = database)
+        NovelRepositoryImpl(database = database, readerCache = readerCacheStore)
     }
 
     val preferencesManager: com.novelnest.app.data.preferences.ReaderPreferencesManager by lazy {
@@ -25,15 +52,21 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
     }
 
     val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager by lazy {
-        com.novelnest.app.data.bookmark.BookmarkManager(this)
+        com.novelnest.app.data.bookmark.BookmarkManager(this, onBookmarked = {
+            notificationCoordinator.bookmarkAdded(it)
+        })
     }
 
     val searchHistoryManager: com.novelnest.app.data.preferences.SearchHistoryManager by lazy {
         com.novelnest.app.data.preferences.SearchHistoryManager(this)
     }
 
-    val readerSessionManager by lazy {
-        com.novelnest.app.data.preferences.ReaderSessionManager(getSharedPreferences("reader_session", MODE_PRIVATE))
+    val navigationPreferences by lazy {
+        com.novelnest.app.data.preferences.NavigationPreferences(
+            // Reuse the existing preference file for a one-time legacy-key cleanup.
+            getSharedPreferences("reader_session", MODE_PRIVATE),
+            com.novelnest.app.data.model.NovelSourceType.fromOrdinal(preferencesManager.appSettings.value.defaultSourceOrdinal)
+        )
     }
 
     val profileManager by lazy {

@@ -44,6 +44,8 @@ object NovelPhoenixSelectors {
         ".header-stats span:has(small:contains(Status)) strong"
     )
 
+    const val DETAIL_RATING = ".rating [data-rating], .rating strong.nub, [itemprop=ratingValue]"
+
     val DETAIL_RANK_FALLBACKS = listOf(
         ".novel-info .rating .rank strong",
         ".rating .rank"

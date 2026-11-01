@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
@@ -126,6 +128,32 @@ fun SettingsMainView(
                 )
             }
 
+            // 3. Audio Narration Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "Audio Narration",
+                    subtitle = "Cloudflare Worker TTS, credentials & cache",
+                    icon = Icons.Rounded.Headphones,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.AUDIO_NARRATION)
+                    }
+                )
+            }
+
+            // 4. AI Reading Tools Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "AI Reading Tools",
+                    subtitle = "Summaries, rewrites & provider configuration",
+                    icon = Icons.Rounded.AutoAwesome,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.AI_READING_TOOLS)
+                    }
+                )
+            }
+
             // Group 2 Header: Application & Storage
             item {
                 Text(
@@ -151,7 +179,20 @@ fun SettingsMainView(
                 )
             }
 
-            // 4. Storage & Cache Category Tile
+            // 4. Notifications Category Tile
+            item {
+                SettingsCategoryTile(
+                    title = "Notifications",
+                    subtitle = "System alerts, chapter updates & reminders",
+                    icon = Icons.Rounded.Notifications,
+                    onClick = {
+                        playHaptic(NovelNestHapticType.LIGHT_TICK)
+                        onNavigateTo(SettingsSubPage.NOTIFICATIONS)
+                    }
+                )
+            }
+
+            // 5. Storage & Cache Category Tile
             item {
                 SettingsCategoryTile(
                     title = "Storage & Offline Cache",

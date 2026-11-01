@@ -2,12 +2,16 @@ package com.novelnest.app.data.model
 
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUtils
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
+import com.novelnest.app.data.remote.asura.AsuraUrls
 import java.net.URI
 
 /** A source URL identifies a novel; titles and ranking labels do not. */
 object NovelIdentity {
     fun normalize(novel: Novel): Novel = runCatching {
         when (novel.source) {
+            NovelSourceType.ASURA_SCANS -> novel.copy(
+                id = AsuraUrls.novelId(novel.sourceUrl.ifBlank { novel.id }),
+                sourceUrl = AsuraUrls.seriesUrl(novel.sourceUrl.ifBlank { novel.id }))
             NovelSourceType.FREE_WEB_NOVEL -> novel.copy(
                 coverUrl = FreeWebNovelUtils.posterUrl(novel.coverUrl),
                 id = FreeWebNovelUrls.novelId(novel.sourceUrl.ifBlank { novel.id }),
@@ -19,7 +23,6 @@ object NovelIdentity {
                 if (!slug.matches(Regex("[a-zA-Z0-9][a-zA-Z0-9_-]*"))) return@runCatching novel
                 novel.copy(id = "np-$slug", sourceUrl = "${novel.source.baseUrl}/novel/$slug")
             }
-            else -> novel
         }
     }.getOrDefault(novel)
 

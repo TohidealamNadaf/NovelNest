@@ -10,7 +10,9 @@ object HttpFactory {
     @Volatile
     private var sharedClient: OkHttpClient? = null
 
+    @Synchronized
     fun initialize(cacheDir: File): OkHttpClient {
+        sharedClient?.let { return it }
         val client = OkHttpClient.Builder()
             .cache(Cache(File(cacheDir, "http_cache"), 50L * 1024 * 1024))
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -29,6 +31,9 @@ object HttpFactory {
         sharedClient = client
         return client
     }
+
+    /** Evict through the live DiskLruCache owner; never delete its journal externally. */
+    fun clearCache() { sharedClient?.cache?.evictAll() }
 
     fun getClient(): OkHttpClient {
         return sharedClient ?: OkHttpClient.Builder()

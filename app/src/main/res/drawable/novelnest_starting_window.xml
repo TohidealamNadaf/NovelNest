@@ -1,0 +1,5 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/novelnest_launcher_background"/>
+    <item android:width="260dp" android:height="260dp" android:gravity="center"
+        android:drawable="@drawable/ic_novelnest_splash_logo"/>
+</layer-list>

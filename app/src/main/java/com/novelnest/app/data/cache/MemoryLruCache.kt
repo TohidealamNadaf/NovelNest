@@ -14,6 +14,16 @@ class MemoryLruCache<K, V>(
     }
     private val lock = Any()
 
+    fun valuesSnapshot(): List<V> = synchronized(lock) { map.values.toList() }
+
+    fun putIfAbsent(key: K, value: V): V? = synchronized(lock) {
+        val existing = map[key]
+        if (existing == null) map[key] = value
+        existing
+    }
+
+    internal val size: Int get() = synchronized(lock) { map.size }
+
     operator fun get(key: K): V? = synchronized(lock) {
         map[key]
     }

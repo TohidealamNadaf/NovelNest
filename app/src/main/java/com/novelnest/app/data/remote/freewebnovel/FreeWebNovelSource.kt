@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import com.novelnest.app.data.remote.awaitTextResponse
 import okhttp3.Request
 import java.io.IOException
 import java.net.URLEncoder
@@ -168,13 +169,14 @@ class FreeWebNovelSource(
                 .header("Accept", if (ajax) "application/json" else "text/html,application/xhtml+xml")
             if (ajax) builder.header("X-Requested-With", "XMLHttpRequest")
             try {
-                client.newCall(builder.build()).execute().use { response ->
+                run {
+                    val response = client.newCall(builder.build()).awaitTextResponse()
                     when {
                         response.code == 403 -> throw FreeWebNovelException.Blocked()
                         response.code == 404 -> throw FreeWebNovelException.NotFound()
                         !response.isSuccessful -> throw FreeWebNovelException.HttpError(response.code)
                     }
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body
                     if (body.isBlank()) throw IOException("FreeWebNovel returned an empty response")
                     FreeWebNovelParser.document(body, url)
                     return body

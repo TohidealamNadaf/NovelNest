@@ -1,5 +1,7 @@
 package com.novelnest.app.feature.profile
 
+import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,9 +31,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.core.designsystem.*
@@ -117,7 +121,7 @@ fun ProfileScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 12.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 28.dp
+                bottom = rememberPageBottomPadding(28.dp)
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -277,17 +281,25 @@ fun ProfileScreen(
                                 OutlinedTextField(
                                     value = nicknameInput,
                                     onValueChange = { nicknameInput = it.take(40) },
+                                    textStyle = TextStyle(
+                                        color = NovelTextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
                                     label = { Text("Reader Nickname") },
                                     singleLine = true,
                                     shape = RoundedCornerShape(14.dp),
                                     supportingText = { Text("${nicknameInput.length}/40 · Stored locally") },
                                     colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = NovelTextPrimary,
+                                        unfocusedTextColor = NovelTextPrimary,
                                         focusedBorderColor = NovelPrimary,
                                         unfocusedBorderColor = NovelSurfaceBorder,
                                         focusedLabelColor = NovelPrimary,
                                         unfocusedLabelColor = NovelTextSecondary,
-                                        focusedTextColor = NovelTextPrimary,
-                                        unfocusedTextColor = NovelTextPrimary
+                                        cursorColor = NovelPrimary,
+                                        focusedContainerColor = NovelSurfaceVariant,
+                                        unfocusedContainerColor = NovelSurfaceVariant
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -316,7 +328,7 @@ fun ProfileScreen(
                                         ),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Save", fontWeight = FontWeight.Bold)
+                                        Text("Save", color = NovelOnPrimary, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

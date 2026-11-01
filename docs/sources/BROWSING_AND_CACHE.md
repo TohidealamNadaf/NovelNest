@@ -47,11 +47,13 @@ ReadingProgressManager merges stored history with updates received during startu
 
 Search deduplicates both database and remote records by source and canonical detail URL. Old IDs and tracking parameters cannot create extra cards for the same URL. NovelPhoenix listing titles prefer heading/title attributes; ranking labels stay separate. Valid empty remote searches stay empty.
 
-The reader uses the navigation entry SavedStateHandle for its current chapter and scroll position. Scroll restoration waits for paragraphs and ignores outgoing chapter callbacks. A small SharedPreferences reader session retains the active novel/chapter when the device discards normal task state. Navigating away clears that checkpoint; backgrounding the reader retains it. Normal resumes do not trigger a Home navigation or a forced reload. This adds recovery for activity/task recreation; the original device background event could not be reproduced without a connected device.
+The reader uses the navigation entry SavedStateHandle for its current chapter and scroll position. Scroll restoration waits for paragraphs and ignores outgoing chapter callbacks. Normal background resumes and Activity recreation retain this task state without forcing Home or reloading the reader. Fresh launcher entry, including after removal from Recents, opens Home instead of automatically navigating to the last reader.
+
+NavigationPreferences persists only the last-used source enum name and initializes Home before its first frame. Tab actions across Home, Discover, Browse, and Search, plus novel/reader entry, record the source; unchanged values skip writes. The former reader_session checkpoint is removed once, migrating only a recognized source prefix when there is no valid saved source. No database migration, network fetch, per-chapter navigation write, or task-removal callback is involved. Room reading history and reader content caches remain independent; Continue Reading uses the saved chapter as before.
 
 The synopsis uses pressed/focused surface feedback clipped to its rounded card instead of an expanding circular ripple; content expansion remains animated.
 
-ReadingAndIdentityTest adds regressions for distinct read counts, startup/write ordering, canonical search identity, nested listing markup, valid empty results, reader SavedStateHandle recreation and durable session clearing. These are JVM tests; actual Android task recreation, scrolling and touch appearance still require device verification.
+ReadingAndIdentityTest includes distinct read counts, startup/write ordering, canonical search identity, nested listing markup, valid empty results, reader SavedStateHandle recreation, and legacy-checkpoint/source-preference behavior. These are JVM tests; actual Android task recreation, scrolling and touch appearance still require device verification.
 
 
 ## Reader closure investigation
@@ -99,3 +101,40 @@ Footer hit targets remain stationary while icons animate. Returning Home pops to
 Featured slides bound the chapter caption to the space left after the Read action, with one-line ellipsis and a 48dp button target. Titles may use two lines; carousel height grows with the configured font scale. FWN chapter captions strip a repeated novel-title prefix.
 
 FWN New Novels can report 0.0 on the source itself; that is displayed as an unrated dash, not a numeric reader score. Explicit positive source ratings are parsed from rating elements, skipping decorative spans and accepting decimal commas or /5 suffixes. Phoenix catalog parsing targets star badges rather than rank badges and no longer substitutes a fabricated 4.5 when the rating is absent. Browse reuses already-known scores from memory when a sparse record omits them, including cached/offline page reads, without issuing a detail request per card. No score is fabricated when the source and local metadata both lack one.
+
+
+## Continue reader startup and durable resume cache
+
+Cold Continue previously called the complete-catalog endpoint before loading content when its in-memory snapshot was missing. Parsed text also lived only in process memory. This made reopening much slower than next-chapter navigation, which benefits from prefetching.
+
+Reader startup now consumes progressive catalog results and proceeds as soon as the requested index exists. Remaining pagination stays in the reader ViewModel scope. An exact saved chapter ID, when it belongs to the same novel and selected index, starts loading concurrently with navigation metadata; the foreground reader shares its result, including failures. Reader-specific catalog loading disables the detail screen's unrelated chapter-one warmup. Detail browsing retains its existing warmup behavior. No chapter URL is guessed from a chapter number.
+
+ReaderCacheStore keeps parsed text and navigation metadata in the app cache directory, using source/canonical-URL keys, atomic file replacement, and off-main-thread IO. Storage is capped at 12 MiB and 96 entries, with per-entry limits of 512 KiB for text and 2 MiB for navigation; a small eight-entry memory cache avoids repeated disk reads. Cache corruption, eviction, or write failures fall back to the normal source path. Manual chapter refresh bypasses both cache layers and updates them after success. Existing user progress and bookmark storage are separate. Android may clear disposable app cache, so first uncached reads still depend on source/network speed.
+
+Cached navigation is emitted before background refresh. A partial refresh never overwrites a larger persisted snapshot; explicit chapter-list refresh can rebuild it. ChapterStartupTest covers first-page chapter 83, later-page startup, new repository/process state, cache refresh bypass, corruption/eviction, and offline partial pagination.
+
+
+## Discover rating resolution
+
+Phoenix ranking cards and FWN release rows can omit a rating even when the novel detail page has one. The badge dash is a missing-data representation; it does not initiate a fetch. Discover now registers actual viewport visibility (both the vertical section and horizontal card must be visible) and resolves missing scores through the existing source detail repository. Duplicate cards share one request and all matching section instances receive the score. Two concurrent lookups, existing source rate limits/detail caches, a bounded failure cooldown and cancellation when the last card leaves the viewport prevent a request per catalog entry or repeated retries on recomposition. A 650ms dwell skips quick scrolls and Lazy prefetch items never register as visible. Leaving Discover, backgrounding the app, and changing source cancel queued and active lookups. Cancellation keeps the 60s attempt cooldown once HTTP has started; returning to a card does not repeatedly restart downloads. Foreground resume rechecks registered visible cards. Feed rendering never waits for these lookups. Carousel auto-advance runs only while its section is visible and the app lifecycle is started. Phoenix and FWN HTTP calls use a cancellable asynchronous adapter through body consumption; every response closes, including rejected status codes, whose bodies are skipped.
+
+Same-source canonical identity is used for cache/feed reuse. A known score elsewhere in the feed or local repository is reused before requesting details. Positive inline scores are retained; missing records do not erase already resolved scores during feed refresh. Refresh explicitly resets source circuit breakers.
+
+RatingParser reads JSON-LD aggregate ratings, graphs/arrays and declared rating scales. Both source parsers also accept explicit widget attributes and visible scores. Phoenix search and generic novel construction no longer manufacture 4.7/4.5 defaults for absent metadata. Unknown/unrated/blocked responses remain a dash. A 403/Cloudflare rejection cannot be repaired by inventing a score; the source can be retried with Refresh after access is available.
+
+DiscoverRatingTest exercises both sources, duplicate sections, bounded visibility-based requests, cancellation, failed-lookup cooldowns, refresh retention, widget/JSON-LD fallbacks and cross-source isolation. Live Phoenix ranking access returned HTTP 403 in this environment; fixtures verify its parsing paths, not live device availability.
+
+## Discover carousel scheduling
+
+All source tabs share `HeroCarousel`. Auto-advance waits for five uninterrupted idle seconds after
+pager scrolling, card presses or vertical feed scrolling. Each slide runs in a child coroutine so
+a swipe/dot tap can cancel that scroll without terminating the timer loop. Leaving the viewport or
+the resumed lifecycle cancels the loop; returning starts a fresh interval. System-disabled animations
+disable automatic advancement while keeping manual navigation available.
+
+Pager keys use source and novel ID. Rating updates keep page identity and remembered cover requests;
+one neighboring page on either side is composed ahead, rather than the whole carousel. Rating
+visibility follows the settled slide, so intermediate slides do not start enrichment requests.
+The refresh icon creates its repeating animation only during a refresh. Existing card layout,
+dot styling, source fetching and navigation remain unchanged. A debug build verifies compilation;
+smoothness still requires frame-time profiling on a physical device.

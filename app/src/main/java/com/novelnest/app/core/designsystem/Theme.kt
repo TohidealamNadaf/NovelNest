@@ -15,7 +15,7 @@ private val DarkColorScheme = darkColorScheme(
     primary = NovelPrimary,
     onPrimary = NovelOnPrimary,
     primaryContainer = NovelPrimaryVariant,
-    onPrimaryContainer = NovelTextPrimary,
+    onPrimaryContainer = NovelOnPrimary,
     secondary = NovelSecondary,
     onSecondary = NovelOnSecondary,
     tertiary = NovelTertiary,
@@ -25,6 +25,8 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = NovelTextPrimary,
     surfaceVariant = NovelSurfaceVariant,
     onSurfaceVariant = NovelTextSecondary,
+    outline = NovelSurfaceBorder,
+    outlineVariant = NovelSurfaceBorder.copy(alpha = 0.5f),
     error = NovelError
 )
 

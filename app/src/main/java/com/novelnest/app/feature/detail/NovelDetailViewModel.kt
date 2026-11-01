@@ -3,15 +3,20 @@ package com.novelnest.app.feature.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.Novel
+import com.novelnest.app.data.model.NovelIdentity
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.feature.reader.Chapter
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -28,7 +33,8 @@ data class NovelDetailUiState(
     val isChaptersLoading: Boolean = false,
     val isSynopsisExpanded: Boolean = false,
     val errorMessage: String? = null,
-    val chaptersErrorMessage: String? = null
+    val chaptersErrorMessage: String? = null,
+    val manhwaDetails: com.novelnest.app.data.model.ManhwaDetails? = null
 )
 
 class NovelDetailViewModel(
@@ -48,23 +54,48 @@ class NovelDetailViewModel(
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
     private var chapterJob: Job? = null
     private var detailJob: Job? = null
+    private val resolvedNovelId = _uiState.map { it.novel }.distinctUntilChanged().map { novel ->
+        novel?.let(NovelIdentity::normalize)?.id ?: novelId
+    }.distinctUntilChanged()
 
     init {
         loadNovelDetails()
         observeReadingProgress()
+        observeBookmarks()
     }
 
     private fun observeReadingProgress() {
         readingProgressManager?.let { pm ->
             viewModelScope.launch {
-                pm.progressMap.collect { map ->
-                    val progress = map[novelId]
+                combine(resolvedNovelId, pm.progressMap) { id, map ->
+                    // Old notifications/bookmarks may still contain a pre-canonical ID.
+                    val canonical = map[id]
+                    val legacy = map[novelId]
+                    when {
+                        canonical == null -> legacy
+                        legacy == null || id == novelId -> canonical
+                        else -> (if (canonical.lastReadTimestamp >= legacy.lastReadTimestamp) canonical else legacy)
+                            .copy(novelId = id, readChapterIds = canonical.readChapterIds + legacy.readChapterIds)
+                    }
+                }.distinctUntilChanged().collect { progress ->
                     _uiState.update { current ->
                         current.copy(
                             readingProgress = progress,
                             readChapterIds = progress?.readChapterIds ?: emptySet()
                         )
                     }
+                }
+            }
+        }
+    }
+
+    private fun observeBookmarks() {
+        bookmarkManager?.let { manager ->
+            viewModelScope.launch {
+                combine(resolvedNovelId, manager.bookmarks) { id, _ ->
+                    manager.isBookmarked(id) || manager.isBookmarked(novelId)
+                }.distinctUntilChanged().collect { bookmarked ->
+                    _uiState.update { it.copy(isBookmarked = bookmarked) }
                 }
             }
         }
@@ -130,6 +161,9 @@ class NovelDetailViewModel(
      * This handles cases where the novel was loaded from bookmarks/cache with incomplete data or legacy IDs.
      */
     private fun resolveSourceUrl(novel: Novel): String {
+        if (novel.source == NovelSourceType.ASURA_SCANS) {
+            return com.novelnest.app.data.remote.asura.AsuraUrls.seriesUrl(novel.sourceUrl.ifBlank { novel.id })
+        }
         if (novel.source == NovelSourceType.FREE_WEB_NOVEL) {
             return FreeWebNovelUrls.novelUrl(novel.sourceUrl.ifBlank { novel.id })
         }
@@ -168,14 +202,24 @@ class NovelDetailViewModel(
 
     private fun loadNovelDetails() {
         detailJob?.cancel()
-        detailJob = viewModelScope.launch {
+        detailJob = loadWithErrorHandling(onFailure = { error ->
+            _uiState.update {
+                it.copy(isLoading = false,
+                    errorMessage = "Unable to load details (${formatFriendlyError(error)}). Tap to retry.")
+            }
+        }) {
             _uiState.update { it.copy(isLoading = it.novel == null, errorMessage = null) }
 
             // 1. Initial resolution: Check repository/DB first, then BookmarkManager, then SeedData, then synthetic shell
             val initialNovel = repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
-                ?: SeedData.findNovelById(novelId)
+                ?: SeedData.findNovelById(novelId)?.takeUnless { it.source == NovelSourceType.ASURA_SCANS }
                 ?: run {
+                if (novelId.startsWith("asura-")) {
+                    val slug = com.novelnest.app.data.remote.asura.AsuraUrls.slug(novelId)
+                    return@run Novel(novelId, slug.replace('-', ' '), "", NovelSourceType.ASURA_SCANS,
+                        com.novelnest.app.data.remote.asura.AsuraUrls.seriesUrl(slug), latestChapter = "", status = "Unknown")
+                }
                 val formattedTitle = if (novelId.isNotBlank() && novelId != "sample") {
                     novelId.removePrefix("np-")
                         .replace("-", " ")
@@ -225,7 +269,14 @@ class NovelDetailViewModel(
             val source = initialNovel.source
             val novelUrl = resolveSourceUrl(initialNovel)
 
-            val detailResult = repository.getNovelDetails(source, novelUrl)
+            val detailResult = if (source == NovelSourceType.ASURA_SCANS) {
+                repository.getManhwaDetails(source, novelUrl).map { manhwa ->
+                    _uiState.update { it.copy(manhwaDetails = manhwa) }
+                    manhwa.novel
+                }
+            } else {
+                repository.getNovelDetails(source, novelUrl)
+            }
             detailResult.fold(
                 onSuccess = { liveNovel ->
                     // Ensure liveNovel has a proper sourceUrl
@@ -276,12 +327,14 @@ class NovelDetailViewModel(
 
     private fun loadChapters(forceRefresh: Boolean) {
         chapterJob?.cancel()
-        chapterJob = viewModelScope.launch {
+        chapterJob = loadWithErrorHandling(onFailure = { error ->
+            showChapterError("Failed to fetch live chapters (${formatFriendlyError(error)}).")
+        }) {
             val currentNovel = _uiState.value.novel
                 ?: repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
                 ?: SeedData.findNovelById(novelId)
-                ?: return@launch
+                ?: return@loadWithErrorHandling
 
             val source = currentNovel.source
 
@@ -333,4 +386,19 @@ class NovelDetailViewModel(
             )
         }
     }
+
+    private fun loadWithErrorHandling(onFailure: (Exception) -> Unit, load: suspend () -> Unit): Job =
+        viewModelScope.launch {
+            try {
+                load()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Cold notification opens lack the warm metadata cache. Storage or
+                // unexpected source exceptions must reach Retry rather than the
+                // process-wide uncaught coroutine handler. Retain displayed data.
+                android.util.Log.w("NovelNestLaunch", "Novel loading failed: ${error.javaClass.simpleName}")
+                onFailure(error)
+            }
+        }
 }
