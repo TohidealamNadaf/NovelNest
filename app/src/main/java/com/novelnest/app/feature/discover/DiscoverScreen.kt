@@ -61,16 +61,19 @@ fun DiscoverScreen(
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "refresh_spin")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "refresh_rotation"
-    )
+    // Do not keep scheduling animation frames when the refresh icon is idle.
+    val refreshRotation = if (state.isRefreshing) {
+        val transition = rememberInfiniteTransition(label = "refresh_spin")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "refresh_rotation"
+        )
+    } else null
 
     Column(modifier.fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
@@ -103,9 +106,7 @@ fun DiscoverScreen(
                     tint = NovelPrimary,
                     enabled = !state.isRefreshing,
                     modifier = Modifier.graphicsLayer {
-                        if (state.isRefreshing) {
-                            rotationZ = rotationAngle
-                        }
+                        rotationZ = refreshRotation?.value ?: 0f
                     },
                     onClick = viewModel::refresh
                 )
@@ -160,7 +161,8 @@ fun DiscoverScreen(
                             if (section.type == SectionType.HERO_SLIDER) {
                                 HeroCarousel(novels = section.novels, onNovelClick = onNovelClick,
                                     onNovelVisibility = viewModel::ratingVisibility,
-                                    isVisible = section.id in visibleSections)
+                                    isVisible = section.id in visibleSections,
+                                    isParentScrolling = currentListState.isScrollInProgress)
                             } else {
                                 NovelSectionRow(section = section, onNovelClick = onNovelClick,
                                     onSeeAllClick = { onBrowse(state.selectedSource) },

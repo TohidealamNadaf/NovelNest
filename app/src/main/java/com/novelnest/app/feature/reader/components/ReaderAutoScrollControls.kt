@@ -46,7 +46,7 @@ internal fun phaseLabel(phase: ReaderAutoScrollPhase): String = when (phase) {
 }
 
 /**
- * Redesigned Auto Scroll Entry Card for the Quick Settings Sheet Main Page.
+ * Auto Scroll entry card inside the Quick Settings Size & Spacing tab.
  * Follows NovelNest's obsidian/amber design tokens, providing rich visual status feedback,
  * tactile spring animations, refined typography, and 1-tap Start/Stop/Pause controls right on the card.
  */
@@ -82,7 +82,6 @@ internal fun ReaderAutoScrollEntry(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(cardBackground)
             .border(1.dp, cardBorder, RoundedCornerShape(14.dp))

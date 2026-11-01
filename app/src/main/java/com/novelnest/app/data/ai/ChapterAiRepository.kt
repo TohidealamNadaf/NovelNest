@@ -39,6 +39,7 @@ class ChapterAiRepository(
                 if (routes.isEmpty()) throw AiException(AiErrorCode.NOT_CONFIGURED, "Set up a provider and model in Settings > AI Reading Tools.")
                 val paragraphs = input.paragraphs.mapIndexed { index, text -> AiParagraph(index, text) }
                 val blockedProviders = mutableSetOf<AiProviderId>()
+                val modelRateLimitedProviders = mutableSetOf<AiProviderId>()
                 var calls = 0
                 var lastError = AiException(AiErrorCode.NOT_CONFIGURED, "No enabled provider is available.")
                 for ((attempt, route) in routes.withIndex()) {
@@ -73,6 +74,7 @@ class ChapterAiRepository(
                             // Mandatory thinking consumes the same completion budget as the final JSON.
                             val output = if (action == AiAction.SUMMARY && !spec.mandatoryReasoning)
                                 minOf(AiSummaryPlanner.OUTPUT_TOKENS, spec.outputTokens) else spec.outputTokens
+                            val wireOutput = if (route.provider == AiProviderId.GROQ) spec.outputTokens else output
                             val reservation = policy.admit(route.provider, prompt, output,
                                 maxWaitMs = if (action == AiAction.REWRITE) 60_000 else 10_000, model = route.model) { waitMs ->
                                 progress(AiProgress(AiPhase.WAITING_FOR_SLOT, route.provider, part, total,
@@ -82,7 +84,7 @@ class ChapterAiRepository(
                             calls++
                             progress(AiProgress(AiPhase.CONNECTING, route.provider, part, total))
                             val raw = providerCall(route.provider, route.model) {
-                                provider.generateWithUsage(route, credential, prompt, output,
+                                provider.generateWithUsage(route, credential, prompt, wireOutput,
                                     usage = { policy.completed(reservation, it) }, quota = { policy.observed(reservation, it) }) {
                                     progress(AiProgress(AiPhase.GENERATING, route.provider, part, total))
                                 }
@@ -125,7 +127,17 @@ class ChapterAiRepository(
                         else error
                         if (error.code == AiErrorCode.MODEL_UNAVAILABLE) directory.invalidate(route.provider)
                         if (error.code in setOf(AiErrorCode.NETWORK, AiErrorCode.REFUSED, AiErrorCode.STORAGE)) throw error
+                        val repeatedOpenRouterLimit = route.provider == AiProviderId.OPEN_ROUTER &&
+                            error.code == AiErrorCode.RATE_LIMIT &&
+                            error.rateLimit?.modelScoped == true &&
+                            error.rateLimit.localRejection != true &&
+                            !modelRateLimitedProviders.add(route.provider)
+                        if (repeatedOpenRouterLimit) {
+                            policy.failed(route.provider, AiException(error.code, error.message.orEmpty(),
+                                error.retryAfterSeconds, error.rateLimit?.copy(modelScoped = false)), model = null)
+                        }
                         if (error.code in setOf(AiErrorCode.CREDENTIALS, AiErrorCode.BILLING_POLICY, AiErrorCode.CONSENT_REQUIRED) ||
+                            repeatedOpenRouterLimit ||
                             (error.code in setOf(AiErrorCode.RATE_LIMIT, AiErrorCode.UNAVAILABLE) && error.rateLimit?.modelScoped != true))
                             blockedProviders.add(route.provider)
                     } catch (_: Exception) {

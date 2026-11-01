@@ -33,11 +33,41 @@ internal object AiQuotaParsing {
     }
 
     fun groqKind(message: String): AiLimitKind = when {
-        message.contains("tokens per day", true) || message.contains("(TPD)", true) -> AiLimitKind.DAILY_TOKENS
-        message.contains("requests per day", true) || message.contains("(RPD)", true) -> AiLimitKind.DAILY_REQUESTS
-        message.contains("tokens per minute", true) || message.contains("(TPM)", true) -> AiLimitKind.MINUTE_TOKENS
-        message.contains("requests per minute", true) || message.contains("(RPM)", true) -> AiLimitKind.MINUTE_REQUESTS
+        message.contains("tokens per day", true) || message.contains("token per day", true) ||
+            message.contains("tokens/day", true) || message.contains("(TPD)", true) -> AiLimitKind.DAILY_TOKENS
+        message.contains("requests per day", true) || message.contains("request per day", true) ||
+            message.contains("requests/day", true) || message.contains("(RPD)", true) -> AiLimitKind.DAILY_REQUESTS
+        message.contains("tokens per minute", true) || message.contains("token per minute", true) ||
+            message.contains("tokens/min", true) || message.contains("(TPM)", true) -> AiLimitKind.MINUTE_TOKENS
+        message.contains("requests per minute", true) || message.contains("request per minute", true) ||
+            message.contains("requests/min", true) || message.contains("(RPM)", true) -> AiLimitKind.MINUTE_REQUESTS
         else -> AiLimitKind.UNKNOWN
+    }
+
+    fun openRouterKind(message: String): AiLimitKind = when {
+        message.contains("free-models-per-day", true) || message.contains("per-day", true) ||
+            message.contains("per day", true) || message.contains("(RPD)", true) -> AiLimitKind.DAILY_REQUESTS
+        message.contains("tokens per day", true) || message.contains("(TPD)", true) -> AiLimitKind.DAILY_TOKENS
+        message.contains("free-models-per-min", true) || message.contains("per-min", true) ||
+            message.contains("per minute", true) || message.contains("(RPM)", true) -> AiLimitKind.MINUTE_REQUESTS
+        message.contains("tokens per minute", true) || message.contains("(TPM)", true) -> AiLimitKind.MINUTE_TOKENS
+        else -> AiLimitKind.UNKNOWN
+    }
+
+    fun openRouterResetMs(headers: Headers?, error: org.json.JSONObject?, nowEpochMs: Long = System.currentTimeMillis()): Long? {
+        val metaHeaders = error?.optJSONObject("metadata")?.optJSONObject("headers")
+        val rawReset = headers?.get("X-RateLimit-Reset")
+            ?: metaHeaders?.optString("X-RateLimit-Reset")?.ifBlank { null }
+            ?: metaHeaders?.optString("x-ratelimit-reset")?.ifBlank { null }
+        val resetValue = rawReset?.trim()?.toLongOrNull()
+        val fromHeader = when {
+            resetValue == null || resetValue <= 0L -> null
+            resetValue >= 1_000_000_000_000L -> (resetValue - nowEpochMs).takeIf { it in 1..(7 * 86_400_000L) }
+            resetValue >= 1_000_000_000L -> (resetValue * 1000L - nowEpochMs).takeIf { it in 1..(7 * 86_400_000L) }
+            resetValue <= 7 * 86_400L -> resetValue * 1000L
+            else -> null
+        }
+        return fromHeader ?: error?.optString("message")?.let(::groqRetryMs)
     }
 
     fun groqRetryMs(message: String): Long? =

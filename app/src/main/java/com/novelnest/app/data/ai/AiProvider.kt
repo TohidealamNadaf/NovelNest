@@ -159,7 +159,39 @@ class ChatAiProvider(override val id: AiProviderId, private val http: AiHttpClie
         return withContext(Dispatchers.Default) {
             json.optJSONObject("usage")?.optInt("total_tokens", -1)?.let(usage)
             val error = json.optJSONObject("error")
-            if (error != null) throw AiException(AiErrorCode.UNAVAILABLE, "The AI provider could not complete the request.")
+            if (error != null) {
+                val flags = listOf(error.optString("code"), error.optString("type"))
+                if (flags.any { flag -> flag.lowercase(java.util.Locale.ROOT) in setOf(
+                        "content_policy_violation", "content_filter", "safety", "prohibited_content", "moderation_blocked", "recitation") })
+                    refused()
+                if (error.optInt("code") == 429 || error.optString("code") == "429") {
+                    val detail = error.optString("message")
+                    val kind = when (id) {
+                        AiProviderId.OPEN_ROUTER -> AiQuotaParsing.openRouterKind(detail)
+                        AiProviderId.GROQ -> AiQuotaParsing.groqKind(detail)
+                        else -> AiLimitKind.UNKNOWN
+                    }
+                    val resetMs = if (id == AiProviderId.OPEN_ROUTER) AiQuotaParsing.openRouterResetMs(null, error)
+                        else AiQuotaParsing.groqRetryMs(detail)
+                    val seconds = resetMs?.takeIf { it > 0 }?.let { (it + 999) / 1000 }?.coerceIn(1, 7 * 86_400L)
+                    val providerLabel = if (id == AiProviderId.OPEN_ROUTER) "OpenRouter's" else "Groq's"
+                    val limit = when (kind) {
+                        AiLimitKind.DAILY_TOKENS -> "$providerLabel daily token allowance was reached. A one-minute wait does not reset a daily quota."
+                        AiLimitKind.DAILY_REQUESTS -> "$providerLabel daily request allowance was reached. A one-minute wait does not reset a daily quota."
+                        AiLimitKind.MINUTE_TOKENS -> "$providerLabel per-minute token allowance was reached."
+                        AiLimitKind.MINUTE_REQUESTS -> "$providerLabel per-minute request allowance was reached."
+                        else -> "The provider's usage limit or shared capacity was reached. Its reset time is not known; one minute is not a guarantee."
+                    }
+                    val msg = if (seconds != null) "$limit Provider retry delay: $seconds seconds." else "$limit Check your account's limits page."
+                    throw AiException(AiErrorCode.RATE_LIMIT, msg, seconds, AiRateLimitInfo(
+                        kind,
+                        modelScoped = (id == AiProviderId.GROQ && kind != AiLimitKind.UNKNOWN) ||
+                            (id == AiProviderId.OPEN_ROUTER && kind == AiLimitKind.UNKNOWN)
+                    ))
+                }
+                throw AiException(AiErrorCode.UNAVAILABLE, "The AI provider could not complete the request.",
+                    rateLimit = if (id in setOf(AiProviderId.OPEN_ROUTER, AiProviderId.GROQ)) AiRateLimitInfo(AiLimitKind.UNKNOWN, modelScoped = true) else null)
+            }
             val choice = json.optJSONArray("choices")?.optJSONObject(0)
                 ?: throw AiException(AiErrorCode.INVALID_OUTPUT, "The model returned no chapter result.")
             val message = choice.optJSONObject("message")

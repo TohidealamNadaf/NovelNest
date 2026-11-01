@@ -146,11 +146,15 @@ fun NovelCard(
                     )
                 }
             }
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
+            val context = LocalContext.current
+            val imageRequest = remember(context, novel.coverUrl) {
+                ImageRequest.Builder(context)
                     .data(novel.coverUrl)
                     .crossfade(true)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = imageRequest,
                 contentDescription = novel.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

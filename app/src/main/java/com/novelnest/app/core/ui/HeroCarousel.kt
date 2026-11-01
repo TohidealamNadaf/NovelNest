@@ -3,7 +3,9 @@ package com.novelnest.app.core.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,23 +16,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelGold
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
@@ -57,13 +60,17 @@ import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.NovelNestPagerIndicator
 import com.novelnest.app.core.ui.animation.bounceClick
+import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.ratingLabel
 import com.novelnest.app.data.model.hasRating
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun HeroCarousel(
@@ -71,31 +78,53 @@ fun HeroCarousel(
     modifier: Modifier = Modifier,
     onNovelClick: (Novel) -> Unit = {},
     onNovelVisibility: (Novel, Boolean) -> Unit = { _, _ -> },
-    isVisible: Boolean = true
+    isVisible: Boolean = true,
+    isParentScrolling: Boolean = false
 ) {
     if (novels.isEmpty()) return
 
     val fontScale = LocalDensity.current.fontScale
     val slideHeight = 230.dp + 120.dp * (fontScale - 1f).coerceAtLeast(0f)
     val pagerState = rememberPagerState(pageCount = { novels.size })
+    // Rating enrichment must not restart the timer or replace a page's image request.
+    val pageKeys = remember(novels) {
+        val seen = HashSet<String>(novels.size)
+        novels.mapIndexed { index, novel ->
+            val base = "${novel.source.name}:${novel.id}"
+            if (seen.add(base)) base else "$base#$index"
+        }
+    }
+    var activePressCount by remember { mutableIntStateOf(0) }
+    val isPressed = activePressCount > 0
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    val parentScrolling by rememberUpdatedState(isParentScrolling)
+    val animationsDisabled = rememberAreAnimationsDisabled()
 
-    val visibleNovel = novels.getOrNull(pagerState.currentPage)
+    val visibleNovel = novels.getOrNull(pagerState.settledPage)
     DisposableEffect(visibleNovel?.source, visibleNovel?.id, isVisible) {
         if (isVisible) visibleNovel?.let { onNovelVisibility(it, true) }
         onDispose { if (isVisible) visibleNovel?.let { onNovelVisibility(it, false) } }
     }
 
-    // Auto-advance hero slides every 5 seconds
+    // Wait for a full idle interval after any gesture or dot navigation. Each slide owns
+    // a child job: pager mutation cancellation must not terminate the auto-advance loop.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(pagerState, novels.size, isVisible, lifecycle) {
-        if (!isVisible || novels.size < 2) return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                delay(5000)
-                if (!pagerState.isScrollInProgress) {
-                    val nextPage = (pagerState.currentPage + 1) % novels.size
-                    pagerState.animateScrollToPage(nextPage, animationSpec = tween(600))
+    LaunchedEffect(pagerState, pageKeys, isVisible, lifecycle, animationsDisabled) {
+        if (!isVisible || pageKeys.size < 2 || animationsDisabled) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            fun isIdle() = !pagerState.isScrollInProgress && !isDragged && !isPressed && !parentScrolling
+            while (isActive) {
+                snapshotFlow { isIdle() }.first { it }
+                val interrupted = withTimeoutOrNull(5000L) {
+                    snapshotFlow { isIdle() }.first { !it }
                 }
+                if (interrupted != null) continue
+                launch {
+                    if (isIdle() && pagerState.pageCount > 1) {
+                        val nextPage = (pagerState.settledPage + 1) % pagerState.pageCount
+                        pagerState.animateScrollToPage(nextPage, animationSpec = tween(600))
+                    }
+                }.join()
             }
         }
     }
@@ -103,13 +132,21 @@ fun HeroCarousel(
     Column(modifier = modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
+            key = { pageKeys.getOrElse(it) { it } },
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(slideHeight)
                 .padding(horizontal = 16.dp)
         ) { page ->
-            val novel = novels[page]
-            HeroSlideCard(novel = novel, onClick = { onNovelClick(novel) })
+            val novel = novels.getOrNull(page) ?: return@HorizontalPager
+            HeroSlideCard(
+                novel = novel,
+                onPressChanged = { pressed ->
+                    activePressCount = (activePressCount + if (pressed) 1 else -1).coerceAtLeast(0)
+                },
+                onClick = { onNovelClick(novel) }
+            )
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -134,22 +171,34 @@ fun HeroCarousel(
 @Composable
 private fun HeroSlideCard(
     novel: Novel,
+    onPressChanged: (Boolean) -> Unit,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val imageRequest = remember(context, novel.coverUrl) {
+        ImageRequest.Builder(context).data(novel.coverUrl).crossfade(true).build()
+    }
+    val cardInteractionSource = remember { MutableInteractionSource() }
+    val readInteractionSource = remember { MutableInteractionSource() }
+    val isCardPressed by cardInteractionSource.collectIsPressedAsState()
+    val isReadPressed by readInteractionSource.collectIsPressedAsState()
+    val isAnyPressed = isCardPressed || isReadPressed
+    val currentOnPressChanged by rememberUpdatedState(onPressChanged)
+    DisposableEffect(isAnyPressed) {
+        if (isAnyPressed) currentOnPressChanged(true)
+        onDispose { if (isAnyPressed) currentOnPressChanged(false) }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
             .background(NovelSurfaceVariant)
             .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(16.dp))
-            .bounceClick(scaleDown = BounceScale.ExtraLarge, onClick = onClick)
+            .bounceClick(scaleDown = BounceScale.ExtraLarge, interactionSource = cardInteractionSource, onClick = onClick)
     ) {
         // Backdrop image
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(novel.coverUrl)
-                .crossfade(true)
-                .build(),
+            model = imageRequest,
             contentDescription = novel.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -274,7 +323,7 @@ private fun HeroSlideCard(
                         .height(32.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(NovelPrimary)
-                        .bounceClick(scaleDown = BounceScale.Medium, onClick = onClick)
+                        .bounceClick(scaleDown = BounceScale.Medium, interactionSource = readInteractionSource, onClick = onClick)
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {

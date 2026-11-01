@@ -390,4 +390,61 @@ class AiProviderWireTest {
             assertEquals(9L, error.retryAfterSeconds)
         }
     }
+
+    @Test fun openRouterUpstream429AndEmbeddedErrorsAreModelScopedWhileDailyLimitIsProviderWide() = runBlocking {
+        val flint = AiRoute(AiProviderId.OPEN_ROUTER, "recursive/flint-v1.0:free")
+        val upstream429 = ChatAiProvider(AiProviderId.OPEN_ROUTER, client(429) {
+            JSONObject().put("error", JSONObject().put("code", 429).put("message", "Provider returned error")).toString()
+        })
+        try {
+            upstream429.generate(flint, "offline-key", prompt, 1_000) {}; fail("Expected upstream 429")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.RATE_LIMIT, error.code)
+            assertEquals(AiLimitKind.UNKNOWN, error.rateLimit?.kind)
+            assertTrue(error.rateLimit?.modelScoped == true)
+        }
+
+        val embedded503 = ChatAiProvider(AiProviderId.OPEN_ROUTER, client(200) {
+            JSONObject().put("error", JSONObject().put("code", 503).put("message", "No instances available")).toString()
+        })
+        try {
+            embedded503.generate(flint, "offline-key", prompt, 1_000) {}; fail("Expected embedded 503")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.UNAVAILABLE, error.code)
+            assertTrue(error.rateLimit?.modelScoped == true)
+        }
+
+        val futureResetEpochMs = System.currentTimeMillis() + 120_000L
+        val daily429 = ChatAiProvider(AiProviderId.OPEN_ROUTER, client(429, mapOf("X-RateLimit-Reset" to futureResetEpochMs.toString())) {
+            JSONObject().put("error", JSONObject().put("code", 429)
+                .put("message", "Rate limit exceeded: free-models-per-day.")).toString()
+        })
+        try {
+            daily429.generate(flint, "offline-key", prompt, 1_000) {}; fail("Expected daily account limit")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.RATE_LIMIT, error.code)
+            assertEquals(AiLimitKind.DAILY_REQUESTS, error.rateLimit?.kind)
+            assertFalse(error.rateLimit?.modelScoped == true)
+            assertTrue((error.retryAfterSeconds ?: 0L) in 90L..125L)
+            assertTrue(error.message.orEmpty().contains("OpenRouter's daily request allowance"))
+        }
+    }
+
+    @Test fun groq429WithNonZeroRemainingTokensAndResetHeaderIsModelScopedAndUsesResetDelay() = runBlocking {
+        val route = AiProviderCatalog.models.first { it.route.provider == AiProviderId.GROQ }.route
+        val provider = ChatAiProvider(AiProviderId.GROQ, client(429, mapOf(
+            "x-ratelimit-limit-tokens" to "8000",
+            "x-ratelimit-remaining-tokens" to "950",
+            "x-ratelimit-reset-tokens" to "6.2s",
+            "x-ratelimit-remaining-requests" to "990"
+        )) { "{\"error\":{\"message\":\"Rate limit reached for model\"}}" })
+        try {
+            provider.generate(route, "offline-key", prompt, 1_000) {}; fail("Expected model-scoped minute token limit")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.RATE_LIMIT, error.code)
+            assertEquals(AiLimitKind.MINUTE_TOKENS, error.rateLimit?.kind)
+            assertTrue(error.rateLimit?.modelScoped == true)
+            assertEquals(7L, error.retryAfterSeconds)
+        }
+    }
 }

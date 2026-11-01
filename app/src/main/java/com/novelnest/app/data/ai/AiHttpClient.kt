@@ -85,7 +85,7 @@ class AiHttpClient internal constructor(clientOverride: OkHttpClient?) {
                                 if (error?.optString("code") == "json_validate_failed")
                                     throw AiException(AiErrorCode.INVALID_OUTPUT,
                                         "The model generated a response that failed the required JSON schema. Try another configured model. Source text and saved results are unchanged.")
-                                throw httpFailure(it, error, limits)
+                                throw httpFailure(it, error, limits, modelRequest = body != null)
                             }
                             val source = it.body ?: throw AiException(AiErrorCode.INVALID_OUTPUT, "The AI service returned an empty response.")
                             val limit = if (body == null) 4 * 1024 * 1024 else 512 * 1024
@@ -118,26 +118,38 @@ class AiHttpClient internal constructor(clientOverride: OkHttpClient?) {
         }
     }
 
-    private fun httpFailure(response: Response, error: JSONObject?, limits: AiQuotaSnapshot?): AiException {
+    private fun httpFailure(response: Response, error: JSONObject?, limits: AiQuotaSnapshot?, modelRequest: Boolean = false): AiException {
         val status = response.code
         val retry = response.header("Retry-After")
         val groq = response.request.url.host == "api.groq.com"
-        val detail = if (groq) error?.optString("message").orEmpty() else ""
-        var kind = if (groq) AiQuotaParsing.groqKind(detail) else AiLimitKind.UNKNOWN
+        val openRouter = response.request.url.host == "openrouter.ai"
+        val detail = if (groq || openRouter) error?.optString("message").orEmpty() else ""
+        var kind = when {
+            groq -> AiQuotaParsing.groqKind(detail)
+            openRouter -> AiQuotaParsing.openRouterKind(detail)
+            else -> AiLimitKind.UNKNOWN
+        }
         if (kind == AiLimitKind.UNKNOWN && limits?.requestsRemaining == 0) kind = AiLimitKind.DAILY_REQUESTS
-        if (kind == AiLimitKind.UNKNOWN && limits?.tokensRemaining == 0) kind = AiLimitKind.MINUTE_TOKENS
+        if (kind == AiLimitKind.UNKNOWN && (limits?.tokensRemaining == 0 ||
+                (groq && modelRequest && status == 429 && limits?.tokenResetMs != null && (limits.requestsRemaining == null || limits.requestsRemaining > 0))))
+            kind = AiLimitKind.MINUTE_TOKENS
         val headerSeconds = retry?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 }?.let { kotlin.math.ceil(it).toLong() } ?: runCatching {
             val reset = ZonedDateTime.parse(retry, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
             ((reset - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1)
         }.getOrNull()
         val resetMs = when (kind) {
             AiLimitKind.DAILY_REQUESTS -> limits?.requestResetMs
+            AiLimitKind.DAILY_TOKENS -> limits?.requestResetMs ?: limits?.tokenResetMs
             AiLimitKind.MINUTE_TOKENS -> limits?.tokenResetMs
-            else -> null
+            AiLimitKind.MINUTE_REQUESTS -> limits?.tokenResetMs ?: limits?.requestResetMs
+            else -> limits?.tokenResetMs ?: limits?.requestResetMs
         }
         // A counter's full reset may be later than the first eligible retry. Prefer explicit retry
         // instructions over that reset; never extend a short provider Retry-After to a whole day.
-        val inferredMs = if (status == 429) AiQuotaParsing.groqRetryMs(detail) ?: resetMs else null
+        val inferredMs = if (status == 429) {
+            if (openRouter) AiQuotaParsing.openRouterResetMs(response.headers, error) ?: resetMs
+            else AiQuotaParsing.groqRetryMs(detail) ?: resetMs
+        } else null
         val seconds = headerSeconds ?: inferredMs?.takeIf { it > 0 }?.let { (it + 999) / 1000 }
         val code = when {
             groq && status == 429 && AiQuotaParsing.exceedsMinuteRequestBudget(detail) -> AiErrorCode.TOO_LARGE
@@ -152,6 +164,7 @@ class AiHttpClient internal constructor(clientOverride: OkHttpClient?) {
             else -> AiErrorCode.INVALID_OUTPUT
             }
         }
+        val providerLabel = if (openRouter) "OpenRouter's" else "Groq's"
         val message = when (code) {
             AiErrorCode.CREDENTIALS -> "The provider rejected this API key or access. Check AI Reading Tools."
             AiErrorCode.BILLING_POLICY -> "The provider requires billing or additional credit. No paid fallback was selected."
@@ -160,10 +173,10 @@ class AiHttpClient internal constructor(clientOverride: OkHttpClient?) {
                 else "This model is unavailable. Select another supported model."
             AiErrorCode.RATE_LIMIT -> {
                 val limit = when (kind) {
-                    AiLimitKind.DAILY_TOKENS -> "Groq's daily token allowance was reached. A one-minute wait does not reset a daily quota."
-                    AiLimitKind.DAILY_REQUESTS -> "Groq's daily request allowance was reached. A one-minute wait does not reset a daily quota."
-                    AiLimitKind.MINUTE_TOKENS -> "Groq's per-minute token allowance was reached."
-                    AiLimitKind.MINUTE_REQUESTS -> "Groq's per-minute request allowance was reached."
+                    AiLimitKind.DAILY_TOKENS -> "$providerLabel daily token allowance was reached. A one-minute wait does not reset a daily quota."
+                    AiLimitKind.DAILY_REQUESTS -> "$providerLabel daily request allowance was reached. A one-minute wait does not reset a daily quota."
+                    AiLimitKind.MINUTE_TOKENS -> "$providerLabel per-minute token allowance was reached."
+                    AiLimitKind.MINUTE_REQUESTS -> "$providerLabel per-minute request allowance was reached."
                     else -> "The provider's usage limit or shared capacity was reached. Its reset time is not known; one minute is not a guarantee."
                 }
                 if (seconds != null) "$limit Provider retry delay: $seconds seconds." else "$limit Check your account's limits page."
@@ -175,7 +188,14 @@ class AiHttpClient internal constructor(clientOverride: OkHttpClient?) {
             AiErrorCode.UNAVAILABLE -> "The AI provider is temporarily unavailable."
             else -> "The provider rejected the requested output format or chapter size."
         }
-        return AiException(code, message, seconds?.coerceIn(1, 7 * 86_400L),
-            if (code == AiErrorCode.RATE_LIMIT) AiRateLimitInfo(kind, modelScoped = groq && kind != AiLimitKind.UNKNOWN) else null)
+        val rateLimitInfo = when (code) {
+            AiErrorCode.RATE_LIMIT -> AiRateLimitInfo(
+                kind,
+                modelScoped = (groq && kind != AiLimitKind.UNKNOWN) || (openRouter && modelRequest && kind == AiLimitKind.UNKNOWN)
+            )
+            AiErrorCode.UNAVAILABLE -> if ((openRouter || groq) && modelRequest) AiRateLimitInfo(AiLimitKind.UNKNOWN, modelScoped = true) else null
+            else -> null
+        }
+        return AiException(code, message, seconds?.coerceIn(1, 7 * 86_400L), rateLimitInfo)
     }
 }

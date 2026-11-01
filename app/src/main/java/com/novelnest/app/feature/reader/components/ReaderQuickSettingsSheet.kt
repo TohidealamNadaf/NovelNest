@@ -12,6 +12,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -59,6 +61,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.novelnest.app.feature.reader.ReaderStudyState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
@@ -70,6 +73,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +81,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelnest.app.core.designsystem.NovelError
 import com.novelnest.app.core.designsystem.NovelOnPrimary
@@ -89,8 +95,10 @@ import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.NovelNestIconButton
 import com.novelnest.app.core.ui.animation.BounceScale
+import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.bounceClick
 import com.novelnest.app.core.ui.animation.bounceSelectable
+import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.data.ai.AiAction
 import com.novelnest.app.data.ai.AiFailure
 import com.novelnest.app.data.ai.AiPhase
@@ -122,6 +130,21 @@ private enum class QuickSettingsSheetPage {
 }
 
 private enum class NoteExit { NOTES_LIST, DISMISS }
+
+/** Apply to the sheet's own window, never the Activity window behind it. */
+@Composable
+private fun ReaderSheetSystemBars(theme: ReaderTheme) {
+    val view = LocalView.current
+    val window = (view.parent as? DialogWindowProvider)?.window ?: return
+    // Material3 1.4 initializes these flags when creating its dialog, but does not
+    // update them on theme changes. Keep an already-open sheet in sync as well.
+    SideEffect {
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !theme.isDark
+            isAppearanceLightNavigationBars = !theme.isDark
+        }
+    }
+}
 
 data class ChapterNoteUi(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -197,6 +220,15 @@ fun ReaderQuickSettingsSheet(
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Theme & Font, 1: Sizing & Spacing
 
     val currentChapter = reader?.chapters?.getOrNull(reader.currentChapterIndex)
+    val playHaptic = rememberNovelNestHaptic()
+    var chapterCopyTrigger by remember(currentChapterKey(reader)) { mutableLongStateOf(0L) }
+    val isChapterCopied = chapterCopyTrigger > 0L
+    LaunchedEffect(chapterCopyTrigger) {
+        if (chapterCopyTrigger > 0L) {
+            delay(2000L)
+            chapterCopyTrigger = 0L
+        }
+    }
     val canStartAutoScroll = reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
         currentChapter?.paragraphs?.any { it.isNotBlank() } == true &&
         settings.scrollMode == ReaderScrollMode.CONTINUOUS
@@ -348,10 +380,17 @@ fun ReaderQuickSettingsSheet(
         dragHandle = null,
         // Own bottom insets inside; reserve stable top space outside Material's moving anchors.
         contentWindowInsets = { WindowInsets(0) },
-        properties = remember { ModalBottomSheetProperties(shouldDismissOnBackPress = false) },
+        properties = remember(settings.theme.isDark) {
+            ModalBottomSheetProperties(
+                isAppearanceLightStatusBars = !settings.theme.isDark,
+                isAppearanceLightNavigationBars = !settings.theme.isDark,
+                shouldDismissOnBackPress = false
+            )
+        },
         modifier = modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
     ) {
+        ReaderSheetSystemBars(settings.theme)
         ReaderSheetBackHandler {
             when (currentSheetPage) {
                 QuickSettingsSheetPage.MAIN -> dismissSheet()
@@ -566,29 +605,71 @@ fun ReaderQuickSettingsSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                 // 1. Copy Chapter Button
+                val copySuccessColor = if (settings.theme.isDark) NovelSecondary else Color(0xFF2E6B4F)
+                val copyBgColor by animateColorAsState(
+                    targetValue = if (isChapterCopied) copySuccessColor.copy(alpha = 0.18f)
+                    else secondaryColor.copy(alpha = if (canCopyChapter) 0.12f else 0.05f),
+                    animationSpec = tween(durationMillis = 200),
+                    label = "copyBgColor"
+                )
+                val copyBorderColor by animateColorAsState(
+                    targetValue = if (isChapterCopied) copySuccessColor.copy(alpha = 0.45f)
+                    else secondaryColor.copy(alpha = if (canCopyChapter) 0.18f else 0.08f),
+                    animationSpec = tween(durationMillis = 200),
+                    label = "copyBorderColor"
+                )
+                val copyIconTint by animateColorAsState(
+                    targetValue = if (isChapterCopied) copySuccessColor
+                    else if (canCopyChapter) textColor else secondaryColor.copy(alpha = 0.35f),
+                    animationSpec = tween(durationMillis = 200),
+                    label = "copyIconTint"
+                )
+
                 Box(
                     modifier = Modifier
                         .size(46.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(secondaryColor.copy(alpha = if (canCopyChapter) 0.12f else 0.05f))
+                        .background(copyBgColor)
                         .border(
                             1.dp,
-                            secondaryColor.copy(alpha = if (canCopyChapter) 0.18f else 0.08f),
+                            copyBorderColor,
                             RoundedCornerShape(14.dp)
                         )
                         .bounceClick(
                             enabled = canCopyChapter,
                             scaleDown = BounceScale.Small,
-                            onClick = onCopyChapter
+                            onClick = {
+                                playHaptic(NovelNestHapticType.SUCCESS)
+                                chapterCopyTrigger = System.currentTimeMillis()
+                                onCopyChapter()
+                            }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ContentCopy,
-                        contentDescription = "Copy chapter",
-                        tint = if (canCopyChapter) textColor else secondaryColor.copy(alpha = 0.35f),
-                        modifier = Modifier.size(19.dp)
-                    )
+                    AnimatedContent(
+                        targetState = isChapterCopied,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(180)) + scaleIn(initialScale = 0.65f, animationSpec = tween(180)))
+                                .togetherWith(fadeOut(animationSpec = tween(140)) + scaleOut(targetScale = 0.65f, animationSpec = tween(140)))
+                        },
+                        label = "copyChapterIconTransition"
+                    ) { copied ->
+                        if (copied) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Chapter copied",
+                                tint = copyIconTint,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = "Copy chapter",
+                                tint = copyIconTint,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
                 }
 
                 // 2. Previous Chapter Button
@@ -764,20 +845,6 @@ fun ReaderQuickSettingsSheet(
                 }
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            ReaderAutoScrollEntry(
-                state = autoScrollState,
-                speed = settings.autoScrollSpeed,
-                canStart = canStartAutoScroll,
-                textColor = textColor,
-                secondaryColor = secondaryColor,
-                theme = settings.theme,
-                onStart = requestAutoScrollStart,
-                onPause = onPauseAutoScroll,
-                onStop = onStopAutoScroll,
-                onClick = { currentSheetPage = QuickSettingsSheetPage.AUTO_SCROLL }
-            )
             Spacer(modifier = Modifier.height(10.dp))
 
             // Segmented Tab Selector with Sliding Pill Indicator (2 Tabs)
@@ -1055,6 +1122,20 @@ fun ReaderQuickSettingsSheet(
                         }
                     } else if (tab == 1) {
                         // ─── TAB 1: SIZING & SPACING ───
+                        ReaderAutoScrollEntry(
+                            state = autoScrollState,
+                            speed = settings.autoScrollSpeed,
+                            canStart = canStartAutoScroll,
+                            textColor = textColor,
+                            secondaryColor = secondaryColor,
+                            theme = settings.theme,
+                            onStart = requestAutoScrollStart,
+                            onPause = onPauseAutoScroll,
+                            onStop = onStopAutoScroll,
+                            onClick = { currentSheetPage = QuickSettingsSheetPage.AUTO_SCROLL }
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         // 1. Font Size
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1267,6 +1348,15 @@ private fun ReaderSummarySubPage(
     val failure = if (isMatchingChapter && aiState?.action == AiAction.SUMMARY) aiState?.failure else null
     val accentColor = if (theme.isDark) NovelPrimary else textColor
     val failureColor = if (theme.isDark) NovelError else textColor
+    val copySuccessColor = if (theme.isDark) NovelSecondary else Color(0xFF2E6B4F)
+    var summaryCopyTrigger by remember(currentChapter?.id) { mutableLongStateOf(0L) }
+    val isSummaryCopied = summaryCopyTrigger > 0L
+    LaunchedEffect(summaryCopyTrigger) {
+        if (summaryCopyTrigger > 0L) {
+            delay(2000L)
+            summaryCopyTrigger = 0L
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -1316,8 +1406,8 @@ private fun ReaderSummarySubPage(
 
             // Copy summary text button
             NovelNestIconButton(
-                icon = Icons.Rounded.ContentCopy,
-                contentDescription = "Copy summary text",
+                icon = if (isSummaryCopied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                contentDescription = if (isSummaryCopied) "Summary copied" else "Copy summary text",
                 onClick = {
                     val text = currentSummary?.summary?.text
                     if (!text.isNullOrBlank()) {
@@ -1326,12 +1416,13 @@ private fun ReaderSummarySubPage(
                             clipboard?.setPrimaryClip(
                                 android.content.ClipData.newPlainText("Chapter Summary", text)
                             )
+                            summaryCopyTrigger = System.currentTimeMillis()
                             Toast.makeText(context, "Summary copied to clipboard", Toast.LENGTH_SHORT).show()
                         } catch (_: Exception) {}
                     }
                 },
                 enabled = currentSummary?.summary?.text?.isNotBlank() == true,
-                tint = if (currentSummary?.summary?.text?.isNotBlank() == true) textColor else secondaryColor.copy(alpha = 0.35f)
+                tint = if (isSummaryCopied) copySuccessColor else if (currentSummary?.summary?.text?.isNotBlank() == true) textColor else secondaryColor.copy(alpha = 0.35f)
             )
         }
 

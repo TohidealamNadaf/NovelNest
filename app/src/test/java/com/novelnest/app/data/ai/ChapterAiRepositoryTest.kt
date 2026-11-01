@@ -249,6 +249,19 @@ class ChapterAiRepositoryTest {
         assertEquals(second, result.route); assertEquals(2, provider.calls.get())
     }
 
+    @Test fun groqModelUnavailable503CanFallbackToNextConfiguredGroqModel() = runBlocking {
+        val models = AiProviderCatalog.models.filter { it.route.provider == AiProviderId.GROQ }
+        val first = models[0].route; val second = models[1].route
+        val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { route, prompt ->
+            if (route == first) throw AiException(AiErrorCode.UNAVAILABLE, "Temporarily unavailable", 30,
+                AiRateLimitInfo(AiLimitKind.UNKNOWN, modelScoped = true))
+            validResponse(prompt)
+        } }
+        val result = ChapterAiRepository(FakeConfiguration(configured(first, second)), FakeCache(), listOf(provider))
+            .generate(chapter(), AiAction.SUMMARY)
+        assertEquals(second, result.route); assertEquals(2, provider.calls.get())
+    }
+
     @Test fun unknownProviderQuotaDoesNotFanOutAcrossModels() = runBlocking {
         val models = AiProviderCatalog.models.filter { it.route.provider == AiProviderId.GROQ }.map { it.route }
         val provider = FakeProvider(AiProviderId.GROQ).apply { respond = { _, _ -> throw AiException(AiErrorCode.RATE_LIMIT, "Unknown scope", 60) } }
@@ -269,5 +282,67 @@ class ChapterAiRepositoryTest {
                 .generate(chapter(), AiAction.SUMMARY)
         }
         assertEquals(0, provider.discoveries.get()); assertEquals(0, provider.calls.get())
+    }
+
+    @Test fun openRouterFlintUpstreamRateLimitOrUnavailableFallsBackToDotsForSummaryAndExtract() = runBlocking {
+        val flint = AiRoute(AiProviderId.OPEN_ROUTER, "recursive/flint-v1.0:free")
+        val dots = AiRoute(AiProviderId.OPEN_ROUTER, "dots-studio/dots-3-note-preview:free")
+        val policy = AiRequestPolicy { 0L }
+        val attempted = mutableListOf<AiRoute>()
+        val provider = FakeProvider(AiProviderId.OPEN_ROUTER).apply {
+            respond = { route, prompt ->
+                attempted.add(route)
+                if (route == flint) {
+                    throw AiException(
+                        AiErrorCode.RATE_LIMIT,
+                        "This OpenRouter model is temporarily rate-limited upstream.",
+                        retryAfterSeconds = 30,
+                        rateLimit = AiRateLimitInfo(AiLimitKind.UNKNOWN, modelScoped = true)
+                    )
+                }
+                if (prompt.schema.getJSONObject("properties").has("summary")) validResponse(prompt)
+                else "{\"terms\":[]}"
+            }
+        }
+        val settings = configured(flint, dots).copy(extractRoutes = listOf(flint, dots))
+        val cache = object : AiCache {
+            override var generation = 0L
+            private val entries = mutableMapOf<String, AiResult>()
+            override suspend fun read(key: String, input: AiChapterInput, action: AiAction) = entries[key]
+            override suspend fun write(key: String, result: AiResult, expectedGeneration: Long) {
+                if (expectedGeneration == generation) entries[key] = result
+            }
+        }
+        val repo = ChapterAiRepository(FakeConfiguration(settings), cache, listOf(provider), policy)
+        val summary = repo.generate(chapter("c1"), AiAction.SUMMARY)
+        assertEquals(dots, summary.route)
+        assertEquals(listOf(flint, dots), attempted)
+
+        // While Flint is still in its model-scoped cooldown, Extract skips Flint locally and succeeds via Dots3-Note.
+        val extract = repo.generate(chapter("c2").copy(extractionTarget = "terms"), AiAction.EXTRACT)
+        assertEquals(dots, extract.route)
+        assertEquals(listOf(flint, dots, dots), attempted)
+    }
+
+    @Test fun twoConsecutiveOpenRouterModelRateLimitsStopBeforeThirdOpenRouterModel() = runBlocking {
+        val flint = AiRoute(AiProviderId.OPEN_ROUTER, "recursive/flint-v1.0:free")
+        val dots = AiRoute(AiProviderId.OPEN_ROUTER, "dots-studio/dots-3-note-preview:free")
+        val third = AiRoute(AiProviderId.OPEN_ROUTER, "google/gemma-4-31b-it:free")
+        val policy = AiRequestPolicy { 0L }
+        val provider = FakeProvider(AiProviderId.OPEN_ROUTER).apply {
+            respond = { _, _ ->
+                throw AiException(
+                    AiErrorCode.RATE_LIMIT,
+                    "Upstream rate limit",
+                    retryAfterSeconds = 30,
+                    rateLimit = AiRateLimitInfo(AiLimitKind.UNKNOWN, modelScoped = true)
+                )
+            }
+        }
+        expectAi(AiErrorCode.RATE_LIMIT) {
+            ChapterAiRepository(FakeConfiguration(configured(flint, dots, third)), FakeCache(), listOf(provider), policy)
+                .generate(chapter(), AiAction.SUMMARY)
+        }
+        assertEquals(2, provider.calls.get())
     }
 }

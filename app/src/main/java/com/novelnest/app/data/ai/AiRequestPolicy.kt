@@ -30,7 +30,8 @@ class AiRequestPolicy(private val nowMs: () -> Long = { System.nanoTime() / 1_00
     }
 
     private fun scope(provider: AiProviderId, model: String?) = Scope(provider,
-        model?.takeIf { provider == AiProviderId.GROQ && AiProviderCatalog.models.any { it.route == AiRoute(provider, model) } })
+        model?.takeIf { provider in setOf(AiProviderId.GROQ, AiProviderId.OPEN_ROUTER) &&
+            AiProviderCatalog.models.any { it.route == AiRoute(provider, model) } })
 
     @Synchronized fun checkCooldown(provider: AiProviderId, model: String? = null) {
         val now = nowMs()
@@ -128,7 +129,8 @@ class AiRequestPolicy(private val nowMs: () -> Long = { System.nanoTime() / 1_00
     @Synchronized fun failed(provider: AiProviderId, error: AiException, model: String? = null) {
         if (error.rateLimit?.localRejection == true) return
         val duration = when (error.code) {
-            AiErrorCode.RATE_LIMIT -> error.retryAfterSeconds ?: 60L
+            AiErrorCode.RATE_LIMIT -> error.retryAfterSeconds
+                ?: if (provider == AiProviderId.OPEN_ROUTER && error.rateLimit?.modelScoped == true) 30L else 60L
             AiErrorCode.UNAVAILABLE -> error.retryAfterSeconds ?: 30L
             else -> return
         }

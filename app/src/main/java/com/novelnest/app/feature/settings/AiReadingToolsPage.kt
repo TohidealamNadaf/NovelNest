@@ -127,6 +127,19 @@ fun AiReadingToolsPage(
 
     var showClearCacheConfirm by remember { mutableStateOf(false) }
     var showBillingConfirm by remember { mutableStateOf(false) }
+    var pendingBillingSettings by remember { mutableStateOf<AiSettings?>(null) }
+
+    fun saveRoutesWithPolicyCheck(updatedSettings: AiSettings, routes: List<AiRoute>) {
+        val requiresFreeAccountPolicy = routes.any { route ->
+            viewModel.supportedModels.firstOrNull { it.route == route }?.explicitlyFree == false
+        }
+        if (requiresFreeAccountPolicy && state.settings.costPolicy == AiCostPolicy.EXPLICIT_FREE_ONLY) {
+            pendingBillingSettings = updatedSettings
+            showBillingConfirm = true
+        } else {
+            viewModel.saveSettings(updatedSettings)
+        }
+    }
 
     LaunchedEffect(state.message) {
         if (state.message.isNotBlank()) {
@@ -212,7 +225,7 @@ fun AiReadingToolsPage(
                         availableSpecs = viewModel.supportedModels,
                         enabled = !state.busy,
                         onRoutesChanged = { updated ->
-                            viewModel.saveSettings(state.settings.copy(summaryRoutes = updated))
+                            saveRoutesWithPolicyCheck(state.settings.copy(summaryRoutes = updated), updated)
                         }
                     )
                 }
@@ -230,7 +243,7 @@ fun AiReadingToolsPage(
                         availableSpecs = viewModel.supportedModels,
                         enabled = !state.busy,
                         onRoutesChanged = { updated ->
-                            viewModel.saveSettings(state.settings.copy(rewriteRoutes = updated))
+                            saveRoutesWithPolicyCheck(state.settings.copy(rewriteRoutes = updated), updated)
                         }
                     )
                 }
@@ -248,7 +261,7 @@ fun AiReadingToolsPage(
                         availableSpecs = viewModel.supportedModels,
                         enabled = !state.busy,
                         onRoutesChanged = { updated ->
-                            viewModel.saveSettings(state.settings.copy(extractRoutes = updated))
+                            saveRoutesWithPolicyCheck(state.settings.copy(extractRoutes = updated), updated)
                         }
                     )
                 }
@@ -422,7 +435,10 @@ fun AiReadingToolsPage(
 
         if (showBillingConfirm) {
             AlertDialog(
-                onDismissRequest = { showBillingConfirm = false },
+                onDismissRequest = {
+                    showBillingConfirm = false
+                    pendingBillingSettings = null
+                },
                 containerColor = NovelSurface,
                 title = { Text("Allow free-account providers?", color = NovelTextPrimary) },
                 text = {
@@ -435,12 +451,17 @@ fun AiReadingToolsPage(
                 },
                 confirmButton = {
                     TextButton(enabled = !state.busy, onClick = {
+                        val base = pendingBillingSettings ?: state.settings
                         showBillingConfirm = false
-                        viewModel.saveSettings(state.settings.copy(costPolicy = AiCostPolicy.FREE_ACCOUNT_PROVIDERS))
+                        pendingBillingSettings = null
+                        viewModel.saveSettings(base.copy(costPolicy = AiCostPolicy.FREE_ACCOUNT_PROVIDERS))
                     }) { Text("I understand — enable") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showBillingConfirm = false }) { Text("Keep current policy") }
+                    TextButton(onClick = {
+                        showBillingConfirm = false
+                        pendingBillingSettings = null
+                    }) { Text("Keep current policy") }
                 }
             )
         }

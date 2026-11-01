@@ -123,3 +123,18 @@ Same-source canonical identity is used for cache/feed reuse. A known score elsew
 RatingParser reads JSON-LD aggregate ratings, graphs/arrays and declared rating scales. Both source parsers also accept explicit widget attributes and visible scores. Phoenix search and generic novel construction no longer manufacture 4.7/4.5 defaults for absent metadata. Unknown/unrated/blocked responses remain a dash. A 403/Cloudflare rejection cannot be repaired by inventing a score; the source can be retried with Refresh after access is available.
 
 DiscoverRatingTest exercises both sources, duplicate sections, bounded visibility-based requests, cancellation, failed-lookup cooldowns, refresh retention, widget/JSON-LD fallbacks and cross-source isolation. Live Phoenix ranking access returned HTTP 403 in this environment; fixtures verify its parsing paths, not live device availability.
+
+## Discover carousel scheduling
+
+All source tabs share `HeroCarousel`. Auto-advance waits for five uninterrupted idle seconds after
+pager scrolling, card presses or vertical feed scrolling. Each slide runs in a child coroutine so
+a swipe/dot tap can cancel that scroll without terminating the timer loop. Leaving the viewport or
+the resumed lifecycle cancels the loop; returning starts a fresh interval. System-disabled animations
+disable automatic advancement while keeping manual navigation available.
+
+Pager keys use source and novel ID. Rating updates keep page identity and remembered cover requests;
+one neighboring page on either side is composed ahead, rather than the whole carousel. Rating
+visibility follows the settled slide, so intermediate slides do not start enrichment requests.
+The refresh icon creates its repeating animation only during a refresh. Existing card layout,
+dot styling, source fetching and navigation remain unchanged. A debug build verifies compilation;
+smoothness still requires frame-time profiling on a physical device.

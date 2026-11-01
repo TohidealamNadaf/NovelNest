@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -82,6 +83,17 @@ internal fun MarkdownNoteEditor(
     // Existing notes open in Preview Mode first; new notes open in Edit Mode
     var preview by rememberSaveable(note?.id) { mutableStateOf(note != null) }
     var editor by remember { mutableStateOf<ScrollableNoteEditText?>(null) }
+    val bodyScrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val safeBottom = WindowInsets.safeDrawing.getBottom(density)
+    var bodyHeightPx by remember { mutableIntStateOf(0) }
+    val bottomClearancePx = with(density) { 16.dp.toPx() }
+    val editorMaxHeight = if (bodyHeightPx > 0) {
+        (with(density) { bodyHeightPx.toDp() } - 20.dp).coerceIn(170.dp, 280.dp)
+    } else {
+        280.dp
+    }
     val cursorRequester = remember { BringIntoViewRequester() }
     val cursorRequests = remember { Channel<Pair<ScrollableNoteEditText, Rect>>(Channel.CONFLATED) }
     DisposableEffect(cursorRequests) {
@@ -93,7 +105,20 @@ internal fun MarkdownNoteEditor(
             // Keyboard/viewport measurement must finish before asking the form to scroll.
             withFrameNanos { }
             if (editor === view && view.isAttachedToWindow && view.isFocused) {
-                cursorRequester.bringIntoView(rectangle)
+                cursorRequester.bringIntoView(view.targetViewportRect() ?: rectangle)
+            }
+        }
+    }
+    LaunchedEffect(imeBottom, safeBottom, bodyHeightPx, preview) {
+        if (preview) return@LaunchedEffect
+        val view = editor ?: return@LaunchedEffect
+        view.viewportHeightPx = bodyHeightPx
+        view.bottomClearancePx = bottomClearancePx
+        if (view.isAttachedToWindow && view.isFocused) {
+            view.requestCursorVisibility()
+            withFrameNanos { }
+            if (editor === view && view.isAttachedToWindow && view.isFocused) {
+                view.targetViewportRect()?.let { cursorRequester.bringIntoView(it) }
             }
         }
     }
@@ -229,8 +254,15 @@ internal fun MarkdownNoteEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp, max = 380.dp)
-                .onSizeChanged { editor?.requestCursorVisibility() }
-                .verticalScroll(rememberScrollState())
+                .onSizeChanged { size ->
+                    bodyHeightPx = size.height
+                    editor?.let {
+                        it.viewportHeightPx = size.height
+                        it.bottomClearancePx = bottomClearancePx
+                        it.requestCursorVisibility()
+                    }
+                }
+                .verticalScroll(bodyScrollState)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -362,6 +394,8 @@ internal fun MarkdownNoteEditor(
                 AndroidView(
                     factory = { context ->
                         ScrollableNoteEditText(context).apply {
+                            viewportHeightPx = bodyHeightPx
+                            this.bottomClearancePx = bottomClearancePx
                             onCursorRectangleRequested = { cursorRequests.trySend(this to it) }
                             setText(content)
                             hint = "Write Markdown: **bold**, *italic*, headings, lists, quotes, tables…"
@@ -371,7 +405,6 @@ internal fun MarkdownNoteEditor(
                                 android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                             setPadding(24, 20, 24, 20)
                             minLines = 6
-                            maxLines = 12
                             textSize = 14.5f
                             filters = arrayOf(android.text.InputFilter.LengthFilter(64_000))
                             customSelectionActionModeCallback = object : ActionMode.Callback {
@@ -401,6 +434,7 @@ internal fun MarkdownNoteEditor(
                                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                                     changed(s?.toString().orEmpty())
+                                    requestCursorVisibility()
                                 }
                                 override fun afterTextChanged(s: Editable?) = Unit
                             })
@@ -413,6 +447,8 @@ internal fun MarkdownNoteEditor(
                         if (editor === view) editor = null
                     },
                     update = { view ->
+                        view.viewportHeightPx = bodyHeightPx
+                        view.bottomClearancePx = bottomClearancePx
                         if (view.text.toString() != content) {
                             val position = view.selectionStart.coerceIn(0, content.length)
                             view.setText(content)
@@ -427,7 +463,7 @@ internal fun MarkdownNoteEditor(
                             setStroke(2, secondaryColor.copy(alpha = 0.25f).toArgb())
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp, max = 280.dp)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp, max = editorMaxHeight)
                         .bringIntoViewRequester(cursorRequester)
                 )
 
@@ -445,9 +481,16 @@ internal fun MarkdownNoteEditor(
 /** Keep overflowing native text scrolls from being intercepted by the Compose form. */
 private class ScrollableNoteEditText(context: Context) : EditText(context) {
     private var ownsScrollGesture = false
+    private var lastTouchY = 0f
+    var viewportHeightPx: Int = 0
+    var bottomClearancePx: Float = 0f
     var onCursorRectangleRequested: ((Rect) -> Unit)? = null
     private val revealCursor = Runnable {
-        if (isAttachedToWindow && isFocused && selectionEnd >= 0) bringPointIntoView(selectionEnd)
+        if (isAttachedToWindow && isFocused) {
+            if (selectionEnd >= 0) bringPointIntoView(selectionEnd)
+            snapCursorLineIntoInternalViewport()
+            targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
+        }
     }
 
     fun requestCursorVisibility() {
@@ -457,24 +500,122 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
         }
     }
 
+    private fun snapCursorLineIntoInternalViewport() {
+        val currentLayout = layout ?: return
+        val cursorOffset = selectionEnd.takeIf { it >= 0 } ?: return
+        val clampedOffset = cursorOffset.coerceIn(0, text?.length ?: 0)
+        val line = currentLayout.getLineForOffset(clampedOffset)
+        val lineTop = currentLayout.getLineTop(line)
+        val lineBottom = currentLayout.getLineBottom(line)
+        val availableHeight = (height - compoundPaddingTop - compoundPaddingBottom).coerceAtLeast(1)
+        val maxScroll = (currentLayout.height - availableHeight).coerceAtLeast(0)
+        val targetScrollY = when {
+            lineBottom > scrollY + availableHeight -> (lineBottom - availableHeight).coerceIn(0, maxScroll)
+            lineTop < scrollY -> lineTop.coerceIn(0, maxScroll)
+            else -> scrollY.coerceIn(0, maxScroll)
+        }
+        if (targetScrollY != scrollY) {
+            scrollTo(scrollX, targetScrollY)
+        }
+    }
+
+    fun targetViewportRect(requested: AndroidRect? = null): Rect? {
+        if (width <= 0 || height <= 0) return null
+        val w = width.toFloat()
+        val h = height.toFloat()
+        // When the editor fits within the outer scroll viewport, bring the entire editor
+        // (including its bottom padding and clearance) into view so the last line is never hidden.
+        if (viewportHeightPx <= 0 || h + bottomClearancePx <= viewportHeightPx.toFloat()) {
+            return Rect(0f, 0f, w, h + bottomClearancePx)
+        }
+        val currentLayout = layout
+        if (currentLayout != null && selectionEnd >= 0) {
+            val clampedOffset = selectionEnd.coerceIn(0, text?.length ?: 0)
+            val line = currentLayout.getLineForOffset(clampedOffset)
+            val lineHeight = (currentLayout.getLineBottom(line) - currentLayout.getLineTop(line)).toFloat().coerceAtLeast(1f)
+            val rawTop = (currentLayout.getLineTop(line) + compoundPaddingTop - scrollY).toFloat()
+            val rawBottom = (currentLayout.getLineBottom(line) + compoundPaddingTop + compoundPaddingBottom - scrollY).toFloat()
+            val topInView = when {
+                rawBottom > h -> (h - lineHeight - compoundPaddingBottom).coerceAtLeast(0f)
+                rawTop < 0f -> 0f
+                else -> rawTop.coerceIn(0f, h)
+            }
+            val bottomInView = when {
+                rawBottom > h -> h + bottomClearancePx
+                rawBottom >= h - compoundPaddingBottom -> h + bottomClearancePx
+                else -> rawBottom.coerceIn(topInView + 1f, h)
+            }
+            return Rect(0f, topInView, w, bottomInView)
+        }
+        if (requested != null) {
+            val reqHeight = (requested.bottom - requested.top).toFloat().coerceAtLeast(1f)
+            val rawTop = (requested.top - scrollY).toFloat()
+            val rawBottom = (requested.bottom - scrollY).toFloat()
+            val topInView = if (rawBottom > h) (h - reqHeight).coerceAtLeast(0f) else rawTop.coerceIn(0f, h)
+            val bottomInView = if (rawBottom >= h - compoundPaddingBottom) h + bottomClearancePx else rawBottom.coerceIn(topInView + 1f, h)
+            return Rect(0f, topInView, w, bottomInView)
+        }
+        return Rect(0f, 0f, w, h + bottomClearancePx)
+    }
+
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: AndroidRect?) {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+        if (focused) {
+            requestCursorVisibility()
+        }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (isFocused) {
+            snapCursorLineIntoInternalViewport()
+            targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (h != oldh && isFocused) {
+            requestCursorVisibility()
+        }
+    }
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        if (isFocused) {
+            requestCursorVisibility()
+        }
+    }
+
+    override fun onScrollChanged(horiz: Int, vert: Int, oldHoriz: Int, oldVert: Int) {
+        super.onScrollChanged(horiz, vert, oldHoriz, oldVert)
+        if (isFocused && vert != oldVert) {
+            targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
+        }
+    }
+
     override fun requestRectangleOnScreen(rectangle: AndroidRect, immediate: Boolean): Boolean {
-        // View requests use content coordinates; Compose needs viewport coordinates.
-        // Capture before super: the View implementation may mutate the supplied Rect.
-        val cursorRect = if (isFocused && onCursorRectangleRequested != null) {
-            Rect(
-                (rectangle.left - scrollX).toFloat(), (rectangle.top - scrollY).toFloat(),
-                (rectangle.right - scrollX).toFloat(), (rectangle.bottom - scrollY).toFloat()
-            ).intersect(Rect(0f, 0f, width.toFloat(), height.toFloat()))
-        } else null
+        val requestedCopy = AndroidRect(rectangle)
         val scrolled = super.requestRectangleOnScreen(rectangle, immediate)
-        if (cursorRect != null && !cursorRect.isEmpty) onCursorRectangleRequested?.invoke(cursorRect)
+        if (isFocused && onCursorRectangleRequested != null) {
+            snapCursorLineIntoInternalViewport()
+            targetViewportRect(requestedCopy)?.let { onCursorRectangleRequested?.invoke(it) }
+        }
         return scrolled
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            lastTouchY = event.y
             ownsScrollGesture = isEnabled && (canScrollVertically(-1) || canScrollVertically(1))
             if (ownsScrollGesture) parent?.requestDisallowInterceptTouchEvent(true)
+            if (isEnabled) requestCursorVisibility()
+        } else if (event.actionMasked == MotionEvent.ACTION_MOVE && ownsScrollGesture) {
+            val dy = event.y - lastTouchY
+            lastTouchY = event.y
+            if ((dy < -1f && !canScrollVertically(1)) || (dy > 1f && !canScrollVertically(-1))) {
+                releaseScrollGesture()
+            }
         }
         return try {
             // Preserve native cursor placement, long press, selection handles and scrolling.
@@ -482,6 +623,7 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
         } finally {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 releaseScrollGesture()
+                if (isFocused) requestCursorVisibility()
             }
         }
     }
