@@ -1,6 +1,6 @@
 package com.novelnest.app.data.ai
 
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.feature.reader.ReaderAiController
 import com.novelnest.app.feature.reader.ReaderContentVersion
 import kotlinx.coroutines.CompletableDeferred

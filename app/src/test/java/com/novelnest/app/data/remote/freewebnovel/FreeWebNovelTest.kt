@@ -160,7 +160,7 @@ class FreeWebNovelTest {
             if (path.contains("page=1&")) {
                 page1Calls.incrementAndGet()
                 200 to twoPageJson(1)
-            } else if (failSecond) 403 to "Blocked" else 200 to twoPageJson(2)
+            } else if (failSecond) 404 to "Missing" else 200 to twoPageJson(2)
         }
         val first = source.getChaptersFlow("fwn-shadow-slave", false).toList()
         assertEquals(100, first.first().getOrThrow().size)
@@ -171,6 +171,27 @@ class FreeWebNovelTest {
         assertEquals(2, page1Calls.get())
         assertEquals(200, source.getChapters("fwn-shadow-slave", false).getOrThrow().size)
         assertEquals(2, page1Calls.get())
+    }
+
+    @Test fun blockedPartialChapterListResumesOnlyAfterCooldown() = runBlocking {
+        var now = 0L
+        var failSecond = true
+        val calls = AtomicInteger()
+        val source = mockSource(HostRateLimiter(0, { now }, { 0L })) { path ->
+            calls.incrementAndGet()
+            if (path.contains("page=1&")) 200 to twoPageJson(1)
+            else if (failSecond) 403 to "Blocked" else 200 to twoPageJson(2)
+        }
+        val partial = source.getChaptersFlow("fwn-shadow-slave", false).toList()
+        assertEquals(100, partial.first().getOrThrow().size)
+        assertTrue(partial.last().isFailure)
+        assertEquals(2, calls.get())
+        assertTrue(source.getChapters("fwn-shadow-slave", true).isFailure)
+        assertEquals(2, calls.get())
+        now += 60_000L
+        failSecond = false
+        assertEquals(200, source.getChapters("fwn-shadow-slave", false).getOrThrow().size)
+        assertEquals(3, calls.get())
     }
 
     @Test fun concurrentReadAndPrefetchFetchOnlyOneContentResponse() = runBlocking {
@@ -209,13 +230,13 @@ class FreeWebNovelTest {
     private fun twoPageJson(page: Int) = JSONObject(fixture("chapters_ajax_$page.json"))
         .put("totalPage", 2).put("totalChapters", 200).toString()
 
-    private fun mockSource(responder: (String) -> Pair<Int, String>): FreeWebNovelSource {
+    private fun mockSource(rateLimiter: HostRateLimiter = HostRateLimiter(0), responder: (String) -> Pair<Int, String>): FreeWebNovelSource {
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val (code, body) = responder(chain.request().url.encodedPath + "?" + chain.request().url.encodedQuery.orEmpty())
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("Fixture")
                 .body(body.toResponseBody("text/html".toMediaType())).build()
         }.build()
-        return FreeWebNovelSource(client, HostRateLimiter(0))
+        return FreeWebNovelSource(client, rateLimiter)
     }
 
     private fun memoryContext(values: MutableMap<String, String?>): ContextWrapper {

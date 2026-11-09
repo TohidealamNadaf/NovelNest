@@ -5,7 +5,7 @@ import com.novelnest.app.data.cache.MutexPool
 import com.novelnest.app.data.model.*
 import com.novelnest.app.data.remote.ManhwaSource
 import com.novelnest.app.data.remote.network.HttpFactory
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock

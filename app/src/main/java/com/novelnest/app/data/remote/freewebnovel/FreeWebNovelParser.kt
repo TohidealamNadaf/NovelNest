@@ -5,7 +5,7 @@ import com.novelnest.app.data.model.reuseRatings
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.data.remote.RatingParser
 import org.json.JSONObject
 import org.jsoup.Jsoup

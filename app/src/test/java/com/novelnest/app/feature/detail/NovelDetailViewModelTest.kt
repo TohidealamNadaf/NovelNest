@@ -6,7 +6,7 @@ import com.novelnest.app.data.database.entity.ReadingProgressEntity
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.progress.ReadingProgressManager
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.testsupport.ReaderTestProgressDao
 import com.novelnest.app.testsupport.ReaderTestRepository
 import com.novelnest.app.testsupport.readerTestContext

@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
 import com.novelnest.app.data.database.dao.ReadingProgressDao
 import com.novelnest.app.data.database.entity.ReadingProgressEntity
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.data.model.*
 import com.novelnest.app.data.preferences.*
 import com.novelnest.app.data.progress.*

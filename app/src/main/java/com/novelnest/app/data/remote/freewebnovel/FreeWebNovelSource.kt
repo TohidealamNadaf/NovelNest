@@ -6,7 +6,7 @@ import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.remote.NovelSource
 import com.novelnest.app.data.remote.network.HostRateLimiter
 import com.novelnest.app.data.remote.network.HttpFactory
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -31,6 +31,7 @@ class FreeWebNovelSource(
     private val rateLimiter: HostRateLimiter = HostRateLimiter(1_000L)
 ) : NovelSource {
     override val sourceType = NovelSourceType.FREE_WEB_NOVEL
+    override fun isCoolingDown(): Boolean = rateLimiter.cooldown("freewebnovel.com") != null
     private val cacheTtl = 15 * 60 * 1_000L
     private val detailCache = MemoryLruCache<String, FreeWebNovelCached<Novel>>(128)
     private val pageCache = MemoryLruCache<String, FreeWebNovelCached<FreeWebNovelChapterPage>>(64)
@@ -172,17 +173,23 @@ class FreeWebNovelSource(
                 run {
                     val response = client.newCall(builder.build()).awaitTextResponse()
                     when {
-                        response.code == 403 -> throw FreeWebNovelException.Blocked()
+                        response.code == 403 || response.code == 429 || response.cloudflareChallenge ->
+                            throw rateLimiter.block("freewebnovel.com", response.code, response.cloudflareChallenge, response.retryAfter)
                         response.code == 404 -> throw FreeWebNovelException.NotFound()
                         !response.isSuccessful -> throw FreeWebNovelException.HttpError(response.code)
                     }
                     val body = response.body
                     if (body.isBlank()) throw IOException("FreeWebNovel returned an empty response")
-                    FreeWebNovelParser.document(body, url)
+                    try { FreeWebNovelParser.document(body, url) }
+                    catch (blocked: FreeWebNovelException.Blocked) {
+                        throw rateLimiter.block("freewebnovel.com", response.code, true, response.retryAfter)
+                    }
                     return body
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (error: com.novelnest.app.data.remote.network.SourceCooldownException) {
+                throw error
             } catch (error: IOException) {
                 if (error is FreeWebNovelException && (error !is FreeWebNovelException.HttpError || !error.retryable)) throw error
                 lastFailure = if (error is FreeWebNovelException) error else FreeWebNovelException.NetworkError(error)

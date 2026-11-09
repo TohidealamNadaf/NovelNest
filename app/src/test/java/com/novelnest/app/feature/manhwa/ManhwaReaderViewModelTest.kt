@@ -11,7 +11,7 @@ import com.novelnest.app.data.model.*
 import com.novelnest.app.data.progress.ReadingProgressManager
 import com.novelnest.app.data.progress.readingCompletion
 import com.novelnest.app.feature.detail.NovelDetailViewModel
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.data.remote.asura.*
 import com.novelnest.app.data.repository.NovelRepository
 import kotlinx.coroutines.*
@@ -30,8 +30,8 @@ class ManhwaReaderViewModelTest {
         override suspend fun searchNovels(source: NovelSourceType, query: String) = Result.success(emptyList<Novel>())
         override suspend fun getNovelDetails(source: NovelSourceType, novelUrl: String) = Result.success(details.novel)
         override suspend fun getNovelById(novelId: String) = details.novel
-        override suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean) = Result.success(emptyList<com.novelnest.app.feature.reader.Chapter>())
-        override suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean) = Result.failure<com.novelnest.app.feature.reader.Chapter>(UnsupportedOperationException())
+        override suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean) = Result.success(emptyList<com.novelnest.app.data.model.Chapter>())
+        override suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean) = Result.failure<com.novelnest.app.data.model.Chapter>(UnsupportedOperationException())
         override suspend fun getManhwaDetails(source: NovelSourceType, seriesUrlOrId: String, forceRefresh: Boolean) = Result.success(details)
         override suspend fun getManhwaChapter(source: NovelSourceType, chapterUrl: String, forceRefresh: Boolean): Result<ManhwaChapterContent> {
             calls++

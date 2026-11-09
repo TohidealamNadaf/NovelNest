@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -26,6 +27,11 @@ data class NovelProgress(
     val lastReadTimestamp: Long = System.currentTimeMillis(),
     val readChapterIds: Set<String> = emptySet(),
     val manhwaPosition: ManhwaPagePosition? = null
+)
+
+data class ProgressPersistenceState(
+    val loadFailed: Boolean = false,
+    val failedNovelIds: Set<String> = emptySet()
 )
 
 class ReadingProgressManager(
@@ -40,46 +46,73 @@ class ReadingProgressManager(
 
     private val loaded = CompletableDeferred<Unit>()
     private val writes = Mutex()
+    @Volatile private var historyAvailable = false
+    private val mutablePersistence = MutableStateFlow(ProgressPersistenceState())
+    val persistenceState = mutablePersistence.asStateFlow()
 
     suspend fun awaitLoaded() = loaded.await()
 
     init {
-        // Load existing reading progress from Room on initialization
         coroutineScope.launch {
-            try {
-                val allEntities = readingProgressDao.getAllProgressOnce()
-                val mapped = allEntities.associate { entity ->
-                    entity.novelId to NovelProgress(
-                        novelId = entity.novelId,
-                        lastReadChapterId = entity.lastReadChapterId,
-                        lastReadChapterIndex = entity.lastReadChapterIndex,
-                        lastReadChapterTitle = entity.lastReadChapterTitle,
-                        lastReadTimestamp = entity.lastReadTimestamp,
-                        readChapterIds = entity.readChapterIds.toSet(),
-                        manhwaPosition = ManhwaPagePosition.validated(entity.manhwaPageIndex, entity.manhwaPageOffset, entity.manhwaPageCount)
-                    )
-                }
-                runCatching { onHistoryLoaded(mapped.values.map { it.lastReadTimestamp }) }
-                _progressMap.update { current ->
-                    (mapped.keys + current.keys).associateWith { id ->
-                        val stored = mapped[id]
-                        val live = current[id]
-                        when {
-                            live == null -> stored!!
-                            stored == null -> live
-                            else -> (if (live.lastReadTimestamp >= stored.lastReadTimestamp) live else stored)
-                                .copy(readChapterIds = live.readChapterIds + stored.readChapterIds)
-                        }
+            try { loadHistory() } finally { loaded.complete(Unit) }
+        }
+    }
+
+    private suspend fun loadHistory(): Boolean {
+        try {
+            val allEntities = retryStorage { readingProgressDao.getAllProgressOnce() }
+            val mapped = allEntities.associate { entity ->
+                entity.novelId to NovelProgress(
+                    novelId = entity.novelId,
+                    lastReadChapterId = entity.lastReadChapterId,
+                    lastReadChapterIndex = entity.lastReadChapterIndex,
+                    lastReadChapterTitle = entity.lastReadChapterTitle,
+                    lastReadTimestamp = entity.lastReadTimestamp,
+                    readChapterIds = entity.readChapterIds.toSet(),
+                    manhwaPosition = ManhwaPagePosition.validated(entity.manhwaPageIndex, entity.manhwaPageOffset, entity.manhwaPageCount)
+                )
+            }
+            runCatching { onHistoryLoaded(mapped.values.map { it.lastReadTimestamp }) }
+            _progressMap.update { current ->
+                (mapped.keys + current.keys).associateWith { id ->
+                    val stored = mapped[id]
+                    val live = current[id]
+                    when {
+                        live == null -> stored!!
+                        stored == null -> live
+                        else -> (if (live.lastReadTimestamp >= stored.lastReadTimestamp) live else stored)
+                            .copy(readChapterIds = live.readChapterIds + stored.readChapterIds)
                     }
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // Existing live updates remain available if loading fails.
-            } finally {
-                loaded.complete(Unit)
+            }
+            historyAvailable = true
+            mutablePersistence.update { it.copy(loadFailed = false) }
+            return true
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            mutablePersistence.update { it.copy(loadFailed = true) }
+            android.util.Log.w("ReadingProgress", "History load failed: " + error.javaClass.simpleName)
+            return false
+        }
+    }
+
+    /** Bounded retries are explicit after exhaustion; a failed load never permits replacing old history. */
+    fun retryPendingWrites() {
+        val ids = persistenceState.value.failedNovelIds
+        if (ids.isNotEmpty()) ids.forEach(::persistProgress)
+        else if (persistenceState.value.loadFailed) coroutineScope.launch { writes.withLock { loadHistory() } }
+    }
+
+    private suspend fun <T> retryStorage(block: suspend () -> T): T {
+        repeat(3) { attempt ->
+            try { return block() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (attempt == 2) throw error
+                delay(250L * (attempt + 1))
             }
         }
+        error("Unreachable storage retry")
     }
 
     fun getProgress(novelId: String): NovelProgress? {
@@ -174,25 +207,33 @@ class ReadingProgressManager(
         coroutineScope.launch {
             loaded.await()
             writes.withLock {
+                if (!historyAvailable && !loadHistory()) {
+                    mutablePersistence.update { it.copy(failedNovelIds = it.failedNovelIds + novelId) }
+                    return@withLock
+                }
                 try {
-                    val latest = _progressMap.value[novelId] ?: return@withLock
-                    readingProgressDao.insertOrUpdate(
-                        ReadingProgressEntity(
-                            novelId = novelId,
-                            lastReadChapterId = latest.lastReadChapterId,
-                            lastReadChapterIndex = latest.lastReadChapterIndex,
-                            lastReadChapterTitle = latest.lastReadChapterTitle,
-                            lastReadTimestamp = latest.lastReadTimestamp,
-                            readChapterIds = latest.readChapterIds.toList(),
-                            manhwaPageIndex = latest.manhwaPosition?.pageIndex ?: -1,
-                            manhwaPageOffset = latest.manhwaPosition?.offsetFraction ?: 0f,
-                            manhwaPageCount = latest.manhwaPosition?.pageCount ?: 0
+                    retryStorage {
+                        val latest = _progressMap.value[novelId] ?: return@retryStorage
+                        readingProgressDao.insertOrUpdate(
+                            ReadingProgressEntity(
+                                novelId = novelId,
+                                lastReadChapterId = latest.lastReadChapterId,
+                                lastReadChapterIndex = latest.lastReadChapterIndex,
+                                lastReadChapterTitle = latest.lastReadChapterTitle,
+                                lastReadTimestamp = latest.lastReadTimestamp,
+                                readChapterIds = latest.readChapterIds.toList(),
+                                manhwaPageIndex = latest.manhwaPosition?.pageIndex ?: -1,
+                                manhwaPageOffset = latest.manhwaPosition?.offsetFraction ?: 0f,
+                                manhwaPageCount = latest.manhwaPosition?.pageCount ?: 0
+                            )
                         )
-                    )
+                    }
+                    mutablePersistence.update { it.copy(failedNovelIds = it.failedNovelIds - novelId) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    // Database persistence error ignored to keep UI responsive
+                } catch (error: Exception) {
+                    mutablePersistence.update { it.copy(failedNovelIds = it.failedNovelIds + novelId) }
+                    android.util.Log.w("ReadingProgress", "History save failed: " + error.javaClass.simpleName)
                 }
             }
         }

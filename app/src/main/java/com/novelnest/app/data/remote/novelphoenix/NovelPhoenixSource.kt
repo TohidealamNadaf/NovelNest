@@ -5,7 +5,6 @@ import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.model.SectionType
 import com.novelnest.app.data.remote.NovelSource
-import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.network.CircuitBreaker
 import com.novelnest.app.data.remote.network.HostRateLimiter
 import com.novelnest.app.data.remote.network.HttpFactory
@@ -32,9 +31,9 @@ import java.io.IOException
  *
  * Politeness & Resilience:
  * - Request throttling: HostRateLimiter enforcing >= 1000ms between requests.
- * - Retry with exponential backoff on 429/5xx (up to 3 attempts).
+ * - Pause after blocks and retry transient 5xx/network errors with bounded backoff.
  * - CircuitBreaker preventing hammer attacks when blocked.
- * - Detects 403, 429, and Cloudflare challenge pages, rethrowing [PhoenixException.SourceBlockedError].
+ * - Applies a host cooldown for 403, 429, and detected Cloudflare challenges.
  * - In-memory cache for detail and chapter list requests.
  */
 class NovelPhoenixSource(
@@ -44,6 +43,7 @@ class NovelPhoenixSource(
 ) : NovelSource {
 
     override val sourceType: NovelSourceType = NovelSourceType.NOVEL_PHOENIX
+    override fun isCoolingDown(): Boolean = rateLimiter.cooldown(host) != null
 
     override suspend fun getBrowsePage(url: String?): Result<com.novelnest.app.data.model.BrowsePage> = withContext(Dispatchers.IO) {
         try {
@@ -85,7 +85,7 @@ class NovelPhoenixSource(
     private val cacheTtlMillis = 15 * 60 * 1000L // Refresh mutable details and chapter lists every 15 minutes
 
     override suspend fun getHomeSections(): Result<List<NovelSection>> = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val html = executePoliteGet("${sourceType.baseUrl}/ranking")
             val listingItems = NovelPhoenixParser.parseListingHtml(html)
 
@@ -105,42 +105,41 @@ class NovelPhoenixSource(
             }
 
             if (parsedNovels.isEmpty()) {
-                SeedData.getSectionsFor(sourceType)
+                throw PhoenixException.ParseError("home", "No live novels were found")
             } else {
                 val heroList = parsedNovels.take(3)
                 val trendingList = parsedNovels.drop(3).take(7)
                 val latestList = parsedNovels.drop(10)
 
-                listOf(
+                Result.success(listOf(
                     NovelSection(
-                        id = "np-hero",
+                        id = "np-live-hero-v1",
                         title = "Phoenix Top Ranked",
                         iconEmoji = "",
                         subtitle = "Top picks on NovelPhoenix",
                         type = SectionType.HERO_SLIDER,
-                        novels = heroList.ifEmpty { SeedData.novelPhoenixHeroSlides }
+                        novels = heroList
                     ),
                     NovelSection(
-                        id = "np-trending",
+                        id = "np-live-trending-v1",
                         title = "Top Trending Novels",
                         iconEmoji = "",
                         subtitle = "Most read on NovelPhoenix this week",
                         type = SectionType.HORIZONTAL_LIST,
-                        novels = trendingList.ifEmpty { SeedData.novelPhoenixTrending }
+                        novels = trendingList
                     ),
                     NovelSection(
-                        id = "np-latest",
+                        id = "np-live-latest-v1",
                         title = "Recently Added & Updates",
                         iconEmoji = "",
                         subtitle = "Fresh novel updates",
                         type = SectionType.HORIZONTAL_LIST,
-                        novels = latestList.ifEmpty { SeedData.novelPhoenixLatest }
+                        novels = latestList
                     )
-                )
+                ).filter { it.novels.isNotEmpty() })
             }
-        }.recover { err ->
-            SeedData.getSectionsFor(sourceType)
-        }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) { Result.failure(error) }
     }
 
     override suspend fun search(query: String): Result<List<Novel>> = withContext(Dispatchers.IO) {
@@ -228,7 +227,7 @@ class NovelPhoenixSource(
     override suspend fun getChapters(
         novelSlugOrUrl: String,
         forceRefresh: Boolean
-    ): Result<List<com.novelnest.app.feature.reader.Chapter>> = withContext(Dispatchers.IO) {
+    ): Result<List<com.novelnest.app.data.model.Chapter>> = withContext(Dispatchers.IO) {
         runCatching {
             val slug = extractCleanSlug(novelSlugOrUrl)
             val items = getChapters(slug, fetchAll = true, forceRefresh = forceRefresh)
@@ -239,7 +238,7 @@ class NovelPhoenixSource(
     override fun getChaptersFlow(
         novelSlugOrUrl: String,
         forceRefresh: Boolean
-    ): Flow<Result<List<com.novelnest.app.feature.reader.Chapter>>> = flow {
+    ): Flow<Result<List<com.novelnest.app.data.model.Chapter>>> = flow {
         val slug = extractCleanSlug(novelSlugOrUrl)
         val cacheKey = "slug:$slug"
         val now = System.currentTimeMillis()
@@ -336,11 +335,11 @@ class NovelPhoenixSource(
     override suspend fun getChapterContent(
         chapterUrlOrId: String,
         forceRefresh: Boolean
-    ): Result<com.novelnest.app.feature.reader.Chapter> = withContext(Dispatchers.IO) {
+    ): Result<com.novelnest.app.data.model.Chapter> = withContext(Dispatchers.IO) {
         runCatching {
             val resolvedUrl = NovelPhoenixUtils.resolveUrl(chapterUrlOrId)
             val content = fetchChapterContent(resolvedUrl, forceRefresh)
-            com.novelnest.app.feature.reader.Chapter(
+            com.novelnest.app.data.model.Chapter(
                 id = chapterUrlOrId,
                 title = content.title,
                 paragraphs = content.paragraphs,
@@ -433,7 +432,7 @@ class NovelPhoenixSource(
         }
     }.buffer(3)
 
-    private fun PhoenixChapterItem.toDomainChapter() = com.novelnest.app.feature.reader.Chapter(
+    private fun PhoenixChapterItem.toDomainChapter() = com.novelnest.app.data.model.Chapter(
         id = id,
         title = title,
         paragraphs = emptyList(),
@@ -512,6 +511,7 @@ class NovelPhoenixSource(
     }
 
     private suspend fun executePoliteGet(url: String, isAjax: Boolean = false, maxRetries: Int = 3): String {
+        rateLimiter.cooldown(host)?.let { throw it }
         if (!circuitBreaker.canExecute(host)) {
             throw PhoenixException.SourceBlockedError(
                 message = "Circuit breaker open: NovelPhoenix is temporarily paused after consecutive blocks."
@@ -539,10 +539,9 @@ class NovelPhoenixSource(
                 val code = response.code
 
                 when {
-                    code == 403 || code == 429 -> {
-                        // Only genuine blocks should trip the circuit breaker
+                    code == 403 || code == 429 || response.cloudflareChallenge -> {
                         circuitBreaker.recordFailure(host)
-                        throw PhoenixException.SourceBlockedError(statusCode = code)
+                        throw rateLimiter.block(host, code, response.cloudflareChallenge, response.retryAfter)
                     }
                     code == 404 -> {
                         // 404 is NOT a block — don't trip breaker
@@ -565,13 +564,15 @@ class NovelPhoenixSource(
                         val bodyString = response.body
                         if (NovelPhoenixUtils.isCloudflareChallenge(bodyString)) {
                             circuitBreaker.recordFailure(host)
-                            throw PhoenixException.SourceBlockedError(isCloudflareChallenge = true)
+                            throw rateLimiter.block(host, code, true, response.retryAfter)
                         }
                         circuitBreaker.recordSuccess(host)
                         return bodyString
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: com.novelnest.app.data.remote.network.SourceCooldownException) {
                 throw e
             } catch (e: PhoenixException) {
                 throw e

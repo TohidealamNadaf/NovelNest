@@ -10,7 +10,9 @@
    - **Remote Data Sources**: Clean source-specific scrapers/clients (`NovelPhoenixSource`, `FreeWebNovelSource`, `AsuraSource`) implementing common `NovelSource` interface.
 3. **Resilience & Testing**:
    - Network errors, timeouts, and empty responses mapped to explicit sealed UI states.
-   - Fallback offline sample data available for deterministic unit testing and previewing when offline.
+   - Production failures use real cached data or explicit errors. Sample content is restricted to explicit demonstrations/fixtures.
+
+See [Architecture reliability repairs](ARCHITECTURE_RELIABILITY.md) for the current persistence, shared-model, cache and Quick Settings boundaries and verification limits.
 
 ## Project Structure
 

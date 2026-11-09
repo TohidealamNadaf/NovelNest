@@ -7,7 +7,7 @@ import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.preferences.SearchHistoryManager
 import com.novelnest.app.data.repository.NovelRepository
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf

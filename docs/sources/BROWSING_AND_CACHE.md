@@ -138,3 +138,17 @@ visibility follows the settled slide, so intermediate slides do not start enrich
 The refresh icon creates its repeating animation only during a refresh. Existing card layout,
 dot styling, source fetching and navigation remain unchanged. A debug build verifies compilation;
 smoothness still requires frame-time profiling on a physical device.
+
+## Source block cooldowns
+
+NovelPhoenix and FreeWebNovel each keep one in-memory host cooldown for HTTP 429,
+HTTP 403, and detected challenge pages. Retry-After supports seconds and HTTP dates;
+when absent or invalid, the app waits 60 seconds before another source request.
+Foreground requests fail promptly with the remaining time; background prefetch is
+suspended and explicit retries cannot reset this cooldown. Existing chapter caches
+are checked first and remain readable. Network/5xx retries remain separate.
+
+The cooldown is local to the current application process and does not represent the
+source's actual ban duration. A challenge or block may continue after it expires;
+a further response starts a new cooldown. Process death clears local cooldown state.
+No bypass of a website's access controls is attempted.

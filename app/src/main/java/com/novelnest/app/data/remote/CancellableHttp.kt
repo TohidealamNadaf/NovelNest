@@ -8,7 +8,7 @@ import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-internal data class TextResponse(val code: Int, val body: String) {
+internal data class TextResponse(val code: Int, val body: String, val retryAfter: String?, val cloudflareChallenge: Boolean) {
     val isSuccessful: Boolean get() = code in 200..299
 }
 
@@ -23,7 +23,8 @@ internal suspend fun Call.awaitTextResponse(): TextResponse = suspendCancellable
         override fun onResponse(call: Call, response: Response) {
             try {
                 val result = response.use {
-                    TextResponse(it.code, if (continuation.isActive && it.isSuccessful) it.body?.string().orEmpty() else "")
+                    TextResponse(it.code, if (continuation.isActive && it.isSuccessful) it.body?.string().orEmpty() else "",
+                        it.header("Retry-After"), it.header("cf-mitigated").equals("challenge", ignoreCase = true))
                 }
                 if (continuation.isActive) continuation.resume(result)
             } catch (error: Exception) {

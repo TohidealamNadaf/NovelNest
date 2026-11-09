@@ -82,3 +82,63 @@ Sources:
 - https://docs.gradle.org/current/userguide/gradle_daemon.html
 - https://docs.gradle.org/current/userguide/upgrading_version_8.html#groovy_boolean_properties
 - https://kotlinlang.org/docs/gradle-compiler-options.html
+
+## Gradle 9.7.1 configuration failure (3 November 2026)
+
+Changing only the wrapper to Gradle 9.7.1 breaks AGP 8.13.0 before Android compilation.
+AGP 8.x depends on the internal Problems API removed in Gradle 9.6. The error at
+app/build.gradle.kts line 4 is plugin application, not an application runtime failure.
+The wrapper is restored to the previously verified Gradle 8.14.3 / AGP 8.13.0 pairing.
+Keep using the wrapper and the Java 21 daemon criteria; an AGP/Gradle major upgrade
+requires a separate compatibility migration.
+
+After pulling the correction, reload the IDE Gradle project. If the IDE still reports
+9.7.1, ensure its Gradle import uses the project wrapper rather than a manually selected
+Gradle installation. No user Gradle caches or unrelated daemons need to be deleted.
+
+References: [AGP compatibility](https://developer.android.com/build/releases/agp-8-13-0-release-notes),
+[Gradle maintainers' compatibility explanation](https://github.com/gradle/gradle/issues/38073).
+
+Verification on 3 November 2026: wrapper reports Gradle 8.14.3 and Java 21.0.9.
+assembleDebug --offline --max-workers=1 --warning-mode fail succeeded (39 tasks,
+21 executed, 18 from cache). Existing Kotlin Android-API deprecation warnings and
+the libandroidx.graphics.path.so stripping notice remain; neither is this plugin
+configuration error. No automated tests or physical-device animation checks ran
+for the footer repair in this build.
+
+## Update rejected after debug signing key changed (3 November 2026)
+
+The Samsung SM-S938B still has the 1 November build of com.novelnest.app installed.
+A data-preserving adb install -r -t of the new APK was rejected with:
+
+    INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.novelnest.app
+    signatures do not match newer version; ignoring!
+
+Public signer SHA-256 fingerprints verified with apksigner:
+
+- Installed APK / 1 November instrumentation APK:
+  c48853047a3c0d3d4c82ada1e3c7df22c1675ad12add9d025456dee7c3d71233
+- 3 November app APK / current default debug keystore:
+  0125ad02cedfbcf8dc8e0e92eb0fca4e2d9094309589cc1eb378dab451ef4325
+
+The current user-profile debug.keystore was created on 3 November. Gradle's default
+debug signing uses that file, so replacing the file changes the application's signing
+identity. The new APK passes signature verification, retains the same application ID,
+and includes all four configured ABIs. Both builds have versionCode 1; equal version
+codes permit a manual replacement when the signing identity matches. Incrementing
+the version or changing Gradle versions cannot repair this signature mismatch.
+
+Recovery requires the original private debug signing key (for example, the old
+Windows profile's .android/debug.keystore). Keep the current keystore backed up
+before restoring another one; other apps may now depend on its identity. Prefer an
+explicit local debug signing configuration if retaining multiple development keys.
+Do not commit private keystores or their passwords. Preserve the original key in a
+secure backup for every build distributed to the same installation population.
+
+A certificate or old APK cannot reconstruct the private signing key. No app uninstall,
+data clear, signing-key replacement, or package-ID change was performed during this
+diagnosis. If the original key cannot be recovered, a replacement installation is a
+separate data-migration decision requiring approval; credential keys in Android
+Keystore cannot simply be copied across an uninstall.
+
+Reference: [Android app update signing requirements](https://developer.android.com/google/play/app-updates).

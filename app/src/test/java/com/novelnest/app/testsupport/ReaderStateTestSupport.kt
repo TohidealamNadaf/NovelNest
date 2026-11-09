@@ -8,7 +8,7 @@ import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.repository.NovelRepository
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.flow.flowOf
 

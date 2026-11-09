@@ -33,6 +33,13 @@ interface SectionDao {
     @Query("DELETE FROM section_novel_cross_ref WHERE sectionId = :sectionId")
     suspend fun clearCrossRefsForSection(sectionId: String)
 
+
+    @Query("DELETE FROM section_novel_cross_ref WHERE sectionId IN (SELECT sectionId FROM sections WHERE source = :source AND sectionId NOT IN (:currentIds))")
+    suspend fun deleteObsoleteCrossRefs(source: String, currentIds: List<String>)
+
+    @Query("DELETE FROM sections WHERE source = :source AND sectionId NOT IN (:currentIds)")
+    suspend fun deleteObsoleteSections(source: String, currentIds: List<String>)
+
     @Transaction
     suspend fun saveSectionWithNovels(
         section: SectionEntity,

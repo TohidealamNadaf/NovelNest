@@ -31,29 +31,31 @@ interface NovelRepository {
     suspend fun getManhwaChapter(source: NovelSourceType, chapterUrl: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.ManhwaChapterContent> =
         Result.failure(UnsupportedOperationException("This source does not support image chapters"))
 
-    suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.feature.reader.Chapter>>
+    suspend fun getChapters(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Result<List<com.novelnest.app.data.model.Chapter>>
 
     /**
      * Already fetched chapters for navigation; a snapshot does not imply all pages are loaded.
      * Partial refreshes preserve known chapters; removals require successful full completion.
      */
-    fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.feature.reader.Chapter>> =
+    fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.data.model.Chapter>> =
         MutableStateFlow(emptyList())
 
-    fun getChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Flow<Result<List<com.novelnest.app.feature.reader.Chapter>>> =
+    fun getChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean = false): Flow<Result<List<com.novelnest.app.data.model.Chapter>>> =
         kotlinx.coroutines.flow.flow {
             emit(getChapters(source, novelSlugOrUrl, forceRefresh))
         }
 
     /** Interactive startup: implementations can avoid warming an unrelated first chapter. */
-    fun getReaderChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String): Flow<Result<List<com.novelnest.app.feature.reader.Chapter>>> =
+    fun getReaderChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String): Flow<Result<List<com.novelnest.app.data.model.Chapter>>> =
         getChaptersFlow(source, novelSlugOrUrl, forceRefresh = false)
 
-    suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.feature.reader.Chapter>
+    suspend fun getChapterContent(source: NovelSourceType, chapterUrlOrId: String, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.Chapter>
 
     /**
      * Resets circuit breaker for a specific source, allowing immediate retries.
      * Should be called when the user explicitly triggers a retry action.
      */
     fun resetSourceCircuitBreaker(source: NovelSourceType) {}
+
+    fun isSourceCoolingDown(source: NovelSourceType): Boolean = false
 }

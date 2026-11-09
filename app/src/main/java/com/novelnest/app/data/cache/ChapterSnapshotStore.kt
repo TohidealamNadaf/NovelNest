@@ -1,6 +1,6 @@
 package com.novelnest.app.data.cache
 
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.flow.MutableStateFlow

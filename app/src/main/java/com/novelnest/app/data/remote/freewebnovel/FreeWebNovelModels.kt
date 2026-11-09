@@ -1,6 +1,6 @@
 package com.novelnest.app.data.remote.freewebnovel
 
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 
 data class FreeWebNovelChapterPage(val chapters: List<Chapter>, val page: Int, val totalPages: Int, val totalChapters: Int) {
     init {

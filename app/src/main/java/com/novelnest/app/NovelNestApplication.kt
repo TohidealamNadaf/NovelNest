@@ -51,8 +51,11 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         com.novelnest.app.data.preferences.ReaderPreferencesManager(this)
     }
 
+    private val bookmarkWriteScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
     val bookmarkManager: com.novelnest.app.data.bookmark.BookmarkManager by lazy {
-        com.novelnest.app.data.bookmark.BookmarkManager(this, onBookmarked = {
+        com.novelnest.app.data.bookmark.BookmarkManager(this, persistenceScope = bookmarkWriteScope, onBookmarked = {
             notificationCoordinator.bookmarkAdded(it)
         })
     }

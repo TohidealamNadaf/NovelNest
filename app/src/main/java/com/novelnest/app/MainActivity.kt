@@ -94,6 +94,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         (application as NovelNestApplication).aiForeground.update(true)
         (application as NovelNestApplication).notificationCoordinator.activityChanged(true)
+        // Storage recovery is bounded and does not start any source/provider request.
+        lifecycleScope.launch(Dispatchers.IO) {
+            val app = application as NovelNestApplication
+            app.readingProgressManager.retryPendingWrites()
+            app.bookmarkManager.retryPendingWrites()
+        }
     }
 
     override fun onStop() {

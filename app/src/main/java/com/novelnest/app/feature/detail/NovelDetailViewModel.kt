@@ -5,10 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelIdentity
 import com.novelnest.app.data.model.NovelSourceType
-import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -210,10 +209,9 @@ class NovelDetailViewModel(
         }) {
             _uiState.update { it.copy(isLoading = it.novel == null, errorMessage = null) }
 
-            // 1. Initial resolution: Check repository/DB first, then BookmarkManager, then SeedData, then synthetic shell
+            // 1. Resolve stored metadata, then bookmarks, then a route shell for live lookup.
             val initialNovel = repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
-                ?: SeedData.findNovelById(novelId)?.takeUnless { it.source == NovelSourceType.ASURA_SCANS }
                 ?: run {
                 if (novelId.startsWith("asura-")) {
                     val slug = com.novelnest.app.data.remote.asura.AsuraUrls.slug(novelId)
@@ -333,7 +331,6 @@ class NovelDetailViewModel(
             val currentNovel = _uiState.value.novel
                 ?: repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
-                ?: SeedData.findNovelById(novelId)
                 ?: return@loadWithErrorHandling
 
             val source = currentNovel.source

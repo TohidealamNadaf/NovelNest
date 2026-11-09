@@ -1,0 +1,97 @@
+{
+  "verifiedOn": "2026-11-04",
+  "scope": "Anonymous public chapter-comment reads; no account or mutation requests",
+  "chapter": {
+    "url": "https://novelphoenix.com/novel/shadow-slave/chapter-1",
+    "postId": "2196",
+    "databaseChapterId": "58592219",
+    "pageStatus": 200,
+    "emptyCommentsContainer": true,
+    "scriptVersion": "2.01"
+  },
+  "endpoint": "https://novelphoenix.com/comment/show",
+  "method": "GET",
+  "queryParameters": [
+    "post_id",
+    "chapter_id",
+    "order_by",
+    "cursor"
+  ],
+  "suppliedHeaders": {
+    "Accept": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": "https://novelphoenix.com/novel/shadow-slave/chapter-1"
+  },
+  "cookieSent": false,
+  "csrfSent": false,
+  "responseKeys": {
+    "html": "string",
+    "next_cursor": "string observed; treat null/empty as terminal",
+    "has_more_pages": "boolean"
+  },
+  "probes": [
+    {
+      "name": "newest",
+      "status": 200,
+      "topLevelComments": 10,
+      "totalCommentItems": 18,
+      "inlineReplies": 8,
+      "showRepliesControls": 4,
+      "hasMorePages": true
+    },
+    {
+      "name": "newest-next",
+      "status": 200,
+      "topLevelComments": 10,
+      "totalCommentItems": 12,
+      "inlineReplies": 2,
+      "showRepliesControls": 2,
+      "hasMorePages": true
+    },
+    {
+      "name": "oldest",
+      "status": 200,
+      "topLevelComments": 10,
+      "totalCommentItems": 51,
+      "inlineReplies": 41,
+      "showRepliesControls": 5,
+      "hasMorePages": true
+    },
+    {
+      "name": "mostliked",
+      "status": 200,
+      "topLevelComments": 10,
+      "totalCommentItems": 58,
+      "inlineReplies": 48,
+      "showRepliesControls": 9,
+      "hasMorePages": true
+    }
+  ],
+  "consecutiveNewestPagesOverlappingRootIds": 0,
+  "scripts": [
+    {
+      "url": "https://novelphoenix.com/frontend/js/comment.min.js?ver=2.01",
+      "status": 200,
+      "sha256": "440077a9372ccc105663f58839349a4bcde7a7ece4694f4404a455b82a996e10"
+    },
+    {
+      "url": "https://novelphoenix.com/frontend/js/app.min.js?ver=2.01",
+      "status": 200,
+      "sha256": "f4d92b06768dca724aa10e87536b05a5718389f1311025d2a3b3a263fbf567e3"
+    },
+    {
+      "url": "https://novelphoenix.com/frontend/js/chapter.min.js?ver=2.01",
+      "status": 200,
+      "sha256": "a9c5ec45d893354010094f7e4fa7caf2bbbf3b84674704c5b74dbef6c0177654"
+    }
+  ],
+  "evidencePolicy": "Structural observations only. Comment text, usernames, avatar addresses, session material and opaque cursor values are omitted. These records are observations, not fabricated response fixtures.",
+  "notVerified": [
+    "Last cursor page",
+    "A chapter with zero comments",
+    "Authenticated posting/replying/voting/editing/deletion",
+    "Complete historical reply coverage",
+    "Rate-limit thresholds",
+    "Other chapter/novel combinations"
+  ]
+}

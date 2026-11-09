@@ -3,7 +3,8 @@ package com.novelnest.app.core.ui.animation
 import android.content.Context
 import android.provider.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -12,10 +13,11 @@ import androidx.compose.ui.platform.LocalContext
  */
 @Composable
 fun rememberAreAnimationsDisabled(): Boolean {
-    val context = LocalContext.current
-    return remember(context) {
-        areAnimationsDisabled(context)
-    }
+    // Reuse Compose's lifecycle-owned, observable animator scale. No per-widget
+    // settings observers or cached values that become stale after a Settings change.
+    val motionScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
+    return motionScale?.let { it.scaleFactor == 0f }
+        ?: areAnimationsDisabled(LocalContext.current)
 }
 
 fun areAnimationsDisabled(context: Context): Boolean {
@@ -26,12 +28,8 @@ fun areAnimationsDisabled(context: Context): Boolean {
             Settings.Global.ANIMATOR_DURATION_SCALE,
             1.0f
         )
-        val transitionScale = Settings.Global.getFloat(
-            resolver,
-            Settings.Global.TRANSITION_ANIMATION_SCALE,
-            1.0f
-        )
-        durationScale == 0f || transitionScale == 0f
+        // Window/activity transition scale does not control in-app animations.
+        durationScale == 0f
     } catch (_: Exception) {
         false
     }

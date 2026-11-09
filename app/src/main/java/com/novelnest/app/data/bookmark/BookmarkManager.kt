@@ -8,6 +8,7 @@ import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -15,13 +16,27 @@ import org.json.JSONObject
  * Persists and reactively exposes user bookmarked novels.
  * Ensures bookmarks survive app restarts and are accessible everywhere (Home, Detail, Reader).
  */
-class BookmarkManager(context: Context, private val onBookmarked: (Novel) -> Unit = {}) {
+class BookmarkManager(
+    context: Context,
+    persistenceScope: CoroutineScope? = null,
+    private val onBookmarked: (Novel) -> Unit = {}
+) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _bookmarks = MutableStateFlow<List<Novel>>(loadBookmarks())
     val bookmarks: StateFlow<List<Novel>> = _bookmarks.asStateFlow()
+
+    private val writer = persistenceScope?.let { scope ->
+        BookmarkSnapshotWriter(scope) { novels ->
+            check(prefs.edit().putString(KEY_BOOKMARKS, encodeBookmarks(novels)).commit()) {
+                "Bookmark storage could not be updated"
+            }
+        }
+    }
+    val persistenceState: StateFlow<BookmarkWriteState> = writer?.state ?: MutableStateFlow(BookmarkWriteState())
+    fun retryPendingWrites() { writer?.retry() }
 
     fun isBookmarked(novelId: String): Boolean {
         return getBookmark(novelId) != null
@@ -189,6 +204,10 @@ class BookmarkManager(context: Context, private val onBookmarked: (Novel) -> Uni
     }
 
     private fun saveBookmarks(novels: List<Novel>) {
+        writer?.submit(novels) ?: prefs.edit().putString(KEY_BOOKMARKS, encodeBookmarks(novels)).apply()
+    }
+
+    private fun encodeBookmarks(novels: List<Novel>): String {
         val jsonArray = JSONArray()
         novels.forEach { novel ->
             val obj = JSONObject().apply {
@@ -211,7 +230,7 @@ class BookmarkManager(context: Context, private val onBookmarked: (Novel) -> Uni
             }
             jsonArray.put(obj)
         }
-        prefs.edit().putString(KEY_BOOKMARKS, jsonArray.toString()).apply()
+        return jsonArray.toString()
     }
 
     companion object {

@@ -44,7 +44,7 @@ import com.novelnest.app.core.ui.animation.NovelNestHapticType
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import com.novelnest.app.feature.manhwa.components.ManhwaTiledPageView
 import com.novelnest.app.feature.manhwa.components.ManhwaSystemBars
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.feature.reader.components.ReaderChaptersDrawer
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -515,7 +515,7 @@ private fun ManhwaChapterEndFooter(
                     OutlinedButton(
                         onClick = onPrevious,
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NovelTextPrimary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NovelTextPrimary), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
                         modifier = Modifier
                             .weight(1f)
@@ -527,13 +527,13 @@ private fun ManhwaChapterEndFooter(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Previous", fontSize = 13.sp)
+                        Text(text = "Previous", fontSize = 13.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     }
                 }
                 OutlinedButton(
                     onClick = onOpenChapters,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NovelTextPrimary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NovelTextPrimary), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder),
                     modifier = Modifier
                         .weight(1f)
@@ -545,7 +545,8 @@ private fun ManhwaChapterEndFooter(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "All Chapters", fontSize = 13.sp)
+                    // Single line: wrapping inside the fixed 42dp height clipped the second line.
+                    Text(text = "All Chapters", fontSize = 13.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 }
             }
         }

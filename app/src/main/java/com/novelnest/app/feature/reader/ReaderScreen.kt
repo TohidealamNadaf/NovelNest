@@ -147,7 +147,7 @@ fun ReaderScreen(
     var navDirection by remember { mutableIntStateOf(1) }
 
     fun navigateToNextChapter(expectedIndex: Int) {
-        if (uiState.canNavigateFrom(expectedIndex) && uiState.currentChapterIndex < uiState.chapters.size - 1) {
+        if (uiState.canNavigateUsingControls(expectedIndex) && uiState.currentChapterIndex < uiState.chapters.size - 1) {
             playHaptic(NovelNestHapticType.LIGHT_TICK)
             navDirection = 1
             viewModel.nextChapter(expectedIndex)
@@ -155,7 +155,7 @@ fun ReaderScreen(
     }
 
     fun navigateToPrevChapter(expectedIndex: Int) {
-        if (uiState.canNavigateFrom(expectedIndex) && uiState.currentChapterIndex > 0) {
+        if (uiState.canNavigateUsingControls(expectedIndex) && uiState.currentChapterIndex > 0) {
             playHaptic(NovelNestHapticType.LIGHT_TICK)
             navDirection = -1
             viewModel.prevChapter(expectedIndex)
@@ -669,8 +669,8 @@ fun ReaderScreen(
                 textColor = textColor,
                 secondaryColor = secondaryColor,
                 reader = uiState,
-                hasPrevChapter = uiState.currentChapterIndex > 0,
-                hasNextChapter = uiState.currentChapterIndex < uiState.chapters.size - 1,
+                hasPrevChapter = uiState.canNavigateUsingControls(uiState.currentChapterIndex) && uiState.currentChapterIndex > 0,
+                hasNextChapter = uiState.canNavigateUsingControls(uiState.currentChapterIndex) && uiState.currentChapterIndex < uiState.chapters.size - 1,
                 onPrevChapter = { navigateToPrevChapter(uiState.currentChapterIndex) },
                 onNextChapter = { navigateToNextChapter(uiState.currentChapterIndex) },
                 onDismiss = { viewModel.showQuickSettings(false) },

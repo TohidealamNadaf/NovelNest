@@ -1,5 +1,9 @@
 # System design audit — 2026-10-23
 
+## Architecture follow-up ? 1 November 2026
+
+The current architecture repairs and final verification are documented in [ARCHITECTURE_RELIABILITY.md](ARCHITECTURE_RELIABILITY.md): guarded repository writes, honest Phoenix failures, bounded progress recovery, shared Chapter model, extracted Quick Settings pages, background bookmark persistence and persisted feed freshness. Final selected verification: **148 passed, 3 live checks skipped, 0 failures/errors**; both debug APK builds passed. The earlier sections below retain their original audit context.
+
 ## Repair update
 
 The five findings below were implemented after the initial audit:

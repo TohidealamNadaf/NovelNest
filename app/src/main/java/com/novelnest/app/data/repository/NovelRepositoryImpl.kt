@@ -2,7 +2,7 @@ package com.novelnest.app.data.repository
 
 import com.novelnest.app.data.cache.ReaderCacheStore
 import com.novelnest.app.data.cache.MutexPool
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import com.novelnest.app.data.cache.MemoryLruCache
 import com.novelnest.app.data.cache.ChapterSnapshotStore
 import com.novelnest.app.data.database.NovelNestDatabase
@@ -21,7 +21,6 @@ import com.novelnest.app.data.remote.AsuraSource
 import com.novelnest.app.data.remote.FreeWebNovelSource
 import com.novelnest.app.data.remote.NovelPhoenixSource
 import com.novelnest.app.data.remote.NovelSource
-import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.remote.asura.AsuraUrls
 import com.novelnest.app.data.remote.ManhwaSource
@@ -30,6 +29,8 @@ import com.novelnest.app.data.remote.network.HostRateLimiter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineExceptionHandler
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,7 +63,10 @@ class NovelRepositoryImpl(
     private val L2_TTL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
 
     // Repository scope for background revalidation
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
+        CoroutineExceptionHandler { _, error ->
+            android.util.Log.w("NovelRepository", "Background operation failed: " + error.javaClass.simpleName)
+        })
 
     // Tracks last sync times per source
     private val lastSyncTimestamps = ConcurrentHashMap<NovelSourceType, Long>()
@@ -149,7 +153,6 @@ class NovelRepositoryImpl(
     private fun isLiveFreeWebNovel(novel: Novel): Boolean = novel.source == NovelSourceType.FREE_WEB_NOVEL &&
         runCatching { novel.id == FreeWebNovelUrls.novelId(novel.sourceUrl) }.getOrDefault(false)
 
-    private fun liveOnly(source: NovelSourceType) = source in setOf(NovelSourceType.FREE_WEB_NOVEL, NovelSourceType.ASURA_SCANS)
     private fun genuine(novel: Novel): Boolean = when (novel.source) {
         NovelSourceType.FREE_WEB_NOVEL -> isLiveFreeWebNovel(novel)
         NovelSourceType.ASURA_SCANS -> runCatching {
@@ -162,7 +165,7 @@ class NovelRepositoryImpl(
     private fun chapterSnapshot(source: NovelSourceType, novelSlugOrUrl: String) =
         chapterSnapshots.get(buildChapterCacheKey(source, novelSlugOrUrl))
 
-    override fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.feature.reader.Chapter>> =
+    override fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.data.model.Chapter>> =
         chapterSnapshot(source, novelSlugOrUrl).asStateFlow()
 
     private fun availableSectionRatings(sections: List<NovelSection>): List<NovelSection> =
@@ -184,14 +187,18 @@ class NovelRepositoryImpl(
         }
 
         // 2. Check L2 Room Database
-        val cachedFromDb = availableSectionRatings(readSectionsFromDatabase(source))
-        val lastSync = lastSyncTimestamps[source] ?: 0L
-        val isDbFresh = cachedFromDb.isNotEmpty() && (now - lastSync < L2_TTL_MILLIS)
+        val stored = readSectionsFromDatabase(source)
+        val cachedFromDb = availableSectionRatings(stored.first)
+        val lastSync = lastSyncTimestamps[source] ?: stored.second
+        val isDbFresh = cachedFromDb.isNotEmpty() && now - lastSync in 0 until L2_TTL_MILLIS
 
         if (cachedFromDb.isNotEmpty()) {
             // Immediately emit cached DB data (Instant UI rendering)
             emit(Result.success(cachedFromDb))
-            l1MemoryCache.put(cacheKey, Pair(now, cachedFromDb))
+            if (isDbFresh) {
+                val expiresAt = minOf(now + L1_TTL_MILLIS, lastSync + L2_TTL_MILLIS)
+                l1MemoryCache.put(cacheKey, Pair(expiresAt - L1_TTL_MILLIS, cachedFromDb))
+            }
 
             if (!forceRefresh && isDbFresh) {
                 return@flow
@@ -201,8 +208,7 @@ class NovelRepositoryImpl(
         // 3. Stale-While-Revalidate: Fetch from remote source with rate limiting & circuit breaker
         if (!circuitBreaker.canExecute(source.name)) {
             if (cachedFromDb.isNotEmpty()) return@flow
-            if (liveOnly(source)) emit(Result.failure(IOException("${source.displayName} is temporarily unavailable")))
-            else emit(Result.success(SeedData.getSectionsFor(source)))
+            emit(Result.failure(IOException("${source.displayName} is temporarily unavailable")))
             return@flow
         }
 
@@ -210,17 +216,21 @@ class NovelRepositoryImpl(
 
         val remoteSource = sources[source]
         if (remoteSource == null) {
-            if (liveOnly(source) && cachedFromDb.isEmpty()) {
+            if (cachedFromDb.isEmpty()) {
                 emit(Result.failure(IOException("${source.displayName} source is unavailable")))
                 return@flow
             }
-            val fallback = if (cachedFromDb.isNotEmpty()) cachedFromDb else SeedData.getSectionsFor(source)
+            val fallback = cachedFromDb
             emit(Result.success(fallback))
             return@flow
         }
 
         val fetched = if (remoteSource is AsuraSource) remoteSource.getHomeSections(forceRefresh) else remoteSource.getHomeSections()
-        val remoteResult = fetched.map(::availableSectionRatings)
+        val remoteResult = fetched.mapCatching { sections ->
+            availableSectionRatings(sections).filter { it.novels.isNotEmpty() }.also {
+                if (it.isEmpty()) throw IOException("No live titles were returned by the source")
+            }
+        }
         remoteResult.fold(
             onSuccess = { sections ->
                 sections.flatMap { it.novels }.forEach(::rememberNovel)
@@ -248,8 +258,7 @@ class NovelRepositoryImpl(
                     emit(Result.success(cachedFromDb))
                 } else {
                     // Ultimate graceful fallback
-                    if (liveOnly(source)) emit(Result.failure(error))
-                    else emit(Result.success(SeedData.getSectionsFor(source)))
+                    emit(Result.failure(error))
                 }
             }
         )
@@ -258,33 +267,29 @@ class NovelRepositoryImpl(
     override suspend fun searchNovels(source: NovelSourceType, query: String): Result<List<Novel>> {
         val q = query.trim()
         if (q.isBlank()) {
-            return Result.success(if (liveOnly(source)) emptyList() else SeedData.search(source, ""))
+            return Result.success(emptyList())
         }
 
         // Check local DB first for matches to reduce scraper stress
         var cachedMatches = NovelIdentity.distinct(memoryNovels.valuesSnapshot()).filter {
             it.source == source && it.title.contains(q, ignoreCase = true) &&
-                (!liveOnly(source) || genuine(it))
+                genuine(it)
         }
         if (database != null) {
             val localMatches = database.novelDao().searchNovels(source.name, q).firstOrNull().orEmpty()
             cachedMatches = NovelIdentity.distinct(cachedMatches + localMatches.map { it.toDomain() })
-                .filter { !liveOnly(source) || genuine(it) }
-            if (!liveOnly(source) && localMatches.isNotEmpty()) {
-                return Result.success(cachedMatches)
-            }
+                .filter { genuine(it) }
         }
 
         // Polite remote fetch
         if (!circuitBreaker.canExecute(source.name)) {
-            if (liveOnly(source)) return if (cachedMatches.isNotEmpty()) Result.success(cachedMatches)
+            return if (cachedMatches.isNotEmpty()) Result.success(cachedMatches)
                 else Result.failure(IOException("${source.displayName} is temporarily unavailable"))
-            return Result.success(SeedData.search(source, q))
         }
 
         rateLimiter.acquire(source.name)
-        val remoteSource = sources[source] ?: return if (liveOnly(source))
-            Result.failure(IOException("${source.displayName} source is unavailable")) else Result.success(SeedData.search(source, q))
+        val remoteSource = sources[source] ?: return if (cachedMatches.isNotEmpty()) Result.success(cachedMatches)
+            else Result.failure(IOException("${source.displayName} source is unavailable"))
 
         val result = remoteSource.search(q).map { NovelIdentity.distinct(it.filter { novel -> novel.source == source }) }
         result.onSuccess { novels ->
@@ -295,7 +300,7 @@ class NovelRepositoryImpl(
             }
             // Cache found novels in DB for future queries
             database?.let { db ->
-                repositoryScope.launch {
+                launchCacheWrite {
                     val entities = novels.map { it.toEntity() }
                     db.novelDao().upsertNovels(entities)
                 }
@@ -306,7 +311,7 @@ class NovelRepositoryImpl(
             }
         }
 
-        return if (liveOnly(source) && result.isFailure && cachedMatches.isNotEmpty()) Result.success(cachedMatches) else result
+        return if (result.isFailure && cachedMatches.isNotEmpty()) Result.success(cachedMatches) else result
     }
 
     override suspend fun getNovelById(novelId: String): Novel? {
@@ -318,7 +323,7 @@ class NovelRepositoryImpl(
                 return memoryNovels[novelId]
             }
         }
-        return SeedData.findNovelById(novelId)?.takeUnless { it.source == NovelSourceType.ASURA_SCANS }
+        return null
     }
 
     override suspend fun getNovelDetails(source: NovelSourceType, novelUrl: String): Result<Novel> {
@@ -331,7 +336,7 @@ class NovelRepositoryImpl(
                 remoteSource.resetCircuitBreaker()
             }
             database?.let { db ->
-                repositoryScope.launch {
+                launchCacheWrite {
                     db.novelDao().upsertNovel(liveNovel.toEntity())
                 }
             }
@@ -344,7 +349,7 @@ class NovelRepositoryImpl(
             ?: return Result.failure(UnsupportedOperationException("This source does not support image chapters"))
         return remote.getManhwaDetails(seriesUrlOrId, forceRefresh).onSuccess { details ->
             rememberNovel(details.novel)
-            database?.let { db -> repositoryScope.launch {
+            database?.let { db -> launchCacheWrite {
                 try { db.novelDao().upsertNovel(details.novel.toEntity()) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { android.util.Log.w("NovelRepository", "Unable to cache manhwa metadata", error) }
@@ -388,7 +393,7 @@ class NovelRepositoryImpl(
         source: NovelSourceType,
         novelSlugOrUrl: String,
         forceRefresh: Boolean
-    ): Result<List<com.novelnest.app.feature.reader.Chapter>> {
+    ): Result<List<com.novelnest.app.data.model.Chapter>> {
         val cacheKey = buildChapterCacheKey(source, novelSlugOrUrl)
         val useRepositoryCache = source !in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL, NovelSourceType.ASURA_SCANS)
         val cached = if (useRepositoryCache) memoryChapterCache[cacheKey] else null
@@ -476,7 +481,7 @@ class NovelRepositoryImpl(
                     val firstChapter = chapters.first()
                     if (warmFirstChapter && source in setOf(NovelSourceType.NOVEL_PHOENIX, NovelSourceType.FREE_WEB_NOVEL) && firstChapter.url.isNotBlank() && prefetchedNovels.putIfAbsent(cacheKey, true) == null) {
                         // Warm one chapter while details are visible; selecting it uses the same source cache.
-                        repositoryScope.launch {
+                        launchCacheWrite {
                             getChapterContent(source, firstChapter.url, forceRefresh = false).onFailure {
                                 prefetchedNovels.remove(cacheKey)
                             }
@@ -525,7 +530,7 @@ class NovelRepositoryImpl(
         source: NovelSourceType,
         chapterUrlOrId: String,
         forceRefresh: Boolean
-    ): Result<com.novelnest.app.feature.reader.Chapter> {
+    ): Result<com.novelnest.app.data.model.Chapter> {
         val remoteSource = sources[source] ?: return Result.failure(IllegalArgumentException("Unknown source $source"))
         val url = runCatching {
             when (source) {
@@ -552,42 +557,61 @@ class NovelRepositoryImpl(
         }
     }
 
-    private suspend fun readSectionsFromDatabase(source: NovelSourceType): List<NovelSection> {
-        if (database == null) return emptyList()
+    private suspend fun readSectionsFromDatabase(source: NovelSourceType): Pair<List<NovelSection>, Long> {
+        if (database == null) return emptyList<NovelSection>() to 0L
+        return try { database.withTransaction {
+            val sectionEntities = database.sectionDao().getSectionsForSource(source.name).firstOrNull().orEmpty()
+            val sections = sectionEntities.map { sectionEntity ->
+                val novels = database.sectionDao().getNovelsForSection(sectionEntity.sectionId)
+                    .firstOrNull()
+                    .orEmpty()
+                    .map { it.toDomain() }
 
-        val sectionEntities = database.sectionDao().getSectionsForSource(source.name).firstOrNull().orEmpty()
-        if (sectionEntities.isEmpty()) return emptyList()
+                sectionEntity.toDomain(novels)
+            }.filter { it.novels.isNotEmpty() && when (source) {
+                NovelSourceType.FREE_WEB_NOVEL -> it.id.startsWith("fwn-live-") && it.novels.all(::isLiveFreeWebNovel)
+                NovelSourceType.ASURA_SCANS -> it.id.startsWith("asura-live-") && it.novels.all(::genuine)
+                NovelSourceType.NOVEL_PHOENIX -> it.id.startsWith("np-live-")
+            } }
+            sections to (sectionEntities.minOfOrNull { it.lastFetchedTimestamp } ?: 0L)
+        } } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            android.util.Log.w("NovelRepository", "Feed cache read failed: " + error.javaClass.simpleName)
+            emptyList<NovelSection>() to 0L
+        }
+    }
 
-        return sectionEntities.map { sectionEntity ->
-            val novels = database.sectionDao().getNovelsForSection(sectionEntity.sectionId)
-                .firstOrNull()
-                .orEmpty()
-                .map { it.toDomain() }
-
-            sectionEntity.toDomain(novels)
-        }.filter { it.novels.isNotEmpty() && when (source) {
-            NovelSourceType.FREE_WEB_NOVEL -> it.id.startsWith("fwn-live-") && it.novels.all(::isLiveFreeWebNovel)
-            NovelSourceType.ASURA_SCANS -> it.id.startsWith("asura-live-") && it.novels.all(::genuine)
-            else -> true
-        } }
+    private fun launchCacheWrite(block: suspend () -> Unit) = repositoryScope.launch {
+        try { block() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            android.util.Log.w("NovelRepository", "Cache write failed: " + error.javaClass.simpleName)
+        }
     }
 
     private fun saveSectionsToDatabase(source: NovelSourceType, sections: List<NovelSection>) {
         if (database == null) return
 
-        repositoryScope.launch {
-            sections.forEachIndexed { index, section ->
-                val sectionEntity = section.toEntity(source = source, displayOrder = index)
-                val novelEntities = section.novels.map { it.toEntity() }
+        launchCacheWrite {
+            database.withTransaction {
+                val ids = sections.map { it.id }
+                database.sectionDao().deleteObsoleteCrossRefs(source.name, ids)
+                database.sectionDao().deleteObsoleteSections(source.name, ids)
+                sections.forEachIndexed { index, section ->
+                    val sectionEntity = section.toEntity(source = source, displayOrder = index)
+                    val novelEntities = section.novels.map { it.toEntity() }
 
-                // Upsert novels into master table
-                database.novelDao().upsertNovels(novelEntities)
+                    // Upsert novels into master table
+                    database.novelDao().upsertNovels(novelEntities)
 
-                // Save section with ordered cross-references
-                database.sectionDao().saveSectionWithNovels(sectionEntity, novelEntities)
+                    // Save section with ordered cross-references
+                    database.sectionDao().saveSectionWithNovels(sectionEntity, novelEntities)
+                }
             }
         }
     }
+
+    override fun isSourceCoolingDown(source: NovelSourceType): Boolean = sources[source]?.isCoolingDown() == true
 
     override fun resetSourceCircuitBreaker(source: NovelSourceType) {
         // Reset the repository-level circuit breaker

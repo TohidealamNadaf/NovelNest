@@ -8,7 +8,7 @@ import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
 import com.novelnest.app.data.remote.NovelSource
 import com.novelnest.app.data.repository.NovelRepositoryImpl
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import java.io.IOException
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers

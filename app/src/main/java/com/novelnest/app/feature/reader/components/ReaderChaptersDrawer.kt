@@ -53,7 +53,7 @@ import com.novelnest.app.core.designsystem.NovelTextPrimary
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.designsystem.NovelTextTertiary
 import com.novelnest.app.core.ui.NovelNestIconButton
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.launch
 
 /**

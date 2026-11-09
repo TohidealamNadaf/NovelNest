@@ -11,7 +11,6 @@ import com.novelnest.app.data.preferences.ReaderFont
 import com.novelnest.app.data.preferences.ReaderPreferencesManager
 import com.novelnest.app.data.preferences.ReaderSettings
 import com.novelnest.app.data.preferences.ReaderTheme
-import com.novelnest.app.data.remote.SeedData
 import com.novelnest.app.data.remote.freewebnovel.FreeWebNovelUrls
 import com.novelnest.app.data.repository.NovelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,14 +29,8 @@ import com.novelnest.app.data.ai.AiAction
 import com.novelnest.app.data.ai.AiChapterInput
 import com.novelnest.app.data.ai.ChapterAiRepository
 
-data class Chapter(
-    val id: String,
-    val title: String,
-    val paragraphs: List<String> = emptyList(),
-    val url: String = "",
-    val prevUrl: String? = null,
-    val nextUrl: String? = null
-)
+// Compatibility for existing UI integrations; the shared model belongs to the data layer.
+typealias Chapter = com.novelnest.app.data.model.Chapter
 
 data class ReaderUiState(
     val novel: Novel? = null,
@@ -258,7 +251,7 @@ class ReaderViewModel(
 
     fun nextChapter(expectedChapterIndex: Int? = null) {
         val state = _uiState.value
-        if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
+        if (expectedChapterIndex != null && !state.canNavigateUsingControls(expectedChapterIndex)) return
         if (state.currentChapterIndex < state.chapters.size - 1) {
             stopAutoScroll()
             aiController?.sourceChanged(null)
@@ -272,7 +265,7 @@ class ReaderViewModel(
 
     fun prevChapter(expectedChapterIndex: Int? = null) {
         val state = _uiState.value
-        if (expectedChapterIndex != null && !state.canNavigateFrom(expectedChapterIndex)) return
+        if (expectedChapterIndex != null && !state.canNavigateUsingControls(expectedChapterIndex)) return
         if (state.currentChapterIndex > 0) {
             stopAutoScroll()
             aiController?.sourceChanged(null)
@@ -309,7 +302,7 @@ class ReaderViewModel(
         val source = state.novel?.source ?: NovelSourceType.NOVEL_PHOENIX
         repository.resetSourceCircuitBreaker(source)
         if (state.currentChapterIndex in state.chapters.indices) {
-            loadChapterContent(state.currentChapterIndex, state.chapters[state.currentChapterIndex], forceRefresh = true)
+            loadChapterContent(state.currentChapterIndex, state.chapters[state.currentChapterIndex], forceRefresh = false)
         } else if (!state.isLoading) {
             loadNovelAndChapters()
         }
@@ -354,10 +347,9 @@ class ReaderViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            // 1. Resolve novel model from database first, then BookmarkManager, then SeedData, then synthetic shell
+            // 1. Resolve stored metadata before using a route shell; never substitute a sample novel.
             val resolvedNovel = repository.getNovelById(novelId)
                 ?: bookmarkManager?.getBookmark(novelId)
-                ?: SeedData.findNovelById(novelId)
                 ?: run {
                 val formattedTitle = if (novelId.isNotBlank() && novelId != "sample") {
                     novelId.removePrefix("np-").removePrefix("fwn-").removePrefix("asura-")
@@ -523,8 +515,9 @@ class ReaderViewModel(
                 throw cancelled
             } catch (error: Exception) {
                 Result.failure(error)
+            } finally {
+                if (isPrefetch) prefetchedChapterIds.remove(chapter.id)
             }
-            if (isPrefetch) prefetchedChapterIds.remove(chapter.id)
 
             contentResult.fold(
                 onSuccess = { liveChapter ->
@@ -587,7 +580,10 @@ class ReaderViewModel(
 
     private fun prefetchSurroundingChapters(currentIndex: Int) {
         val nextIndex = currentIndex + 1
-        val chapters = _uiState.value.chapters
+        val state = _uiState.value
+        val source = state.novel?.source ?: return
+        if (repository.isSourceCoolingDown(source)) return
+        val chapters = state.chapters
         if (nextIndex in chapters.indices) {
             val nextChapter = chapters[nextIndex]
             if (nextChapter.paragraphs.isEmpty() && prefetchedChapterIds.size < 2 && prefetchedChapterIds.add(nextChapter.id)) {

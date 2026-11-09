@@ -3,10 +3,13 @@ package com.novelnest.app.data.remote
 import com.novelnest.app.data.model.Novel
 import com.novelnest.app.data.model.NovelSection
 import com.novelnest.app.data.model.NovelSourceType
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 
 interface NovelSource {
     val sourceType: NovelSourceType
+
+    /** True while a source-request cooldown is active; cached reads remain available. */
+    fun isCoolingDown(): Boolean = false
 
     suspend fun getHomeSections(): Result<List<NovelSection>>
 

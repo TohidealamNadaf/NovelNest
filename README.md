@@ -29,9 +29,9 @@ A modern, distraction-free native Android novel and manhwa reading application b
    - Quick search chips for popular and recent terms.
 
 5. **Resilient Data & Scraper Layer**:
-   - Decoupled `NovelSource` interface implemented for NovelFire, FreeWebNovel, and Asura Scans using OkHttp & Jsoup.
+   - Decoupled `NovelSource` interface implemented for NovelPhoenix, FreeWebNovel, and Asura Scans using OkHttp & Jsoup.
    - Memory caching in `NovelRepositoryImpl` for instant tab switching.
-   - Graceful offline/timeout fallback to rich seed data so the user experience never breaks if remote sites are slow, offline, or anti-bot throttled.
+   - Offline/timeout recovery uses previously fetched records or explicit errors. Production source failures do not substitute sample novels.
 
 ---
 
@@ -60,7 +60,7 @@ Following `kotlin_android_app_rulebook.md`:
    ```
 3. **Open Project**:
    - Launch Android Studio.
-   - Click **Open** and select `E:\novel-nest`.
+   - Click **Open** and select `F:\My Projects\NovelNest`.
    - Install a local **JDK 21**. The project selects it for Gradle in both the IDE and terminal.
    - Android Studio will sync using the configured Gradle 8.14.3 wrapper and AGP 8.13.0.
    - See [Build setup and diagnostics](docs/BUILDING.md) for JVM selection, warnings, and verification commands.

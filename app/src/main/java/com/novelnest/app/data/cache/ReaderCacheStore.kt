@@ -1,6 +1,6 @@
 package com.novelnest.app.data.cache
 
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption

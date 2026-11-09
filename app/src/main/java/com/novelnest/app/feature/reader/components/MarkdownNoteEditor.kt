@@ -8,6 +8,7 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.widget.EditText
 import android.widget.TextView
 import androidx.compose.foundation.BorderStroke
@@ -95,16 +96,18 @@ internal fun MarkdownNoteEditor(
         280.dp
     }
     val cursorRequester = remember { BringIntoViewRequester() }
-    val cursorRequests = remember { Channel<Pair<ScrollableNoteEditText, Rect>>(Channel.CONFLATED) }
+    val cursorRequests = remember { Channel<Pair<ScrollableNoteEditText, Rect>?>(Channel.CONFLATED) }
     DisposableEffect(cursorRequests) {
         onDispose { cursorRequests.close() }
     }
     LaunchedEffect(cursorRequests, preview) {
-        cursorRequests.receiveAsFlow().collectLatest { (view, rectangle) ->
-            if (preview) return@collectLatest
+        cursorRequests.receiveAsFlow().collectLatest { request ->
+            // A null request cancels a pending relocation when a native gesture starts.
+            if (preview || request == null) return@collectLatest
+            val (view, rectangle) = request
             // Keyboard/viewport measurement must finish before asking the form to scroll.
             withFrameNanos { }
-            if (editor === view && view.isAttachedToWindow && view.isFocused) {
+            if (editor === view && view.isAttachedToWindow && view.isFocused && view.canRevealCursor) {
                 cursorRequester.bringIntoView(view.targetViewportRect() ?: rectangle)
             }
         }
@@ -114,15 +117,18 @@ internal fun MarkdownNoteEditor(
         val view = editor ?: return@LaunchedEffect
         view.viewportHeightPx = bodyHeightPx
         view.bottomClearancePx = bottomClearancePx
-        if (view.isAttachedToWindow && view.isFocused) {
-            view.requestCursorVisibility()
-            withFrameNanos { }
-            if (editor === view && view.isAttachedToWindow && view.isFocused) {
-                view.targetViewportRect()?.let { cursorRequester.bringIntoView(it) }
-            }
-        }
+        // Use the same cancellable request path as typing; never launch a second
+        // parent scroll that could continue after text selection starts.
+        view.requestCursorVisibility()
     }
 
+    val editorBackground = remember(theme.surfaceColor, secondaryColor) {
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(theme.surfaceColor.toArgb())
+            cornerRadius = 24f
+            setStroke(2, secondaryColor.copy(alpha = 0.25f).toArgb())
+        }
+    }
     val accentColor = if (theme.isDark) NovelPrimary else textColor
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -397,6 +403,9 @@ internal fun MarkdownNoteEditor(
                             viewportHeightPx = bodyHeightPx
                             this.bottomClearancePx = bottomClearancePx
                             onCursorRectangleRequested = { cursorRequests.trySend(this to it) }
+                            onCursorRevealCancelled = {
+                                if (editor === this) cursorRequests.trySend(null)
+                            }
                             setText(content)
                             hint = "Write Markdown: **bold**, *italic*, headings, lists, quotes, tables…"
                             gravity = android.view.Gravity.TOP or android.view.Gravity.START
@@ -444,24 +453,22 @@ internal fun MarkdownNoteEditor(
                     onReset = null,
                     onRelease = { view ->
                         view.onCursorRectangleRequested = null
+                        view.onCursorRevealCancelled = null
                         if (editor === view) editor = null
                     },
                     update = { view ->
                         view.viewportHeightPx = bodyHeightPx
                         view.bottomClearancePx = bottomClearancePx
                         if (view.text.toString() != content) {
-                            val position = view.selectionStart.coerceIn(0, content.length)
+                            val start = view.selectionStart.coerceIn(0, content.length)
+                            val end = view.selectionEnd.coerceIn(0, content.length)
                             view.setText(content)
-                            view.setSelection(position)
+                            view.setSelection(start, end)
                         }
                         view.isEnabled = !saving
                         view.setTextColor(textColor.toArgb())
                         view.setHintTextColor(secondaryColor.copy(alpha = 0.5f).toArgb())
-                        view.background = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(theme.surfaceColor.toArgb())
-                            cornerRadius = 24f
-                            setStroke(2, secondaryColor.copy(alpha = 0.25f).toArgb())
-                        }
+                        if (view.background !== editorBackground) view.background = editorBackground
                     },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp, max = editorMaxHeight)
                         .bringIntoViewRequester(cursorRequester)
@@ -478,26 +485,47 @@ internal fun MarkdownNoteEditor(
     }
 }
 
-/** Keep overflowing native text scrolls from being intercepted by the Compose form. */
-private class ScrollableNoteEditText(context: Context) : EditText(context) {
+/** Let the native editor own selection while coordinating ordinary scrolls with the form. */
+internal class ScrollableNoteEditText(context: Context) : EditText(context) {
     private var ownsScrollGesture = false
-    private var lastTouchY = 0f
+    private var touchInProgress = false
+    private var selectionRangeActive = false
+    private var gestureMoved = false
+    private var pendingViewportReveal = false
+    private var downX = 0f
+    private var downY = 0f
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+    // Selection handles can live in separate native windows, so touch state alone
+    // cannot identify a selection drag. A range must also suppress cursor snapping.
+    val canRevealCursor: Boolean
+        get() = !touchInProgress && selectionStart >= 0 && selectionStart == selectionEnd
     var viewportHeightPx: Int = 0
     var bottomClearancePx: Float = 0f
     var onCursorRectangleRequested: ((Rect) -> Unit)? = null
+    var onCursorRevealCancelled: (() -> Unit)? = null
     private val revealCursor = Runnable {
-        if (isAttachedToWindow && isFocused) {
-            if (selectionEnd >= 0) bringPointIntoView(selectionEnd)
+        if (isAttachedToWindow && isFocused && canRevealCursor) {
+            bringPointIntoView(selectionEnd)
             snapCursorLineIntoInternalViewport()
             targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
         }
     }
 
     fun requestCursorVisibility() {
-        if (isAttachedToWindow && isFocused) {
+        // Focus/IME resizing can arrive before the tap finishes. Defer those
+        // requests, but never resume cursor snapping after an actual scroll.
+        if (touchInProgress && isFocused && !hasSelection()) pendingViewportReveal = true
+        if (isAttachedToWindow && isFocused && canRevealCursor) {
             removeCallbacks(revealCursor)
             postOnAnimation(revealCursor)
         }
+    }
+
+    private fun cancelCursorReveal() {
+        // Native View callbacks can run before this subclass finishes construction.
+        if (isAttachedToWindow) removeCallbacks(revealCursor)
+        onCursorRevealCancelled?.invoke()
     }
 
     private fun snapCursorLineIntoInternalViewport() {
@@ -520,7 +548,7 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
     }
 
     fun targetViewportRect(requested: AndroidRect? = null): Rect? {
-        if (width <= 0 || height <= 0) return null
+        if (width <= 0 || height <= 0 || !canRevealCursor) return null
         val w = width.toFloat()
         val h = height.toFloat()
         // When the editor fits within the outer scroll viewport, bring the entire editor
@@ -560,17 +588,12 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
 
     override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: AndroidRect?) {
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
-        if (focused) {
-            requestCursorVisibility()
-        }
+        if (focused) requestCursorVisibility() else cancelCursorReveal()
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
-        if (isFocused) {
-            snapCursorLineIntoInternalViewport()
-            targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
-        }
+        if (changed) requestCursorVisibility()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -582,54 +605,71 @@ private class ScrollableNoteEditText(context: Context) : EditText(context) {
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
-        if (isFocused) {
-            requestCursorVisibility()
-        }
-    }
-
-    override fun onScrollChanged(horiz: Int, vert: Int, oldHoriz: Int, oldVert: Int) {
-        super.onScrollChanged(horiz, vert, oldHoriz, oldVert)
-        if (isFocused && vert != oldVert) {
-            targetViewportRect()?.let { onCursorRectangleRequested?.invoke(it) }
-        }
+        // TextView manages the active selection endpoint and its edge scrolling.
+        // Relocating selectionEnd here fights dragging the start handle and causes
+        // the surrounding Compose form to move under the user's finger.
+        val selectingRange = selStart != selEnd
+        if (selectingRange && !selectionRangeActive) cancelCursorReveal()
+        selectionRangeActive = selectingRange
     }
 
     override fun requestRectangleOnScreen(rectangle: AndroidRect, immediate: Boolean): Boolean {
         val requestedCopy = AndroidRect(rectangle)
         val scrolled = super.requestRectangleOnScreen(rectangle, immediate)
-        if (isFocused && onCursorRectangleRequested != null) {
-            snapCursorLineIntoInternalViewport()
+        if (isFocused && canRevealCursor) {
             targetViewportRect(requestedCopy)?.let { onCursorRectangleRequested?.invoke(it) }
         }
         return scrolled
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            lastTouchY = event.y
-            ownsScrollGesture = isEnabled && (canScrollVertically(-1) || canScrollVertically(1))
-            if (ownsScrollGesture) parent?.requestDisallowInterceptTouchEvent(true)
-            if (isEnabled) requestCursorVisibility()
-        } else if (event.actionMasked == MotionEvent.ACTION_MOVE && ownsScrollGesture) {
-            val dy = event.y - lastTouchY
-            lastTouchY = event.y
-            if ((dy < -1f && !canScrollVertically(1)) || (dy > 1f && !canScrollVertically(-1))) {
-                releaseScrollGesture()
+        var yieldScrollToParent = false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchInProgress = isEnabled
+                gestureMoved = false
+                pendingViewportReveal = false
+                downX = event.x
+                downY = event.y
+                cancelCursorReveal()
+                // Even a short, non-scrolling note needs its long press and drag.
+                ownsScrollGesture = isEnabled
+                if (ownsScrollGesture) parent?.requestDisallowInterceptTouchEvent(true)
+            }
+            MotionEvent.ACTION_MOVE -> if (ownsScrollGesture) {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                gestureMoved = gestureMoved || kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop
+                val longPress = event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout()
+                val verticalDrag = kotlin.math.abs(dy) > touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx)
+                // Hand off only an ordinary scroll. Selection continues to belong
+                // to EditText at its boundaries, allowing native handle auto-scroll.
+                if (!hasSelection() && !longPress && verticalDrag &&
+                    ((dy < 0f && !canScrollVertically(1)) || (dy > 0f && !canScrollVertically(-1)))) {
+                    yieldScrollToParent = true
+                }
             }
         }
         return try {
-            // Preserve native cursor placement, long press, selection handles and scrolling.
-            super.dispatchTouchEvent(event)
+            val handled = super.dispatchTouchEvent(event)
+            // Native scrolling may also request interception ownership; hand off
+            // after its handler so an ordinary edge scroll can reach the form.
+            if (yieldScrollToParent) releaseScrollGesture()
+            handled
         } finally {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                val revealAfterTap = event.actionMasked == MotionEvent.ACTION_UP && pendingViewportReveal && !gestureMoved
+                touchInProgress = false
+                pendingViewportReveal = false
                 releaseScrollGesture()
-                if (isFocused) requestCursorVisibility()
+                if (revealAfterTap) requestCursorVisibility()
             }
         }
     }
 
     override fun onDetachedFromWindow() {
-        removeCallbacks(revealCursor)
+        cancelCursorReveal()
+        touchInProgress = false
         releaseScrollGesture()
         super.onDetachedFromWindow()
     }

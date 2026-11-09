@@ -5,15 +5,13 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,10 +23,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,19 +37,20 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,20 +59,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.core.designsystem.NovelSurface
 import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelTextSecondary
-import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
-import com.novelnest.app.core.ui.animation.bounceClick
 import androidx.compose.foundation.selection.selectable
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -138,7 +132,6 @@ fun NovelNestFooter(
     }
 
     val selectedIndex = destinations.indexOfFirst { it.route == selectedRoute }.coerceAtLeast(0)
-    var previousIndex by remember { mutableIntStateOf(selectedIndex) }
     val areAnimationsDisabled = rememberAreAnimationsDisabled()
 
     Box(
@@ -164,133 +157,61 @@ fun NovelNestFooter(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
-            val density = androidx.compose.ui.platform.LocalDensity.current
+            val density = LocalDensity.current
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val count = destinations.size.coerceAtLeast(1)
-            val slotWidthPx = if (count > 0) totalWidthPx / count else totalWidthPx
-            val pillRestWidthPx = slotWidthPx - with(density) { 6.dp.toPx() }
+            val slotWidthPx = totalWidthPx / count
+            val pillRestWidthPx = (slotWidthPx - with(density) { 6.dp.toPx() }).coerceAtLeast(0f)
             val halfPillWidthPx = pillRestWidthPx / 2f
+            val targetLeft = slotWidthPx * (selectedIndex + 0.5f) - halfPillWidthPx
+            val targetRight = slotWidthPx * (selectedIndex + 0.5f) + halfPillWidthPx
 
-            fun getTargetLeft(index: Int): Float =
-                (slotWidthPx * (index + 0.5f)) - halfPillWidthPx
+            // Geometry changes create one correctly positioned pair. Selection changes
+            // retarget that pair instead of competing with an initialization snap effect.
+            val leftAnim = remember(totalWidthPx, pillRestWidthPx) { Animatable(targetLeft) }
+            val rightAnim = remember(totalWidthPx, pillRestWidthPx) { Animatable(targetRight) }
+            var previousIndex by remember(leftAnim) { mutableIntStateOf(selectedIndex) }
 
-            fun getTargetRight(index: Int): Float =
-                (slotWidthPx * (index + 0.5f)) + halfPillWidthPx
-
-            val initialLeft = getTargetLeft(selectedIndex)
-            val initialRight = getTargetRight(selectedIndex)
-
-            val leftAnim = remember { androidx.compose.animation.core.Animatable(initialLeft) }
-            val rightAnim = remember { androidx.compose.animation.core.Animatable(initialRight) }
-            var isInitialized by remember { mutableStateOf(false) }
-
-            LaunchedEffect(totalWidthPx) {
-                if (totalWidthPx > 0f) {
-                    leftAnim.snapTo(getTargetLeft(selectedIndex))
-                    rightAnim.snapTo(getTargetRight(selectedIndex))
-                    previousIndex = selectedIndex
-                    isInitialized = true
-                }
-            }
-
-            LaunchedEffect(selectedIndex, isInitialized, areAnimationsDisabled) {
-                if (!isInitialized) return@LaunchedEffect
-                val prev = previousIndex
-                val curr = selectedIndex
-                if (prev == curr) return@LaunchedEffect
-
-                val isAdjacent = kotlin.math.abs(curr - prev) == 1
-                val targetLeft = getTargetLeft(curr)
-                val targetRight = getTargetRight(curr)
-
+            LaunchedEffect(selectedIndex, leftAnim, rightAnim, areAnimationsDisabled) {
+                val previous = previousIndex
+                previousIndex = selectedIndex
                 if (areAnimationsDisabled) {
                     leftAnim.snapTo(targetLeft)
                     rightAnim.snapTo(targetRight)
-                } else if (isAdjacent) {
-                    // Adjacent switch: Stretch across the clicked icon first, then snap tail with spring bounce
-                    if (curr > prev) {
-                        // Moving Right: Leading (right) edge shoots forward quickly to cover target icon
-                        launch {
-                            rightAnim.animateTo(
-                                targetValue = targetRight,
-                                animationSpec = spring(
-                                    dampingRatio = 0.88f,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            )
-                        }
-                        launch {
-                            leftAnim.animateTo(
-                                targetValue = targetLeft,
-                                animationSpec = spring(
-                                    dampingRatio = 0.85f,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )
-                        }
-                    } else {
-                        // Moving Left: Leading (left) edge shoots forward quickly to cover target icon
-                        launch {
-                            leftAnim.animateTo(
-                                targetValue = targetLeft,
-                                animationSpec = spring(
-                                    dampingRatio = 0.88f,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            )
-                        }
-                        launch {
-                            rightAnim.animateTo(
-                                targetValue = targetRight,
-                                animationSpec = spring(
-                                    dampingRatio = 0.85f,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )
-                        }
-                    }
-                } else {
-                    // Non-adjacent switch: smooth synchronized movement without excessive spring oscillation
-                    launch {
-                        leftAnim.animateTo(
-                            targetValue = targetLeft,
-                            animationSpec = spring(
-                                dampingRatio = 0.88f,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                    }
-                    launch {
-                        rightAnim.animateTo(
-                            targetValue = targetRight,
-                            animationSpec = spring(
-                                dampingRatio = 0.88f,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                    }
+                    return@LaunchedEffect
                 }
-                previousIndex = curr
+                if (leftAnim.value == targetLeft && rightAnim.value == targetRight) return@LaunchedEffect
+
+                // A new selection cancels both old edge jobs together, then continues
+                // from their current positions. Rapid taps cannot leave a stale target.
+                val adjacent = kotlin.math.abs(selectedIndex - previous) == 1
+                val leadingLeft = adjacent && selectedIndex < previous
+                val leadingRight = adjacent && selectedIndex > previous
+                launch {
+                    leftAnim.animateTo(targetLeft, spring(
+                        dampingRatio = if (leadingLeft) 0.88f else if (adjacent) 0.85f else 0.88f,
+                        stiffness = if (leadingLeft) Spring.StiffnessMedium else Spring.StiffnessMediumLow
+                    ))
+                }
+                launch {
+                    rightAnim.animateTo(targetRight, spring(
+                        dampingRatio = if (leadingRight) 0.88f else if (adjacent) 0.85f else 0.88f,
+                        stiffness = if (leadingRight) Spring.StiffnessMedium else Spring.StiffnessMediumLow
+                    ))
+                }
             }
 
-            val currentLeftPx = minOf(leftAnim.value, rightAnim.value)
-            val currentRightPx = maxOf(leftAnim.value, rightAnim.value)
-            val currentWidthPx = maxOf(currentRightPx - currentLeftPx, pillRestWidthPx)
-
-            val indicatorLeftDp = with(density) { currentLeftPx.toDp() }
-            val indicatorWidthDp = with(density) { currentWidthPx.toDp() }
-
-            // 1. Sliding/Stretching Solid Primary Indicator Pill (encloses icon AND text with breathing room)
-            // Perfectly concentric with outer pill: Outer radius 29dp - 4dp padding = 25dp inner radius
-            if (isInitialized) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = indicatorLeftDp, y = 0.dp)
-                        .width(indicatorWidthDp)
-                        .fillMaxHeight()
-                        .align(Alignment.CenterStart)
-                        .clip(RoundedCornerShape(25.dp))
-                        .background(NovelPrimary)
+            // Read animated edges only during drawing: no per-frame recomposition or
+            // remeasurement of navigation items, labels, or click targets.
+            Canvas(Modifier.fillMaxSize()) {
+                val left = minOf(leftAnim.value, rightAnim.value)
+                val width = maxOf(kotlin.math.abs(rightAnim.value - leftAnim.value), pillRestWidthPx)
+                val x = if (layoutDirection == LayoutDirection.Ltr) left else size.width - left - width
+                drawRoundRect(
+                    color = NovelPrimary,
+                    topLeft = Offset(x, 0f),
+                    size = Size(width, size.height),
+                    cornerRadius = CornerRadius(25.dp.toPx())
                 )
             }
 
@@ -303,16 +224,19 @@ fun NovelNestFooter(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 destinations.forEach { destination ->
-                    val isSelected = destination.route == selectedRoute
-                    FooterNavItem(
-                        destination = destination,
-                        isSelected = isSelected,
-                        onClick = {
-                            playHaptic(NovelNestHapticType.LIGHT_TICK)
-                            onNavigate(destination.route)
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
+                    key(destination.route) {
+                        val isSelected = destination.route == selectedRoute
+                        FooterNavItem(
+                            destination = destination,
+                            isSelected = isSelected,
+                            areAnimationsDisabled = areAnimationsDisabled,
+                            onClick = {
+                                playHaptic(NovelNestHapticType.LIGHT_TICK)
+                                onNavigate(destination.route)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -323,10 +247,10 @@ fun NovelNestFooter(
 private fun FooterNavItem(
     destination: FooterDestination,
     isSelected: Boolean,
+    areAnimationsDisabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val areAnimationsDisabled = rememberAreAnimationsDisabled()
     val itemShape = RoundedCornerShape(25.dp)
 
     // Contrast-aware coloring:
@@ -386,7 +310,7 @@ private fun AnimatedNavIcon(
 ) {
     // 1. Home transient hop: springs up on tap and settles back to 0dp so it stays centered
     val homeHopAnim = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(isSelected) {
+    LaunchedEffect(isSelected, areAnimationsDisabled) {
         if (isSelected && destination.route.contains("home", ignoreCase = true) && !areAnimationsDisabled) {
             homeHopAnim.snapTo(0f)
             homeHopAnim.animateTo(
@@ -415,7 +339,7 @@ private fun AnimatedNavIcon(
 
     val iconRotation by animateFloatAsState(
         targetValue = if (areAnimationsDisabled) 0f else targetRotation,
-        animationSpec = spring(
+        animationSpec = if (areAnimationsDisabled) snap() else spring(
             dampingRatio = 0.86f,
             stiffness = Spring.StiffnessMedium
         ),
@@ -451,7 +375,7 @@ private fun AnimatedNavIcon(
         // Crossfade between unselected (outline) and selected (filled)
         Crossfade(
             targetState = isSelected,
-            animationSpec = tween(durationMillis = 180),
+            animationSpec = if (areAnimationsDisabled) snap() else tween(durationMillis = 180),
             label = "nav_icon_morph"
         ) { selected ->
             val iconVector = if (selected) destination.selectedIcon else destination.unselectedIcon

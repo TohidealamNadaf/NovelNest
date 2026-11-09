@@ -19,3 +19,9 @@ internal fun retainReaderContent(
 internal fun ReaderUiState.canNavigateFrom(expectedChapterIndex: Int): Boolean =
     !isLoading && !isChapterLoading && currentChapterIndex == expectedChapterIndex &&
         chapters.getOrNull(currentChapterIndex)?.paragraphs?.isNotEmpty() == true
+
+/** Explicit chapter buttons may leave a failed chapter so cached chapters remain reachable. */
+internal fun ReaderUiState.canNavigateUsingControls(expectedChapterIndex: Int): Boolean =
+    canNavigateFrom(expectedChapterIndex) ||
+        (!isLoading && !isChapterLoading && currentChapterIndex == expectedChapterIndex &&
+            errorMessage != null && chapters.getOrNull(currentChapterIndex) != null)

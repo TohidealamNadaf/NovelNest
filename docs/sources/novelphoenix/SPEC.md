@@ -1,5 +1,6 @@
 # NovelPhoenix Source Extraction Specification (Verified)
 
+- **Chapter comments research:** [Verified fetch contract, pagination, selectors and integration design](COMMENTS.md) (4 November 2026; research only).
 - **Source Name:** NovelPhoenix
 - **Base URL:** `https://novelphoenix.com`
 - **Application Engine:** Custom Laravel Framework (Confirmed via `XSRF-TOKEN`, `novelphoenixcom_session`, `csrf-token`, and Blade templates)

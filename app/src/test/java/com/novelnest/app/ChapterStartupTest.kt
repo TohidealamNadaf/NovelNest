@@ -14,7 +14,7 @@ import com.novelnest.app.data.remote.NovelSource
 import com.novelnest.app.data.remote.network.HostRateLimiter
 import com.novelnest.app.data.remote.novelphoenix.NovelPhoenixSource
 import com.novelnest.app.data.repository.NovelRepositoryImpl
-import com.novelnest.app.feature.reader.Chapter
+import com.novelnest.app.data.model.Chapter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
