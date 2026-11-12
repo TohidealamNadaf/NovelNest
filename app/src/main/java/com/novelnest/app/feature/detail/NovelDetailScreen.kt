@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,6 +41,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -66,10 +69,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -86,7 +99,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -95,6 +112,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,19 +151,160 @@ fun NovelDetailScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val defaultStickyHeaderPx = with(density) { (statusBarHeight + 60.dp).roundToPx() }
+    var stickyHeaderHeightPx by remember { mutableIntStateOf(0) }
+    val effectiveStickyHeaderPx = if (stickyHeaderHeightPx > 0) stickyHeaderHeightPx else defaultStickyHeaderPx
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    val viewportHeightDp = with(density) { viewportHeightPx.toDp() }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val imeBottomDp = with(density) { imeBottomPx.toDp() }
+    val isImeVisible = imeBottomPx > 0
+    var wasImeVisible by remember { mutableStateOf(false) }
+    var isStickySearchFocused by remember { mutableStateOf(false) }
+    var isInlineSearchFocused by remember { mutableStateOf(false) }
+    var isAligningInlineSearch by remember { mutableStateOf(false) }
+    var stickySearchMode by remember { mutableStateOf(false) }
+    val hasChapterErrorBanner = uiState.chaptersErrorMessage != null || uiState.errorMessage != null
+    val chapterControlsIndex = 3
+    val firstChapterItemIndex = if (hasChapterErrorBanner) 5 else 4
+    val isChapterHeaderBehindStickyBar by remember(effectiveStickyHeaderPx) {
+        derivedStateOf {
+            val controlsItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "detail:chapter_controls" }
+            when {
+                controlsItem != null -> (controlsItem.offset + controlsItem.size) <= effectiveStickyHeaderPx + 8
+                else -> listState.firstVisibleItemIndex > chapterControlsIndex
+            }
+        }
+    }
+    LaunchedEffect(isImeVisible) {
+        if (wasImeVisible && !isImeVisible) {
+            // When the user dismisses the keyboard via system Back / IME hide button,
+            // clear search focus so the header state resets and future taps re-trigger focus cleanly.
+            if (isInlineSearchFocused || isStickySearchFocused) {
+                focusManager.clearFocus()
+            }
+        }
+        wasImeVisible = isImeVisible
+    }
+    LaunchedEffect(isInlineSearchFocused) {
+        if (!isInlineSearchFocused) return@LaunchedEffect
+        isAligningInlineSearch = true
+        try {
+            // Wait one frame so detail:search_bottom_spacer and sticky header are composed.
+            withFrameNanos { }
+            for (attempt in 0 until 3) {
+                if (listState.layoutInfo.totalItemsCount <= chapterControlsIndex) break
+                val controls = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "detail:chapter_controls" }
+                if (controls != null && abs(controls.offset - effectiveStickyHeaderPx) <= 2) break
+                try {
+                    listState.animateScrollToItem(
+                        index = chapterControlsIndex,
+                        scrollOffset = -effectiveStickyHeaderPx
+                    )
+                    break
+                } catch (cancelled: CancellationException) {
+                    if (!currentCoroutineContext().isActive) throw cancelled
+                    // Interrupted by BasicTextField's internal BringIntoView; yield one frame and retry.
+                    withFrameNanos { }
+                }
+            }
+            if (listState.layoutInfo.totalItemsCount > chapterControlsIndex) {
+                val finalControls = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "detail:chapter_controls" }
+                if (finalControls == null || abs(finalControls.offset - effectiveStickyHeaderPx) > 2) {
+                    listState.scrollToItem(
+                        index = chapterControlsIndex,
+                        scrollOffset = -effectiveStickyHeaderPx
+                    )
+                }
+            }
+        } finally {
+            isAligningInlineSearch = false
+        }
+    }
+    LaunchedEffect(isInlineSearchFocused, imeBottomPx, effectiveStickyHeaderPx) {
+        if (isInlineSearchFocused && !isAligningInlineSearch && !listState.isScrollInProgress) {
+            val controlsItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "detail:chapter_controls" }
+            if ((controlsItem == null || controlsItem.offset > effectiveStickyHeaderPx + 4) &&
+                listState.layoutInfo.totalItemsCount > chapterControlsIndex
+            ) {
+                listState.scrollToItem(
+                    index = chapterControlsIndex,
+                    scrollOffset = -effectiveStickyHeaderPx
+                )
+            }
+        }
+    }
+    LaunchedEffect(isStickySearchFocused) {
+        if (isStickySearchFocused) {
+            stickySearchMode = true
+            withFrameNanos { }
+            if (!isChapterHeaderBehindStickyBar && listState.layoutInfo.totalItemsCount > firstChapterItemIndex) {
+                listState.scrollToItem(
+                    index = firstChapterItemIndex,
+                    scrollOffset = -effectiveStickyHeaderPx
+                )
+            }
+        }
+    }
+    LaunchedEffect(listState.isScrollInProgress, isChapterHeaderBehindStickyBar) {
+        if (listState.isScrollInProgress && !isChapterHeaderBehindStickyBar && stickySearchMode) {
+            stickySearchMode = false
+            if (isStickySearchFocused) {
+                focusManager.clearFocus()
+            }
+        }
+    }
+    var previousChapterQuery by remember { mutableStateOf(uiState.chapterQuery) }
+    LaunchedEffect(uiState.chapterQuery) {
+        if (uiState.chapterQuery != previousChapterQuery) {
+            previousChapterQuery = uiState.chapterQuery
+            val totalItems = listState.layoutInfo.totalItemsCount
+            if (stickySearchMode || isChapterHeaderBehindStickyBar) {
+                stickySearchMode = true
+                if (totalItems > firstChapterItemIndex) {
+                    listState.scrollToItem(
+                        index = firstChapterItemIndex,
+                        scrollOffset = -effectiveStickyHeaderPx
+                    )
+                }
+            } else if (isInlineSearchFocused) {
+                val controlsItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "detail:chapter_controls" }
+                if ((controlsItem == null || abs(controlsItem.offset - effectiveStickyHeaderPx) > 2) && totalItems > chapterControlsIndex) {
+                    listState.scrollToItem(
+                        index = chapterControlsIndex,
+                        scrollOffset = -effectiveStickyHeaderPx
+                    )
+                }
+            }
+        }
+    }
+    val isSearchActive = uiState.chapterQuery.isNotEmpty() || stickySearchMode || isStickySearchFocused || isInlineSearchFocused
+    val showStickySearch by remember {
+        derivedStateOf {
+            !isInlineSearchFocused && (stickySearchMode || isChapterHeaderBehindStickyBar)
+        }
+    }
     val showScrollToTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 2 }
+        derivedStateOf { listState.firstVisibleItemIndex > 2 && !isImeVisible }
     }
     val isScrolled by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 250 }
+        derivedStateOf {
+            stickySearchMode ||
+                isInlineSearchFocused ||
+                listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset > 250
+        }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(NovelBackground)
+            .onSizeChanged { viewportHeightPx = it.height }
     ) {
         if (uiState.isLoading && novel == null) {
             Box(
@@ -193,7 +352,9 @@ fun NovelDetailScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 60.dp + narrationBottomPadding)
+                contentPadding = PaddingValues(
+                    bottom = maxOf(60.dp + narrationBottomPadding, imeBottomDp + 24.dp)
+                )
             ) {
                 // 1. HERO POSTER & METADATA SECTION
                 item(key = "detail:hero", contentType = "hero") {
@@ -244,7 +405,14 @@ fun NovelDetailScreen(
                         searchQuery = uiState.chapterQuery,
                         isAscending = uiState.isAscending,
                         isSyncing = uiState.isChaptersLoading,
-                        onSearchChange = { viewModel.onChapterSearch(it) },
+                        onSearchChange = {
+                            stickySearchMode = false
+                            viewModel.onChapterSearch(it)
+                        },
+                        onSearchFocusChange = { focused ->
+                            isInlineSearchFocused = focused
+                            if (focused) stickySearchMode = false
+                        },
                         onToggleSort = {
                             playHaptic(NovelNestHapticType.LIGHT_TICK)
                             viewModel.toggleSortOrder()
@@ -319,6 +487,39 @@ fun NovelDetailScreen(
                 }
 
                 // 4. CHAPTER LIST ITEMS
+                if (uiState.filteredChapters.isEmpty() && uiState.chapterQuery.isNotBlank()) {
+                    item(key = "detail:chapter_empty_search", contentType = "chapter_empty") {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = NovelSurface),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, NovelSurfaceBorder.copy(alpha = 0.6f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "No chapters matching \"${uiState.chapterQuery}\"",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NovelTextPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Try searching by chapter number or title keyword.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NovelTextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
                 itemsIndexed(
                     items = uiState.filteredChapters,
                     key = { _, ch -> ch.id },
@@ -337,6 +538,11 @@ fun NovelDetailScreen(
                             onStartReading(novel.id, actualIndex)
                         }
                     )
+                }
+                if (isSearchActive && viewportHeightDp > 0.dp) {
+                    item(key = "detail:search_bottom_spacer", contentType = "search_spacer") {
+                        Spacer(modifier = Modifier.height(viewportHeightDp + imeBottomDp))
+                    }
                 }
             }
 
@@ -378,7 +584,9 @@ fun NovelDetailScreen(
                     color = com.novelnest.app.core.designsystem.NovelSurface,
                     shadowElevation = 8.dp,
                     border = androidx.compose.foundation.BorderStroke(1.dp, com.novelnest.app.core.designsystem.NovelSurfaceBorder),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { stickyHeaderHeightPx = it.height }
                 ) {
                     Row(
                         modifier = Modifier
@@ -396,61 +604,108 @@ fun NovelDetailScreen(
 
                         Spacer(modifier = Modifier.width(6.dp))
 
-                        // Attached Search Field with Novel Title context
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(com.novelnest.app.core.designsystem.NovelSurfaceVariant)
-                                .border(1.dp, com.novelnest.app.core.designsystem.NovelSurfaceBorder, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 10.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = null,
-                                    tint = NovelPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                BasicTextField(
-                                    value = uiState.chapterQuery,
-                                    onValueChange = { viewModel.onChapterSearch(it) },
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                        color = NovelTextPrimary,
-                                        fontSize = 12.sp
-                                    ),
-                                    singleLine = true,
-                                    cursorBrush = SolidColor(NovelPrimary),
-                                    modifier = Modifier.weight(1f),
-                                    decorationBox = { innerTextField ->
-                                        if (uiState.chapterQuery.isEmpty()) {
-                                            Text(
-                                                text = "${novel.title}...",
-                                                color = com.novelnest.app.core.designsystem.NovelTextSecondary,
-                                                fontSize = 12.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-                                if (uiState.chapterQuery.isNotEmpty()) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "Clear chapter search",
-                                        tint = com.novelnest.app.core.designsystem.NovelTextSecondary,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { viewModel.onChapterSearch("") }
+                        if (showStickySearch) {
+                            // Attached Search Field with Novel Title context (shown only once inline chapter search scrolls under header)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(com.novelnest.app.core.designsystem.NovelSurfaceVariant)
+                                    .border(
+                                        1.dp,
+                                        if (isStickySearchFocused) NovelPrimary.copy(alpha = 0.7f) else com.novelnest.app.core.designsystem.NovelSurfaceBorder,
+                                        RoundedCornerShape(10.dp)
                                     )
+                                    .padding(horizontal = 10.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Search,
+                                        contentDescription = null,
+                                        tint = NovelPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    BasicTextField(
+                                        value = uiState.chapterQuery,
+                                        onValueChange = {
+                                            stickySearchMode = true
+                                            viewModel.onChapterSearch(it)
+                                        },
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            color = NovelTextPrimary,
+                                            fontSize = 12.sp
+                                        ),
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(
+                                            onSearch = {
+                                                focusManager.clearFocus()
+                                                keyboardController?.hide()
+                                            },
+                                            onDone = {
+                                                focusManager.clearFocus()
+                                                keyboardController?.hide()
+                                            }
+                                        ),
+                                        cursorBrush = SolidColor(NovelPrimary),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .onFocusChanged { focusState ->
+                                                isStickySearchFocused = focusState.isFocused
+                                                if (focusState.isFocused) {
+                                                    stickySearchMode = true
+                                                }
+                                            },
+                                        decorationBox = { innerTextField ->
+                                            if (uiState.chapterQuery.isEmpty()) {
+                                                Text(
+                                                    text = "${novel.title}...",
+                                                    color = com.novelnest.app.core.designsystem.NovelTextSecondary,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    )
+                                    if (uiState.chapterQuery.isNotEmpty()) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Clear chapter search",
+                                            tint = com.novelnest.app.core.designsystem.NovelTextSecondary,
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable {
+                                                    stickySearchMode = true
+                                                    viewModel.onChapterSearch("")
+                                                }
+                                        )
+                                    }
                                 }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .padding(horizontal = 4.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Text(
+                                    text = novel.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = NovelTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
 
@@ -475,6 +730,7 @@ fun NovelDetailScreen(
                     onClick = {
                         playHaptic(NovelNestHapticType.LIGHT_TICK)
                         // A focused search field must not request visibility again after the jump.
+                        stickySearchMode = false
                         focusManager.clearFocus(force = true)
                         keyboardController?.hide()
                         coroutineScope.launch {
@@ -492,7 +748,7 @@ fun NovelDetailScreen(
 
             // Floating Pill Read / Continue Button (Positioned in bottom right of page)
             AnimatedVisibility(
-                visible = isScrolled,
+                visible = isScrolled && !isImeVisible,
                 enter = fadeIn() + androidx.compose.animation.scaleIn(),
                 exit = fadeOut() + androidx.compose.animation.scaleOut(),
                 modifier = Modifier
@@ -1164,9 +1420,15 @@ private fun ChapterListHeader(
     isAscending: Boolean,
     isSyncing: Boolean = false,
     onSearchChange: (String) -> Unit,
+    onSearchFocusChange: (Boolean) -> Unit = {},
     onToggleSort: () -> Unit,
     onResync: () -> Unit = {}
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { FocusRequester() }
+    var isSearchFieldFocused by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1192,7 +1454,7 @@ private fun ChapterListHeader(
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "$totalChapters",
+                        text = if (searchQuery.isNotBlank()) "$filteredCount / $totalChapters" else "$totalChapters",
                         color = NovelPrimary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -1271,10 +1533,21 @@ private fun ChapterListHeader(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(44.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(NovelSurfaceVariant)
-                .border(1.dp, NovelSurfaceBorder, RoundedCornerShape(10.dp))
+                .border(
+                    1.dp,
+                    if (isSearchFieldFocused) NovelPrimary.copy(alpha = 0.7f) else NovelSurfaceBorder,
+                    RoundedCornerShape(10.dp)
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    searchFocusRequester.requestFocus()
+                    keyboardController?.show()
+                }
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -1285,7 +1558,7 @@ private fun ChapterListHeader(
                 Icon(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = null,
-                    tint = NovelTextTertiary,
+                    tint = if (isSearchFieldFocused) NovelPrimary else NovelTextTertiary,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1293,9 +1566,26 @@ private fun ChapterListHeader(
                     value = searchQuery,
                     onValueChange = onSearchChange,
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        },
+                        onDone = {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        }
+                    ),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = NovelTextPrimary),
                     cursorBrush = SolidColor(NovelPrimary),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(searchFocusRequester)
+                        .onFocusChanged { focusState ->
+                            isSearchFieldFocused = focusState.isFocused
+                            onSearchFocusChange(focusState.isFocused)
+                        },
                     decorationBox = { innerField ->
                         if (searchQuery.isEmpty()) {
                             Text(

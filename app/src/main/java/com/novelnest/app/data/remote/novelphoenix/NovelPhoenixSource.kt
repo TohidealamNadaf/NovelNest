@@ -11,15 +11,11 @@ import com.novelnest.app.data.remote.network.HttpFactory
 import com.novelnest.app.data.remote.awaitTextResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -79,7 +75,11 @@ class NovelPhoenixSource(
     // Simple in-memory response caches with timestamps
     private val detailLocks = com.novelnest.app.data.cache.MutexPool()
     private val detailCache = com.novelnest.app.data.cache.MemoryLruCache<String, Pair<Long, PhoenixNovelDetail>>(128)
-    private val chapterListCache = com.novelnest.app.data.cache.MemoryLruCache<String, Pair<Long, List<PhoenixChapterItem>>>(16)
+    private val chapterCatalog = NovelPhoenixChapterLoader(fetchPage = { slug, page ->
+        val html = executePoliteGet(sourceType.baseUrl + "/novel/" + slug + "/chapters?page=" + page,
+            maxRetries = 2, callTimeoutMillis = 15_000L)
+        NovelPhoenixParser.parseChapterListPage(html, defaultPage = page)
+    })
     private val chapterContentCache = com.novelnest.app.data.cache.MemoryLruCache<String, PhoenixChapterContent>(64)
     private val chapterContentLocks = com.novelnest.app.data.cache.MutexPool()
     private val cacheTtlMillis = 15 * 60 * 1000L // Refresh mutable details and chapter lists every 15 minutes
@@ -228,109 +228,20 @@ class NovelPhoenixSource(
         novelSlugOrUrl: String,
         forceRefresh: Boolean
     ): Result<List<com.novelnest.app.data.model.Chapter>> = withContext(Dispatchers.IO) {
-        runCatching {
-            val slug = extractCleanSlug(novelSlugOrUrl)
-            val items = getChapters(slug, fetchAll = true, forceRefresh = forceRefresh)
-            items.map { it.toDomainChapter() }
-        }
+        try {
+            val items = getChapters(extractCleanSlug(novelSlugOrUrl), fetchAll = true, forceRefresh = forceRefresh)
+            Result.success(items.map { it.toDomainChapter() })
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) { Result.failure(error) }
     }
 
     override fun getChaptersFlow(
         novelSlugOrUrl: String,
         forceRefresh: Boolean
-    ): Flow<Result<List<com.novelnest.app.data.model.Chapter>>> = flow {
-        val slug = extractCleanSlug(novelSlugOrUrl)
-        val cacheKey = "slug:$slug"
-        val now = System.currentTimeMillis()
-
-        // 1. Check in-memory cache first (instant 0ms response)
-        val cached = chapterListCache[cacheKey]
-        if (!forceRefresh && cached != null && (now - cached.first) < cacheTtlMillis) {
-            emit(Result.success(cached.second.map { it.toDomainChapter() }))
-            return@flow
-        }
-
-        // 2. Fetch Page 1 immediately for instant display (<800ms)
-        val page1Url = "${sourceType.baseUrl}/novel/$slug/chapters?page=1"
-        val page1Result = runCatching {
-            val page1Html = executePoliteGet(page1Url)
-            NovelPhoenixParser.parseChapterListPage(page1Html, defaultPage = 1)
-        }
-
-        if (page1Result.isFailure) {
-            if (cached != null) {
-                emit(Result.success(cached.second.map { it.toDomainChapter() }))
-            } else {
-                emit(Result.failure(page1Result.exceptionOrNull() ?: IOException("Failed to fetch chapter list")))
-            }
-            return@flow
-        }
-
-        val firstPage = page1Result.getOrThrow()
-        if (firstPage.chapters.isEmpty()) {
-            if (cached != null) {
-                emit(Result.success(cached.second.map { it.toDomainChapter() }))
-            } else {
-                emit(Result.success(emptyList()))
-            }
-            return@flow
-        }
-
-        val allChapters = ArrayList<PhoenixChapterItem>(firstPage.chapters)
-        if (firstPage.totalPages <= 1) {
-            chapterListCache[cacheKey] = Pair(now, allChapters.toList())
-        }
-
-        // Emit Page 1 chapters immediately so UI is interactive without waiting for all 2000+ chapters
-        emit(Result.success(allChapters.map { it.toDomainChapter() }))
-
-        if (firstPage.totalPages <= 1) {
-            return@flow
-        }
-
-        // 3. Optimized concurrent progressive fetch for remaining batches (pages 2..totalPages)
-        val totalPages = firstPage.totalPages
-        val remainingBatches = mutableMapOf<Int, List<PhoenixChapterItem>>()
-        val failedPages = mutableSetOf<Int>()
-
-        var lastEmitTime = System.currentTimeMillis()
-        var completedCount = 0
-
-        remainingChapterPages(slug, totalPages).collect { (pageNum, result) ->
-            val batch = result.getOrNull()
-            if (batch.isNullOrEmpty()) failedPages += pageNum else remainingBatches[pageNum] = batch
-            completedCount++
-
-            val currentTime = System.currentTimeMillis()
-            // Emit progressive updates periodically (every 750ms) as pages complete.
-            if (currentTime - lastEmitTime >= 750L || completedCount == totalPages - 1) {
-                lastEmitTime = currentTime
-                val progressList = ArrayList<PhoenixChapterItem>(firstPage.chapters)
-                for (p in 2..totalPages) {
-                    // Keep indices stable while pages finish out of order.
-                    val page = remainingBatches[p] ?: break
-                    progressList.addAll(page)
-                }
-                if (progressList.size > firstPage.chapters.size) {
-                    emit(Result.success(progressList.map { it.toDomainChapter() }))
-                }
-            }
-        }
-
-        // Final assemble in exact page order and cache
-        val fullList = ArrayList<PhoenixChapterItem>(firstPage.chapters)
-        for (p in 2..totalPages) {
-            remainingBatches[p]?.let { fullList.addAll(it) }
-        }
-
-        if (failedPages.isNotEmpty()) {
-            emit(Result.failure(IOException("Failed to fetch NovelPhoenix chapter pages: ${failedPages.sorted().joinToString()}")))
-            return@flow
-        }
-
-        chapterListCache[cacheKey] = Pair(now, fullList)
-        emit(Result.success(fullList.map { it.toDomainChapter() }))
-    }.flowOn(Dispatchers.IO)
+    ): Flow<Result<List<com.novelnest.app.data.model.Chapter>>> =
+        chapterCatalog.chapters(extractCleanSlug(novelSlugOrUrl), forceRefresh).map { result ->
+            result.map { chapters -> chapters.map { it.toDomainChapter() } }
+        }.flowOn(Dispatchers.IO)
 
     override suspend fun getChapterContent(
         chapterUrlOrId: String,
@@ -350,87 +261,16 @@ class NovelPhoenixSource(
         }
     }
 
-    /**
-     * Optimized chapter fetching:
-     * - Fetches Page 1 immediately to determine total pages and yield initial 100 chapters.
-     * - When [fetchAll] is true, fetches remaining pages (2..totalPages) concurrently using
-     *   a fixed worker pool with bounded queues, caching validated complete lists.
-     */
+    /** The same resumable loader serves both progressive and complete catalog requests. */
     suspend fun getChapters(
         novelSlug: String,
         fetchAll: Boolean = true,
         forceRefresh: Boolean = false
     ): List<PhoenixChapterItem> {
-        val cacheKey = "slug:$novelSlug"
-        val now = System.currentTimeMillis()
-        if (!forceRefresh) {
-            val cached = chapterListCache[cacheKey]
-            if (cached != null && (now - cached.first) < cacheTtlMillis && cached.second.isNotEmpty()) {
-                return cached.second
-            }
-        }
-
-        // 1. Fetch Page 1
-        val page1Url = "${sourceType.baseUrl}/novel/$novelSlug/chapters?page=1"
-        val page1Html = executePoliteGet(page1Url)
-        val page1Result = NovelPhoenixParser.parseChapterListPage(page1Html, defaultPage = 1)
-        if (page1Result.chapters.isEmpty()) {
-            return emptyList()
-        }
-
-        val allChapters = ArrayList<PhoenixChapterItem>(page1Result.chapters)
-
-        if (!fetchAll || page1Result.totalPages <= 1) {
-            if (fetchAll) chapterListCache[cacheKey] = Pair(now, allChapters.toList())
-            return allChapters
-        }
-
-        // 2. Fetch remaining pages concurrently
-        val totalPages = page1Result.totalPages
-        val remainingBatches = mutableMapOf<Int, List<PhoenixChapterItem>>()
-
-        remainingChapterPages(novelSlug, totalPages).collect { (pageNum, result) ->
-            val batch = result.getOrElse { throw IOException("Failed to fetch NovelPhoenix chapter page $pageNum", it) }
-            if (batch.isEmpty()) throw IOException("NovelPhoenix chapter page $pageNum returned no chapters")
-            remainingBatches[pageNum] = batch
-        }
-
-        val fullList = ArrayList<PhoenixChapterItem>(page1Result.chapters)
-        for (p in 2..totalPages) {
-            remainingBatches[p]?.let { fullList.addAll(it) }
-        }
-
-        if (fullList.isNotEmpty()) {
-            chapterListCache[cacheKey] = Pair(now, fullList)
-        }
-        return fullList
+        val slug = extractCleanSlug(novelSlug)
+        return if (fetchAll) chapterCatalog.chapters(slug, forceRefresh).last().getOrThrow()
+        else chapterCatalog.firstPage(slug, forceRefresh)
     }
-
-    /** Three workers and bounded queues, irrespective of the number of chapter pages. */
-    private fun remainingChapterPages(
-        slug: String,
-        totalPages: Int
-    ): Flow<Pair<Int, Result<List<PhoenixChapterItem>>>> = channelFlow {
-        require(totalPages in 1..NovelPhoenixParser.MAX_CHAPTER_PAGES)
-        val pages = Channel<Int>(3)
-        launch {
-            try { for (page in 2..totalPages) pages.send(page) }
-            finally { pages.close() }
-        }
-        repeat(minOf(3, totalPages - 1)) {
-            launch(Dispatchers.IO) {
-                for (page in pages) {
-                    delay(120L)
-                    val result = try {
-                        val html = executePoliteGet("${sourceType.baseUrl}/novel/$slug/chapters?page=$page")
-                        Result.success(NovelPhoenixParser.parseChapterList(html))
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (error: Exception) { Result.failure(error) }
-                    send(page to result)
-                }
-            }
-        }
-    }.buffer(3)
 
     private fun PhoenixChapterItem.toDomainChapter() = com.novelnest.app.data.model.Chapter(
         id = id,
@@ -440,8 +280,7 @@ class NovelPhoenixSource(
     )
 
     /**
-     * Fetches all chapters of a novel by paging through /novel/{slug}/chapters?page=N starting at 1
-     * until an empty page returns.
+     * Fetches validated pages through the advertised final range; never probes past the catalog.
      */
     suspend fun getAllChapters(novelSlug: String, forceRefresh: Boolean = false): List<PhoenixChapterItem> {
         return getChapters(novelSlug, fetchAll = true, forceRefresh = forceRefresh)
@@ -510,7 +349,7 @@ class NovelPhoenixSource(
         else -> null
     }
 
-    private suspend fun executePoliteGet(url: String, isAjax: Boolean = false, maxRetries: Int = 3): String {
+    private suspend fun executePoliteGet(url: String, isAjax: Boolean = false, maxRetries: Int = 3, callTimeoutMillis: Long? = null): String {
         rateLimiter.cooldown(host)?.let { throw it }
         if (!circuitBreaker.canExecute(host)) {
             throw PhoenixException.SourceBlockedError(
@@ -535,7 +374,9 @@ class NovelPhoenixSource(
             }
 
             try {
-                val response = client.newCall(reqBuilder.build()).awaitTextResponse()
+                val call = client.newCall(reqBuilder.build())
+                if (callTimeoutMillis != null) call.timeout().timeout(callTimeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+                val response = call.awaitTextResponse()
                 val code = response.code
 
                 when {

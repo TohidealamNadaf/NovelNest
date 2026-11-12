@@ -55,4 +55,18 @@ class NovelPhoenixPaginationTest {
         assertEquals(18, calls.get())
         assertTrue(peak.get() <= 3)
     }
+
+    @Test fun affinityChaosLiveFixturesExposeTheActualRangeBeyond1900() {
+        for ((number, expected) in listOf(1 to (1..100), 19 to (1801..1900), 20 to (1901..2000), 23 to (2201..2224))) {
+            val name = "docs/sources/novelphoenix/fixtures/chapters_affinity_chaos_page_" + number + ".html"
+            val file = listOf(java.io.File(name), java.io.File("../" + name)).first { it.exists() }
+            val parsed = NovelPhoenixParser.parseChapterListPage(file.readText(), defaultPage = 999)
+            assertEquals(23, parsed.totalPages)
+            assertEquals(number, parsed.currentPage)
+            assertEquals(expected, parsed.ranges[number])
+            assertEquals(expected.last - expected.first + 1, parsed.chapters.size)
+            assertEquals("chapter-" + expected.first, parsed.chapters.first().id)
+            assertEquals("chapter-" + expected.last, parsed.chapters.last().id)
+        }
+    }
 }

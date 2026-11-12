@@ -312,6 +312,7 @@ class NovelDetailViewModel(
     }
 
     private fun formatFriendlyError(err: Throwable): String {
+        if (err is com.novelnest.app.data.remote.network.SourceCooldownException) return err.message.orEmpty()
         val msg = err.message.orEmpty()
         return when {
             msg.contains("Circuit breaker", ignoreCase = true) -> "Service temporarily paused due to rate limits"
@@ -348,7 +349,7 @@ class NovelDetailViewModel(
                             current.copy(
                                 chapters = sorted,
                                 filteredChapters = filterChapters(sorted, current.chapterQuery),
-                                isChaptersLoading = false,
+                                isChaptersLoading = true,
                                 chaptersErrorMessage = null
                             )
                         }
@@ -372,6 +373,7 @@ class NovelDetailViewModel(
                     }
                 }
             }
+            _uiState.update { it.copy(isChaptersLoading = false) }
         }
     }
 

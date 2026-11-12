@@ -52,7 +52,7 @@ class MigrationTest {
     @Test
     fun migrateOldestSupportedDatabaseToCurrentSchema() {
         helper.createDatabase("study-migration-all", 1).close()
-        helper.runMigrationsAndValidate("study-migration-all", 5, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
+        helper.runMigrationsAndValidate("study-migration-all", 6, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
     }
 
     @Test
@@ -70,6 +70,28 @@ class MigrationTest {
                 it.moveToFirst(); assertEquals("**Saved**", it.getString(0))
             }
             execSQL("INSERT INTO reading_progress VALUES ('asura-book', 'asura-book:chapter:83', 82, 'Chapter 83', 456, '[]', 7, 0.5, 14)")
+            close()
+        }
+    }
+
+    @Test fun migrateFrom5To6PreservesOnlineProgressAndNotes() {
+        helper.createDatabase("epub-migration", 5).apply {
+            execSQL("INSERT INTO reading_progress VALUES ('np-book', 'ch87', 86, 'Chapter 87', 123, '[]', -1, 0, 0)")
+            execSQL("INSERT INTO chapter_notes VALUES ('saved-note', 'NOVEL_PHOENIX', 'np-book', 'ch87', 'Title', 'Keep this note', 123)")
+            close()
+        }
+        helper.runMigrationsAndValidate("epub-migration", 6, true, DatabaseMigrations.MIGRATION_5_6).apply {
+            query("SELECT lastReadChapterId FROM reading_progress WHERE novelId='np-book'").use {
+                it.moveToFirst(); assertEquals("ch87", it.getString(0))
+            }
+            query("SELECT markdown FROM chapter_notes WHERE id='saved-note'").use {
+                it.moveToFirst(); assertEquals("Keep this note", it.getString(0))
+            }
+            execSQL("PRAGMA foreign_keys=ON")
+            execSQL("INSERT INTO local_books VALUES ('epub-test', 'hash', 'Book', 'Author', '', 1, 3)")
+            execSQL("INSERT INTO epub_positions VALUES ('epub-test', '{}', 0.5, 'Second', 2)")
+            execSQL("DELETE FROM local_books WHERE id='epub-test'")
+            query("SELECT COUNT(*) FROM epub_positions").use { it.moveToFirst(); assertEquals(0, it.getInt(0)) }
             close()
         }
     }

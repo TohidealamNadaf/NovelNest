@@ -149,7 +149,8 @@ object NovelPhoenixParser {
     data class PhoenixChapterPageResult(
         val chapters: List<PhoenixChapterItem>,
         val totalPages: Int,
-        val currentPage: Int
+        val currentPage: Int,
+        val ranges: Map<Int, IntRange> = emptyMap()
     )
 
     /**
@@ -200,7 +201,7 @@ object NovelPhoenixParser {
         }
 
         // Extract total pages from chapter range dropdown options
-        val rangeOptions = doc.select("select[aria-label='Chapter range'] option, .chaprange select option")
+        val rangeOptions = doc.select(NovelPhoenixSelectors.CHAPTER_RANGE_SELECT).select("option")
         val pageNumbers = rangeOptions.mapNotNull { opt ->
             val v = opt.attr("value")
             Regex("[?&]page=([0-9]+)").find(v)?.groupValues?.get(1)?.let { number ->
@@ -211,10 +212,22 @@ object NovelPhoenixParser {
         if (totalPages > MAX_CHAPTER_PAGES) throw PhoenixException.ParseError(
             "totalPages", "Chapter pagination exceeds the supported limit ($MAX_CHAPTER_PAGES).")
 
+        val selected = rangeOptions.firstOrNull { it.hasAttr("selected") }
+        fun pageNumber(value: String): Int? = Regex("[?&]page=([0-9]+)").find(value)?.groupValues?.get(1)?.toIntOrNull()
+        val currentPage = selected?.let { pageNumber(it.attr("value")) ?: (rangeOptions.indexOf(it) + 1) } ?: defaultPage
+        val ranges = rangeOptions.mapIndexedNotNull { index, option ->
+            val match = Regex("^\\s*([0-9]+)\\s*[-\u2013]\\s*([0-9]+)\\s*$").matchEntire(option.text()) ?: return@mapIndexedNotNull null
+            val start = match.groupValues[1].toIntOrNull() ?: return@mapIndexedNotNull null
+            val end = match.groupValues[2].toIntOrNull() ?: return@mapIndexedNotNull null
+            if (start < 1 || end < start) return@mapIndexedNotNull null
+            (pageNumber(option.attr("value")) ?: index + 1) to (start..end)
+        }.toMap()
+
         return PhoenixChapterPageResult(
             chapters = chapters,
             totalPages = totalPages,
-            currentPage = defaultPage
+            currentPage = currentPage,
+            ranges = ranges
         )
     }
 

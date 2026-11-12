@@ -33,6 +33,8 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
     val database: NovelNestDatabase by lazy {
         NovelNestDatabase.getInstance(this)
     }
+    val epubRepository by lazy { com.novelnest.app.data.local.epub.EpubRepository(this, database.localBookDao(), onRead = profileManager::recordReading) }
+
     val studyRepository by lazy { com.novelnest.app.data.study.StudyRepository(database) }
 
     val readerCacheStore by lazy {
@@ -89,6 +91,7 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         HttpFactory.initialize(cacheDir)
         notificationCoordinator.initialize()
+        registerActivityLifecycleCallbacks(com.novelnest.app.core.lifecycle.AppActivityTracker(notificationCoordinator::activityChanged))
     }
 
     override fun newImageLoader(): ImageLoader {

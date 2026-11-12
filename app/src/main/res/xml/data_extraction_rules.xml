@@ -3,6 +3,7 @@
     <cloud-backup>
         <exclude domain="sharedpref" path="cloud_narration.xml" />
         <exclude domain="sharedpref" path="ai_reading_tools.xml" />
+        <exclude domain="file" path="epub_library/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="cloud_narration.xml" />

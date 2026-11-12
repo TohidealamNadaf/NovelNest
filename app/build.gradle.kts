@@ -32,6 +32,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
@@ -76,6 +77,12 @@ tasks.withType<Test>().configureEach {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("org.readium.kotlin-toolkit:readium-shared:3.0.3")
+    implementation("org.readium.kotlin-toolkit:readium-streamer:3.0.3")
+    implementation("org.readium.kotlin-toolkit:readium-navigator:3.0.3")
+    implementation("androidx.fragment:fragment-ktx:1.7.1")
+    implementation("androidx.appcompat:appcompat:1.6.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)

@@ -20,13 +20,17 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
         com.novelnest.app.data.database.entity.ReadingProgressEntity::class,
         com.novelnest.app.data.study.ChapterNoteEntity::class,
         com.novelnest.app.data.study.TermCollectionEntity::class,
-        com.novelnest.app.data.study.TermDiscoveryEntity::class
+        com.novelnest.app.data.study.TermDiscoveryEntity::class,
+        com.novelnest.app.data.local.epub.LocalBookEntity::class,
+        com.novelnest.app.data.local.epub.EpubPositionEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class NovelNestDatabase : RoomDatabase() {
+
+    abstract fun localBookDao(): com.novelnest.app.data.local.epub.LocalBookDao
 
     abstract fun novelDao(): NovelDao
     abstract fun sectionDao(): SectionDao

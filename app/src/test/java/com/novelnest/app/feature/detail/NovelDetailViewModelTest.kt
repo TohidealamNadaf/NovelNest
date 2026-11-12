@@ -147,4 +147,53 @@ class NovelDetailViewModelTest {
             assertEquals(0, progress.getProgress(book.id)?.lastReadChapterIndex) // storage is not rewritten
         } finally { store.clear(); Dispatchers.resetMain() }
     }
+
+    @Test fun chapterLoadingStaysVisibleUntilCompletionRegardlessOfBookmark() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            for (bookmarked in listOf(false, true)) {
+                val book = novel(NovelSourceType.NOVEL_PHOENIX, "affinity-chaos")
+                val gate = CompletableDeferred<Unit>()
+                val chapters = (1..2224).map { Chapter("chapter-" + it, "Chapter " + it) }
+                val repo = object : ReaderTestRepository(book) {
+                    override fun getChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean) = kotlinx.coroutines.flow.flow {
+                        emit(Result.success(chapters.take(1900))); gate.await(); emit(Result.success(chapters))
+                    }
+                }
+                val bookmarks = BookmarkManager(readerTestContext())
+                if (bookmarked) bookmarks.addBookmark(book)
+                val detail = NovelDetailViewModel(book.id, repo, bookmarks)
+                store.put(bookmarked.toString(), detail); runCurrent()
+                assertEquals(1900, detail.uiState.value.chapters.size)
+                assertTrue(detail.uiState.value.isChaptersLoading)
+                gate.complete(Unit); advanceUntilIdle()
+                assertEquals(2224, detail.uiState.value.chapters.size)
+                assertFalse(detail.uiState.value.isChaptersLoading)
+                assertEquals(bookmarked, detail.uiState.value.isBookmarked)
+            }
+        } finally { store.clear(); Dispatchers.resetMain() }
+    }
+    @Test fun sourceCooldownKeepsDisplayedChaptersAndItsRetryDelay() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val book = novel(NovelSourceType.NOVEL_PHOENIX)
+            val gate = CompletableDeferred<Unit>()
+            val chapters = listOf(Chapter("chapter-1", "Chapter 1"))
+            val repo = object : ReaderTestRepository(book) {
+                override fun getChaptersFlow(source: NovelSourceType, novelSlugOrUrl: String, forceRefresh: Boolean) = kotlinx.coroutines.flow.flow {
+                    emit(Result.success(chapters)); gate.await()
+                    emit(Result.failure(com.novelnest.app.data.remote.network.SourceCooldownException(60, 429, false)))
+                }
+            }
+            val detail = NovelDetailViewModel(book.id, repo)
+            store.put("detail", detail); runCurrent()
+            assertTrue(detail.uiState.value.isChaptersLoading)
+            gate.complete(Unit); advanceUntilIdle()
+            assertEquals(chapters, detail.uiState.value.chapters)
+            assertFalse(detail.uiState.value.isChaptersLoading)
+            assertTrue(detail.uiState.value.chaptersErrorMessage!!.contains("60 seconds"))
+        } finally { store.clear(); Dispatchers.resetMain() }
+    }
 }

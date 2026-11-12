@@ -1,5 +1,7 @@
 # NovelPhoenix Source Extraction Specification (Verified)
 
+Chapter loading/recovery investigation and live Affinity Chaos observations: [CHAPTER_PAGINATION.md](CHAPTER_PAGINATION.md).
+
 - **Chapter comments research:** [Verified fetch contract, pagination, selectors and integration design](COMMENTS.md) (4 November 2026; research only).
 - **Source Name:** NovelPhoenix
 - **Base URL:** `https://novelphoenix.com`

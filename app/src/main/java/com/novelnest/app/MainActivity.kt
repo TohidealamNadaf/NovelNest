@@ -93,7 +93,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as NovelNestApplication).aiForeground.update(true)
-        (application as NovelNestApplication).notificationCoordinator.activityChanged(true)
         // Storage recovery is bounded and does not start any source/provider request.
         lifecycleScope.launch(Dispatchers.IO) {
             val app = application as NovelNestApplication
@@ -105,7 +104,6 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         finishSplashExit()
         if (!isChangingConfigurations) (application as NovelNestApplication).aiForeground.update(false)
-        (application as NovelNestApplication).notificationCoordinator.activityChanged(false)
         super.onStop()
     }
 

@@ -50,7 +50,15 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS local_books (id TEXT NOT NULL PRIMARY KEY, sha256 TEXT NOT NULL, title TEXT NOT NULL, author TEXT NOT NULL, description TEXT NOT NULL, importedAt INTEGER NOT NULL, byteCount INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_local_books_sha256 ON local_books (sha256)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS epub_positions (bookId TEXT NOT NULL PRIMARY KEY, locatorJson TEXT NOT NULL, progression REAL NOT NULL, chapterTitle TEXT NOT NULL, updatedAt INTEGER NOT NULL, FOREIGN KEY(bookId) REFERENCES local_books(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5
+        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6
     )
 }

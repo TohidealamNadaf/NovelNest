@@ -2,4 +2,6 @@
 <full-backup-content>
     <exclude domain="sharedpref" path="cloud_narration.xml" />
     <exclude domain="sharedpref" path="ai_reading_tools.xml" />
+    <!-- Large publication files can be reimported; metadata and locators remain backed up. -->
+    <exclude domain="file" path="epub_library/" />
 </full-backup-content>
