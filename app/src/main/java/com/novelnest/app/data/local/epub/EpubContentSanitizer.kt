@@ -179,6 +179,9 @@ object EpubContentSanitizer {
         doc.head().appendElement("style")
             .attr("id", "nn-epub-image-style")
             .text(buildImageAlignmentCss(vAlign, hAlign))
+        doc.head().appendElement("style")
+            .attr("id", "nn-epub-selection-style")
+            .text(EpubSelectionStyle.css)
         doc.head().prependElement("meta").attr("http-equiv", "Content-Security-Policy").attr("content",
             "default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'")
         doc.head().prependElement("meta").attr("charset", "utf-8")

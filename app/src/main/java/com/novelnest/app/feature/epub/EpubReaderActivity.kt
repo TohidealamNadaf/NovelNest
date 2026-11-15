@@ -2,6 +2,8 @@ package com.novelnest.app.feature.epub
 
 import android.app.Activity
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
@@ -48,6 +50,8 @@ import androidx.compose.material.icons.automirrored.rounded.NavigateNext
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
@@ -87,6 +91,7 @@ import com.novelnest.app.core.ui.animation.BounceScale
 import com.novelnest.app.core.ui.animation.bounceSelectable
 import com.novelnest.app.data.preferences.*
 import com.novelnest.app.data.local.epub.EpubContentSanitizer
+import com.novelnest.app.data.local.epub.EpubSelectionStyle
 import com.novelnest.app.data.local.epub.containsReadingResource
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
@@ -106,6 +111,15 @@ class EpubReaderActivity : FragmentActivity() {
     private lateinit var model: EpubReaderViewModel
     private var navigator by mutableStateOf<EpubNavigatorFragment?>(null)
     private var readerSelectionMode: ActionMode? = null
+    private var copyingChapter by mutableStateOf(false)
+    private var copyJob: Job? = null
+    private var continuousSelectionScroll = false
+    private val selectionScroll by lazy {
+        EpubSelectionScrollController(root = { navigator?.view },
+            continuous = { continuousSelectionScroll },
+            resumed = { !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) })
+    }
+    private fun hasReaderSelection() = readerSelectionMode != null || selectionScroll.hasSelection
     private val chapterReturns by lazy {
         EpubChapterReturnController(lifecycleScope, model.chapterPositions, onCheckpoint = { model.checkpoint(it) },
             onError = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() })
@@ -219,6 +233,7 @@ class EpubReaderActivity : FragmentActivity() {
                 }
 
                 SideEffect {
+                    continuousSelectionScroll = continuousReading
                     EpubContentSanitizer.updateImageAlignment(
                         settings.epubImageVerticalAlignment,
                         settings.epubImageHorizontalAlignment,
@@ -230,7 +245,7 @@ class EpubReaderActivity : FragmentActivity() {
                     drawerState.targetValue == DrawerValue.Closed
                 val allowImageTap by rememberUpdatedState(!notesVisible)
                 val toggleReaderControls by rememberUpdatedState<() -> Boolean> {
-                    if (!canTapReader || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) false
+                    if (!canTapReader || hasReaderSelection() || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) false
                     else {
                         if (showControlSheet) {
                             if (notesVisible) requestNotesExit(EpubNotesExit.DISMISS) else showControlSheet = false
@@ -243,7 +258,7 @@ class EpubReaderActivity : FragmentActivity() {
                     }
                 }
                 val hideControlsOnReadingGesture by rememberUpdatedState<() -> Unit> {
-                    if (autoHideControls && canTapReader && !notesVisible && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    if (autoHideControls && canTapReader && !notesVisible && !hasReaderSelection() && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                         model.hideAutoHideControls()
                         if (showControlSheet) showControlSheet = false
                     }
@@ -486,7 +501,7 @@ class EpubReaderActivity : FragmentActivity() {
                                             },
                                             update = { host ->
                                                 host.continuousScrolling = settings.scrollMode == ReaderScrollMode.CONTINUOUS
-                                                host.isTextSelectionActive = { readerSelectionMode != null }
+                                                host.isTextSelectionActive = { hasReaderSelection() }
                                             },
                                             onRelease = { host -> host.isTextSelectionActive = { false } }
                                         )
@@ -497,7 +512,18 @@ class EpubReaderActivity : FragmentActivity() {
                                                 val factory = EpubNavigatorFactory(result.publication).createFragmentFactory(
                                                     // Compose owns mode-specific safe insets, including overlay reading modes.
                                                     // Readium must not add the status-bar/cutout height a second time.
-                                                    configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false).apply {
+                                                    configuration = EpubNavigatorFragment.Configuration(
+                                                        shouldApplyInsetsPadding = false,
+                                                        readiumCssRsProperties = EpubSelectionStyle.readiumProperties
+                                                    ).apply {
+                                                        registerJavascriptInterface("NovelNestSelectionEvents") { resource ->
+                                                            if (!result.publication.containsReadingResource(resource.url())) null
+                                                            else object {
+                                                                @JavascriptInterface fun update(selected: Boolean, y: Double, width: Double) {
+                                                                    selectionScroll.offer(resource.url(), selected, y, width)
+                                                                }
+                                                            }
+                                                        }
                                                         registerJavascriptInterface("NovelNestImageTap") { resource ->
                                                             if (!result.publication.containsReadingResource(resource.url())) null
                                                             else object {
@@ -533,6 +559,7 @@ class EpubReaderActivity : FragmentActivity() {
                                                 navigator = fragment
                                                 fragment.viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                                     fragment.currentLocator.collect { locator ->
+                                                        selectionScroll.setSection(locator.href)
                                                         val accepted = chapterReturns.accept(locator)
                                                         if (accepted) model.checkpoint(locator)
                                                         percent = ((locator.locations.totalProgression ?: model.progression()) * 100).toInt().coerceIn(0, 100)
@@ -664,6 +691,9 @@ class EpubReaderActivity : FragmentActivity() {
                                                             chapterPercent = chapterPercent,
                                                             bookPercent = percent,
                                                             navigationEnabled = navigator != null,
+                                                            copyEnabled = !copyingChapter && navigator != null,
+                                                            copyingChapter = copyingChapter,
+                                                            onCopyChapter = { if (showControlSheet) copyChapter() },
                                                             isBookmarked = isBookmarkedPlaceholder,
                                                             autoHideControls = autoHideControls,
                                                             fullscreen = isFullscreen,
@@ -786,13 +816,55 @@ class EpubReaderActivity : FragmentActivity() {
         if (readerSelectionMode === mode) readerSelectionMode = null
         super.onActionModeFinished(mode)
     }
+    private fun copyChapter() {
+        if (copyingChapter || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        val fragment = navigator ?: return
+        if (!fragment.isResumed) return
+        val locator = fragment.currentLocator.value
+        copyingChapter = true
+        copyJob = lifecycleScope.launch {
+            try {
+                val text = model.chapterText(locator.href)
+                ensureActive()
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !window.decorView.hasWindowFocus()) return@launch
+                if (navigator !== fragment || !locator.href.removeFragment().removeQuery().isEquivalent(
+                        fragment.currentLocator.value.href.removeFragment().removeQuery())) {
+                    Toast.makeText(this@EpubReaderActivity, "Chapter changed. Tap Copy again.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                try {
+                    val clipboard = checkNotNull(getSystemService(ClipboardManager::class.java))
+                    clipboard.setPrimaryClip(ClipData.newPlainText(locator.title.orEmpty().ifBlank { "EPUB chapter" }.take(200), text))
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU)
+                        Toast.makeText(this@EpubReaderActivity, "Chapter copied", Toast.LENGTH_SHORT).show()
+                } catch (_: RuntimeException) {
+                    Toast.makeText(this@EpubReaderActivity, "Could not copy this chapter. Please try again.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                val message = if (error is IllegalArgumentException || error is IllegalStateException)
+                    error.message?.take(200) else null
+                Toast.makeText(this@EpubReaderActivity, message ?: "Could not read this chapter for copying.", Toast.LENGTH_SHORT).show()
+            } catch (_: OutOfMemoryError) {
+                Toast.makeText(this@EpubReaderActivity, "Not enough memory to copy this chapter. Select a smaller passage.", Toast.LENGTH_SHORT).show()
+            } finally {
+                copyingChapter = false
+                copyJob = null
+            }
+        }
+    }
+
     override fun onPause() {
+        copyJob?.cancel()
+        selectionScroll.pause()
         if (::model.isInitialized) { chapterReturns.cancel(); model.flush() }
         super.onPause()
     }
     override fun onDestroy() {
         window.decorView.keepScreenOn = false
         if (::model.isInitialized) chapterReturns.cancel()
+        copyJob?.cancel()
+        selectionScroll.close()
         navigator = null
         readerSelectionMode = null
         super.onDestroy()
@@ -2033,6 +2105,9 @@ private fun EpubReaderBottomControlPanel(
     chapterPercent: Int,
     bookPercent: Int,
     navigationEnabled: Boolean,
+    copyEnabled: Boolean,
+    copyingChapter: Boolean,
+    onCopyChapter: () -> Unit,
     isBookmarked: Boolean,
     autoHideControls: Boolean,
     fullscreen: Boolean,
@@ -2192,13 +2267,21 @@ private fun EpubReaderBottomControlPanel(
                     .padding(vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Row 1: Font, Theme, Brightness, Highlight, Note
+                // Row 1: Copy, Font, Theme, Highlight, Note
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    EpubToolGridItem(
+                        icon = Icons.Rounded.ContentCopy,
+                        label = if (copyingChapter) "Copying..." else "Copy",
+                        onClick = onCopyChapter,
+                        enabled = copyEnabled,
+                        modifier = Modifier.weight(1f)
+                    )
+                    EpubToolVerticalDivider(dividerColor)
                     EpubToolGridItem(
                         textBadge = "Aa",
                         icon = null,
@@ -2211,13 +2294,6 @@ private fun EpubReaderBottomControlPanel(
                         icon = Icons.Rounded.Palette,
                         label = "Theme",
                         onClick = onOpenThemeSettings,
-                        modifier = Modifier.weight(1f)
-                    )
-                    EpubToolVerticalDivider(dividerColor)
-                    EpubToolGridItem(
-                        icon = Icons.Rounded.LightMode,
-                        label = "Brightness",
-                        onClick = {}, // Placeholder
                         modifier = Modifier.weight(1f)
                     )
                     EpubToolVerticalDivider(dividerColor)
@@ -2408,12 +2484,13 @@ private fun EpubToolGridItem(
     textBadge: String? = null,
     label: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -2425,7 +2502,7 @@ private fun EpubToolGridItem(
             if (textBadge != null) {
                 Text(
                     text = textBadge,
-                    color = NovelPrimary,
+                    color = if (enabled) NovelPrimary else NovelTextTertiary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -2433,14 +2510,14 @@ private fun EpubToolGridItem(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = NovelPrimary,
+                    tint = if (enabled) NovelPrimary else NovelTextTertiary,
                     modifier = Modifier.size(20.dp)
                 )
             }
         }
         Text(
             text = label,
-            color = NovelTextPrimary,
+            color = if (enabled) NovelTextPrimary else NovelTextTertiary,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,

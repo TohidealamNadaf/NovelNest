@@ -26,6 +26,6 @@ internal object EpubImageDocument {
     fun attach(bytes: ByteArray): ByteArray {
         val html = bytes.toString(Charsets.UTF_8)
         val end = html.lastIndexOf("</body>")
-        return if (end < 0) bytes else (html.substring(0, end) + hook + html.substring(end)).toByteArray(Charsets.UTF_8)
+        return if (end < 0) bytes else (html.substring(0, end) + hook + EpubSelectionDocument.hook + html.substring(end)).toByteArray(Charsets.UTF_8)
     }
 }

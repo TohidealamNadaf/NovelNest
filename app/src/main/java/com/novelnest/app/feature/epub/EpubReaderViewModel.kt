@@ -68,7 +68,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
     @Volatile private var latestProgression = 0.0
     private var lastSaved = 0L
     private var loadJob: Job? = null
-    private val imageMutex = Mutex()
+    private val resourceMutex = Mutex()
     private var imageJob: Job? = null
     private var imageGeneration = 0L
     private val mutableImageViewer = MutableStateFlow<EpubImageViewerState?>(null)
@@ -95,6 +95,15 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
         }
     }
 
+    internal suspend fun chapterText(section: Url): String = withContext(ioDispatcher) {
+        resourceMutex.withLock {
+            ensureActive()
+            check(!cleared.get()) { "The reader is closed." }
+            val publication = currentPublication.get() ?: error("The book is not ready.")
+            EpubChapterText.read(publication, section)
+        }
+    }
+
     internal fun openImages(section: Url, index: Int = 0) {
         if (cleared.get()) return
         val publication = currentPublication.get() ?: return
@@ -104,7 +113,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
         imageJob = viewModelScope.launch {
             try {
                 val images = withContext(ioDispatcher) {
-                    imageMutex.withLock { ensureActive(); EpubImages.catalog(publication, section) }
+                    resourceMutex.withLock { ensureActive(); EpubImages.catalog(publication, section) }
                 }
                 ensureActive()
                 if (generation != imageGeneration) return@launch
@@ -131,7 +140,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
         imageJob = viewModelScope.launch {
             try {
                 val asset = withContext(ioDispatcher) {
-                    imageMutex.withLock { ensureActive(); EpubImages.load(publication, previous.images[index]) }
+                    resourceMutex.withLock { ensureActive(); EpubImages.load(publication, previous.images[index]) }
                 }
                 ensureActive()
                 if (generation == imageGeneration) mutableImageViewer.value =
@@ -219,6 +228,6 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
         closeImages()
         val publication = currentPublication.getAndSet(null)
         // Let a cancelled resource read close its handle before releasing the shared publication.
-        if (publication != null) repository.releasePublicationAfter(publication, imageMutex)
+        if (publication != null) repository.releasePublicationAfter(publication, resourceMutex)
     }
 }
