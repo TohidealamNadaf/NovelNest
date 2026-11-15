@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -64,6 +65,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -87,7 +90,9 @@ import com.novelnest.app.data.local.epub.EpubContentSanitizer
 import com.novelnest.app.data.local.epub.containsReadingResource
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import org.readium.r2.navigator.epub.*
+import org.readium.r2.navigator.input.DragEvent
 import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.Color as ReadiumColor
@@ -100,6 +105,11 @@ import org.readium.r2.shared.ExperimentalReadiumApi
 class EpubReaderActivity : FragmentActivity() {
     private lateinit var model: EpubReaderViewModel
     private var navigator by mutableStateOf<EpubNavigatorFragment?>(null)
+    private var readerSelectionMode: ActionMode? = null
+    private val chapterReturns by lazy {
+        EpubChapterReturnController(lifecycleScope, model.chapterPositions, onCheckpoint = { model.checkpoint(it) },
+            onError = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() })
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         // Readium requires its Publication-backed FragmentFactory before fragment restoration.
         // Rebuild this dedicated activity's fragment instead; rotation retains the ViewModel and
@@ -116,27 +126,82 @@ class EpubReaderActivity : FragmentActivity() {
         val app = application as NovelNestApplication
         model = ViewModelProvider(this, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                EpubReaderViewModel(id, app.epubRepository) as T
+                EpubReaderViewModel(id, app.epubRepository, studyRepository = app.studyRepository) as T
         })[EpubReaderViewModel::class.java]
         setContent {
             NovelNestTheme(manageSystemBars = false) {
                 val state by model.state.collectAsStateWithLifecycle()
                 val imageViewer by model.imageViewer.collectAsStateWithLifecycle()
+                val chromeState by model.chromeState.collectAsStateWithLifecycle()
+                val notesState by model.notesState.collectAsStateWithLifecycle()
+                val notesSession = model.notesSession
                 val settings by app.preferencesManager.readerSettings.collectAsStateWithLifecycle()
+                val continuousReading by rememberUpdatedState(settings.scrollMode == ReaderScrollMode.CONTINUOUS)
+                LaunchedEffect(settings.scrollMode) { chapterReturns.cancel() }
                 val appSettings by app.preferencesManager.appSettings.collectAsStateWithLifecycle()
                 val saveError by app.epubRepository.positionError.collectAsStateWithLifecycle()
                 val scope = rememberCoroutineScope()
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-                var showControlSheet by rememberSaveable { mutableStateOf(false) }
-                var activeSheetPage by rememberSaveable { mutableStateOf(EpubBottomSheetPage.CONTROLS) }
+                var showControlSheet by rememberSaveable { mutableStateOf(notesSession.editing) }
+                var activeSheetPage by rememberSaveable {
+                    mutableStateOf(if (notesSession.editing) EpubBottomSheetPage.NOTES else EpubBottomSheetPage.CONTROLS)
+                }
                 var isBookmarkedPlaceholder by remember { mutableStateOf(false) }
-                var immersiveModePlaceholder by remember { mutableStateOf(true) }
                 var resourceError by remember { mutableStateOf<String?>(null) }
                 var percent by remember { mutableIntStateOf(0) }
                 var chapterPercent by remember { mutableIntStateOf(0) }
                 var currentHref by remember { mutableStateOf<org.readium.r2.shared.util.Url?>(null) }
                 var currentLocatorTitle by remember { mutableStateOf<String?>(null) }
                 val ready = state as? EpubReaderState.Ready
+                val notesVisible = showControlSheet && activeSheetPage == EpubBottomSheetPage.NOTES
+                val performNotesExit: (EpubNotesExit) -> Unit = { exit ->
+                    notesSession.closeEditor()
+                    model.selectNote(null)
+                    when (exit) {
+                        EpubNotesExit.LIST -> Unit
+                        EpubNotesExit.CONTROLS -> activeSheetPage = EpubBottomSheetPage.CONTROLS
+                        EpubNotesExit.DISMISS -> showControlSheet = false
+                        EpubNotesExit.READING_MODE -> activeSheetPage = EpubBottomSheetPage.READING_MODE
+                        EpubNotesExit.CHAPTERS -> { showControlSheet = false; scope.launch { drawerState.open() } }
+                        EpubNotesExit.FINISH -> finish()
+                    }
+                }
+                val requestNotesExit: (EpubNotesExit) -> Unit = { exit ->
+                    if (notesSession.canExit(exit, notesState.saving)) performNotesExit(exit)
+                }
+                // No Room subscriptions while the page is hidden or the Activity is stopped.
+                LaunchedEffect(notesVisible, ready?.book?.id) {
+                    if (notesVisible && ready != null) {
+                        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            model.showNotes(true)
+                            try { awaitCancellation() } finally { model.showNotes(false) }
+                        }
+                    } else model.showNotes(false)
+                }
+                val isFullscreen = chromeState.fullscreen && ready != null
+                val autoHideControls = chromeState.autoHideControls && ready != null
+                val useChromeOverlays = isFullscreen || autoHideControls
+                val drawerVisible = drawerState.currentValue != DrawerValue.Closed || drawerState.targetValue != DrawerValue.Closed
+                val revealReaderChrome = showControlSheet || drawerVisible ||
+                    (autoHideControls && !isFullscreen && chromeState.autoHideControlsRevealed)
+                val readingWithoutChrome = useChromeOverlays && !revealReaderChrome
+                EpubReaderSystemBars(this@EpubReaderActivity,
+                    hideBars = isFullscreen && !revealReaderChrome,
+                    darkIcons = readingWithoutChrome && !settings.theme.isDark,
+                    suspended = imageViewer != null)
+                val setFullscreen: (Boolean) -> Unit = { enabled ->
+                    // Closing content stays composed during its exit animation. Ignore repeated taps.
+                    if (showControlSheet && ready != null && imageViewer == null) {
+                        model.setFullscreen(enabled)
+                        showControlSheet = false
+                    }
+                }
+                val setAutoHideControls: (Boolean) -> Unit = { enabled ->
+                    if (showControlSheet && ready != null && imageViewer == null) {
+                        model.setAutoHideControls(enabled)
+                        showControlSheet = false
+                    }
+                }
                 val toc = remember(ready?.publication) {
                     ready?.publication?.let { pub ->
                         flattenContents(pub.tableOfContents.ifEmpty { pub.readingOrder })
@@ -163,35 +228,188 @@ class EpubReaderActivity : FragmentActivity() {
                 LaunchedEffect(settings.keepScreenOn) { window.decorView.keepScreenOn = settings.keepScreenOn }
                 val canTapReader = ready != null && imageViewer == null && drawerState.currentValue == DrawerValue.Closed &&
                     drawerState.targetValue == DrawerValue.Closed
+                val allowImageTap by rememberUpdatedState(!notesVisible)
                 val toggleReaderControls by rememberUpdatedState<() -> Boolean> {
                     if (!canTapReader || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) false
                     else {
                         if (showControlSheet) {
-                            showControlSheet = false
+                            if (notesVisible) requestNotesExit(EpubNotesExit.DISMISS) else showControlSheet = false
                         } else {
+                            model.revealAutoHideControls()
                             activeSheetPage = EpubBottomSheetPage.CONTROLS
                             showControlSheet = true
                         }
                         true
                     }
                 }
-                // Readium forwards only unhandled content taps, preserving links, scrolling and selection.
-                DisposableEffect(navigator) {
+                val hideControlsOnReadingGesture by rememberUpdatedState<() -> Unit> {
+                    if (autoHideControls && canTapReader && !notesVisible && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        model.hideAutoHideControls()
+                        if (showControlSheet) showControlSheet = false
+                    }
+                }
+                val dragThreshold = 12f * resources.displayMetrics.density
+                // Observe Readium's unhandled gestures; never intercept its scroll/selection/navigation.
+                DisposableEffect(navigator, dragThreshold) {
                     val fragment = navigator
                     val listener = object : InputListener {
+                        private var handledDrag = false
                         override fun onTap(event: TapEvent): Boolean = toggleReaderControls()
+                        override fun onDrag(event: DragEvent): Boolean {
+                            if (event.type == DragEvent.Type.Start) handledDrag = false
+                            if (!handledDrag && (kotlin.math.abs(event.offset.x) >= dragThreshold ||
+                                    kotlin.math.abs(event.offset.y) >= dragThreshold)) {
+                                handledDrag = true
+                                hideControlsOnReadingGesture()
+                            }
+                            return false
+                        }
                     }
                     fragment?.addInputListener(listener)
                     onDispose { fragment?.removeInputListener(listener) }
                 }
+                BackHandler(enabled = useChromeOverlays && !showControlSheet && !drawerVisible && imageViewer == null &&
+                    (isFullscreen || !chromeState.autoHideControlsRevealed)) {
+                    if (isFullscreen) model.setFullscreen(false) else model.revealAutoHideControls()
+                }
                 BackHandler(enabled = showControlSheet && canTapReader) {
-                    if (activeSheetPage == EpubBottomSheetPage.FONT ||
+                    if (notesVisible) {
+                        requestNotesExit(if (notesSession.editing) EpubNotesExit.LIST else EpubNotesExit.CONTROLS)
+                    } else if (activeSheetPage == EpubBottomSheetPage.FONT ||
                         activeSheetPage == EpubBottomSheetPage.THEME ||
                         activeSheetPage == EpubBottomSheetPage.IMAGE_ALIGNMENT
                     ) {
                         activeSheetPage = EpubBottomSheetPage.CONTROLS
                     } else {
                         showControlSheet = false
+                    }
+                }
+
+                val readerHeader: @Composable () -> Unit = {
+                    EpubReaderReferenceTopBar(
+                        bookTitle = ready?.book?.title ?: "Local EPUB",
+                        chapterSubtitle = if (ready != null) {
+                            "Chapter ${currentChapterIndex + 1} • $resolvedChapterTitle"
+                        } else {
+                            "Loading EPUB..."
+                        },
+                        isBookmarked = isBookmarkedPlaceholder,
+                        enabled = ready != null,
+                        onBack = { if (notesVisible) requestNotesExit(EpubNotesExit.FINISH) else finish() },
+                        onOpenChapters = {
+                            if (ready != null) {
+                                if (notesVisible) requestNotesExit(EpubNotesExit.CHAPTERS)
+                                else scope.launch { drawerState.open() }
+                            }
+                        },
+                        onToggleBookmark = { isBookmarkedPlaceholder = !isBookmarkedPlaceholder },
+                        onOpenSettings = {
+                            if (notesVisible) requestNotesExit(EpubNotesExit.READING_MODE)
+                            else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.READING_MODE) {
+                                showControlSheet = false
+                            } else {
+                                activeSheetPage = EpubBottomSheetPage.READING_MODE
+                                showControlSheet = true
+                            }
+                        },
+                        onToggleControlSheet = {
+                            if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
+                            else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.CONTROLS) {
+                                showControlSheet = false
+                            } else {
+                                activeSheetPage = EpubBottomSheetPage.CONTROLS
+                                showControlSheet = true
+                            }
+                        }
+                    )
+                }
+                val readerFooter: @Composable () -> Unit = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(NovelBackground)
+                            .windowInsetsPadding(epubChromeInsets().only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                    ) {
+                        saveError?.let {
+                            Surface(
+                                color = NovelSurface,
+                                border = BorderStroke(1.dp, NovelError.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = it,
+                                        modifier = Modifier.weight(1f),
+                                        color = NovelError,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    TextButton(onClick = app.epubRepository::retryPositionWrites) {
+                                        Text("Retry", color = NovelPrimary)
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            thickness = 1.dp,
+                            color = NovelSurfaceBorder
+                        )
+
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(NovelBackground.copy(alpha = 0.94f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                enabled = navigator != null,
+                                onClick = {
+                                    navigate({ resourceError = it }) {
+                                        goBackward(animated = !appSettings.reducedMotion)
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.NavigateBefore,
+                                    "Previous page",
+                                    tint = NovelPrimary
+                                )
+                            }
+                            Text(
+                                text = "Chapter ${currentChapterIndex + 1}/${toc.size.coerceAtLeast(1)} • $percent% read",
+                                color = NovelTextSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
+                                        else {
+                                            activeSheetPage = EpubBottomSheetPage.CONTROLS
+                                            showControlSheet = true
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                            IconButton(
+                                enabled = navigator != null,
+                                onClick = {
+                                    navigate({ resourceError = it }) {
+                                        goForward(animated = !appSettings.reducedMotion)
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.NavigateNext,
+                                    "Next page",
+                                    tint = NovelPrimary
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -207,7 +425,9 @@ class EpubReaderActivity : FragmentActivity() {
                                 val pub = ready?.publication
                                 if (pub == null) false else {
                                     val opened = navigate({ resourceError = it }) {
-                                        pub.containsReadingResource(target.url()) && go(target, animated = false)
+                                        chapterReturns.explicitJump {
+                                            pub.containsReadingResource(target.url()) && go(target, animated = false)
+                                        }
                                     }
                                     if (!opened) resourceError = "This contents entry cannot be opened. It may reference a missing or unsupported section."
                                     opened
@@ -222,39 +442,7 @@ class EpubReaderActivity : FragmentActivity() {
                             .fillMaxSize()
                             .background(NovelBackground)
                     ) {
-                        EpubReaderReferenceTopBar(
-                            bookTitle = ready?.book?.title ?: "Local EPUB",
-                            chapterSubtitle = if (ready != null) {
-                                "Chapter ${currentChapterIndex + 1} • $resolvedChapterTitle"
-                            } else {
-                                "Loading EPUB..."
-                            },
-                            isBookmarked = isBookmarkedPlaceholder,
-                            enabled = ready != null,
-                            onBack = { finish() },
-                            onOpenChapters = {
-                                if (ready != null) {
-                                    scope.launch { drawerState.open() }
-                                }
-                            },
-                            onToggleBookmark = { isBookmarkedPlaceholder = !isBookmarkedPlaceholder },
-                            onOpenSettings = {
-                                if (showControlSheet && activeSheetPage == EpubBottomSheetPage.READING_MODE) {
-                                    showControlSheet = false
-                                } else {
-                                    activeSheetPage = EpubBottomSheetPage.READING_MODE
-                                    showControlSheet = true
-                                }
-                            },
-                            onToggleControlSheet = {
-                                if (showControlSheet && activeSheetPage == EpubBottomSheetPage.CONTROLS) {
-                                    showControlSheet = false
-                                } else {
-                                    activeSheetPage = EpubBottomSheetPage.CONTROLS
-                                    showControlSheet = true
-                                }
-                            }
-                        )
+                        if (!useChromeOverlays) readerHeader()
 
                         when (val result = state) {
                             EpubReaderState.Loading -> Box(
@@ -286,17 +474,28 @@ class EpubReaderActivity : FragmentActivity() {
                                     Column(Modifier.fillMaxSize()) {
                                         AndroidView(
                                             modifier = Modifier.weight(1f).fillMaxWidth()
-                                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+                                                .windowInsetsPadding(if (isFullscreen)
+                                                    WindowInsets.displayCutout.union(WindowInsets.captionBar)
+                                                else if (autoHideControls) epubChromeInsets()
+                                                else WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                                             factory = { context ->
-                                                FragmentContainerView(context).apply { this.id = R.id.epub_navigator }
-                                            }
+                                                EpubScrollGestureLayout(context).apply {
+                                                    addView(FragmentContainerView(context).apply { this.id = R.id.epub_navigator },
+                                                        ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                                                }
+                                            },
+                                            update = { host ->
+                                                host.continuousScrolling = settings.scrollMode == ReaderScrollMode.CONTINUOUS
+                                                host.isTextSelectionActive = { readerSelectionMode != null }
+                                            },
+                                            onRelease = { host -> host.isTextSelectionActive = { false } }
                                         )
 
                                         LaunchedEffect(result.publication) {
                                             lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                                             try {
                                                 val factory = EpubNavigatorFactory(result.publication).createFragmentFactory(
-                                                    // Header/footer own vertical insets; Compose protects horizontal cutouts.
+                                                    // Compose owns mode-specific safe insets, including overlay reading modes.
                                                     // Readium must not add the status-bar/cutout height a second time.
                                                     configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false).apply {
                                                         registerJavascriptInterface("NovelNestImageTap") { resource ->
@@ -305,7 +504,7 @@ class EpubReaderActivity : FragmentActivity() {
                                                                 @JavascriptInterface fun open(index: Int) {
                                                                     if (index !in 0 until 256) return
                                                                     runOnUiThread {
-                                                                        if (!isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                                                        if (!isDestroyed && allowImageTap && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                                                                             showControlSheet = false
                                                                             model.openImages(resource.url(), index)
                                                                         }
@@ -317,6 +516,9 @@ class EpubReaderActivity : FragmentActivity() {
                                                     initialLocator = model.resumeLocator() ?: result.initialLocator,
                                                     initialPreferences = epubPreferences,
                                                     listener = object : EpubNavigatorFragment.Listener {
+                                                        override fun onJumpToLocator(locator: org.readium.r2.shared.publication.Locator) {
+                                                            navigator?.let { chapterReturns.onJump(it, locator, result.publication, continuousReading) }
+                                                        }
                                                         override fun onResourceLoadFailed(href: org.readium.r2.shared.util.Url, error: org.readium.r2.shared.util.data.ReadError) {
                                                             runOnUiThread { if (!isDestroyed) resourceError = "A section or image could not be displayed. The EPUB may contain a missing resource." }
                                                         }
@@ -331,8 +533,9 @@ class EpubReaderActivity : FragmentActivity() {
                                                 navigator = fragment
                                                 fragment.viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                                     fragment.currentLocator.collect { locator ->
-                                                        model.checkpoint(locator)
-                                                        percent = (model.progression() * 100).toInt().coerceIn(0, 100)
+                                                        val accepted = chapterReturns.accept(locator)
+                                                        if (accepted) model.checkpoint(locator)
+                                                        percent = ((locator.locations.totalProgression ?: model.progression()) * 100).toInt().coerceIn(0, 100)
                                                         currentHref = locator.href
                                                         currentLocatorTitle = locator.title
                                                         chapterPercent = ((locator.locations.progression ?: model.progression()) * 100)
@@ -382,99 +585,21 @@ class EpubReaderActivity : FragmentActivity() {
                                             }
                                         }
 
-                                        // Persistent compact footer keeps the Readium WebView height constant
-                                        // so opening/closing the bottom sheet never triggers WebView repagination.
-                                        // Only a top divider is drawn; no side or bottom borders in collapsed state.
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(NovelBackground)
-                                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                                        ) {
-                                            saveError?.let {
-                                                Surface(
-                                                    color = NovelSurface,
-                                                    border = BorderStroke(1.dp, NovelError.copy(alpha = 0.4f)),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = it,
-                                                            modifier = Modifier.weight(1f),
-                                                            color = NovelError,
-                                                            style = MaterialTheme.typography.bodySmall
-                                                        )
-                                                        TextButton(onClick = app.epubRepository::retryPositionWrites) {
-                                                            Text("Retry", color = NovelPrimary)
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            HorizontalDivider(
-                                                thickness = 1.dp,
-                                                color = NovelSurfaceBorder
-                                            )
-
-                                            Row(
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .background(NovelBackground.copy(alpha = 0.94f))
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                IconButton(
-                                                    enabled = navigator != null,
-                                                    onClick = {
-                                                        navigate({ resourceError = it }) {
-                                                            goBackward(animated = !appSettings.reducedMotion)
-                                                        }
-                                                    }
-                                                ) {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Rounded.NavigateBefore,
-                                                        "Previous page",
-                                                        tint = NovelPrimary
-                                                    )
-                                                }
-                                                Text(
-                                                    text = "Chapter ${currentChapterIndex + 1}/${toc.size.coerceAtLeast(1)} • $percent% read",
-                                                    color = NovelTextSecondary,
-                                                    fontSize = 12.sp,
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .clickable {
-                                                            activeSheetPage = EpubBottomSheetPage.CONTROLS
-                                                            showControlSheet = true
-                                                        }
-                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                                )
-                                                IconButton(
-                                                    enabled = navigator != null,
-                                                    onClick = {
-                                                        navigate({ resourceError = it }) {
-                                                            goForward(animated = !appSettings.reducedMotion)
-                                                        }
-                                                    }
-                                                ) {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Rounded.NavigateNext,
-                                                        "Next page",
-                                                        tint = NovelPrimary
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        // Normal mode reserves footer space. Auto-hide/fullscreen use a fixed overlay viewport.
+                                        if (!useChromeOverlays) readerFooter()
                                     }
+
+                                    EpubReaderChromeOverlay(
+                                        visible = useChromeOverlays && revealReaderChrome,
+                                        fromTop = false, reducedMotion = appSettings.reducedMotion,
+                                        modifier = Modifier.align(Alignment.BottomCenter)
+                                    ) { readerFooter() }
 
                                     // ─── SLIDING BOTTOM SHEET OVERLAY (Controls, Font, Theme, Image Alignment, Reading Mode) ───
                                     androidx.compose.animation.AnimatedVisibility(
                                         visible = showControlSheet,
-                                        modifier = Modifier.align(Alignment.BottomCenter),
+                                        modifier = Modifier.align(Alignment.BottomCenter)
+                                            .then(if (activeSheetPage == EpubBottomSheetPage.NOTES) Modifier.imePadding() else Modifier),
                                         enter = slideInVertically(
                                             initialOffsetY = { it },
                                             animationSpec = tween(
@@ -498,7 +623,8 @@ class EpubReaderActivity : FragmentActivity() {
                                             )
                                         )
                                     ) {
-                                        EpubBottomSheetContainer(maxHeight = maximumControlsHeight) {
+                                        EpubBottomSheetContainer(maxHeight = maximumControlsHeight,
+                                            scrollable = activeSheetPage != EpubBottomSheetPage.NOTES) {
                                             saveError?.let {
                                                 Surface(
                                                     color = NovelSurface,
@@ -539,7 +665,8 @@ class EpubReaderActivity : FragmentActivity() {
                                                             bookPercent = percent,
                                                             navigationEnabled = navigator != null,
                                                             isBookmarked = isBookmarkedPlaceholder,
-                                                            immersiveMode = immersiveModePlaceholder,
+                                                            autoHideControls = autoHideControls,
+                                                            fullscreen = isFullscreen,
                                                             onPrevious = {
                                                                 navigate({ resourceError = it }) {
                                                                     goBackward(animated = !appSettings.reducedMotion)
@@ -556,6 +683,7 @@ class EpubReaderActivity : FragmentActivity() {
                                                                     goForward(animated = !appSettings.reducedMotion)
                                                                 }
                                                             },
+                                                            onOpenNotes = { activeSheetPage = EpubBottomSheetPage.NOTES },
                                                             onOpenFontSettings = {
                                                                 activeSheetPage = EpubBottomSheetPage.FONT
                                                             },
@@ -565,9 +693,16 @@ class EpubReaderActivity : FragmentActivity() {
                                                             onOpenImageAlignmentSettings = {
                                                                 activeSheetPage = EpubBottomSheetPage.IMAGE_ALIGNMENT
                                                             },
-                                                            onToggleImmersiveMode = {
-                                                                immersiveModePlaceholder = it
-                                                            }
+                                                            onToggleAutoHideControls = setAutoHideControls,
+                                                            onToggleFullscreen = { setFullscreen(!isFullscreen) }
+                                                        )
+                                                    }
+                                                    EpubBottomSheetPage.NOTES -> {
+                                                        EpubReaderNotesPanel(
+                                                            state = notesState, session = notesSession,
+                                                            onSelect = model::selectNote, onSave = model::saveNote,
+                                                            onDelete = model::deleteNote, onClearMessage = model::clearNoteMessage,
+                                                            onExit = requestNotesExit
                                                         )
                                                     }
                                                     EpubBottomSheetPage.FONT -> {
@@ -624,11 +759,18 @@ class EpubReaderActivity : FragmentActivity() {
                                             }
                                         }
                                     }
+
+                                    EpubReaderChromeOverlay(
+                                        visible = useChromeOverlays && revealReaderChrome,
+                                        fromTop = true, reducedMotion = appSettings.reducedMotion,
+                                        modifier = Modifier.align(Alignment.TopCenter)
+                                    ) { readerHeader() }
                                 }
                             }
                         }
                     }
                 }
+                EpubNotesDiscardDialog(notesSession, onDiscard = performNotesExit)
                 imageViewer?.let { images ->
                     EpubImageViewer(images, settings, app.preferencesManager,
                         onSelect = model::selectImage, onRetry = model::retryImage, onClose = model::closeImages)
@@ -636,13 +778,23 @@ class EpubReaderActivity : FragmentActivity() {
             }
         }
     }
+    override fun onActionModeStarted(mode: ActionMode) {
+        super.onActionModeStarted(mode)
+        readerSelectionMode = mode
+    }
+    override fun onActionModeFinished(mode: ActionMode) {
+        if (readerSelectionMode === mode) readerSelectionMode = null
+        super.onActionModeFinished(mode)
+    }
     override fun onPause() {
-        if (::model.isInitialized) model.flush()
+        if (::model.isInitialized) { chapterReturns.cancel(); model.flush() }
         super.onPause()
     }
     override fun onDestroy() {
         window.decorView.keepScreenOn = false
+        if (::model.isInitialized) chapterReturns.cancel()
         navigator = null
+        readerSelectionMode = null
         super.onDestroy()
     }
     private fun navigate(onError: (String) -> Unit, action: EpubNavigatorFragment.() -> Boolean): Boolean {
@@ -714,16 +866,19 @@ private enum class EpubBottomSheetPage {
     FONT,
     THEME,
     IMAGE_ALIGNMENT,
-    READING_MODE
+    READING_MODE,
+    NOTES
 }
 
 @Composable
 private fun EpubBottomSheetContainer(
     maxHeight: androidx.compose.ui.unit.Dp,
+    scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val topShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     val borderColor = NovelPrimary.copy(alpha = 0.35f)
+    val scrollState = rememberScrollState()
 
     // Strictly clips to topStart/topEnd = 24.dp with no outer background so the area
     // outside the top rounded corners is 100% transparent over the EPUB reader content,
@@ -747,8 +902,8 @@ private fun EpubBottomSheetContainer(
                     style = Stroke(width = strokeWidth)
                 )
             }
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState()),
+            .windowInsetsPadding(epubChromeInsets().only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+            .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
         content = content
     )
 }
@@ -1765,7 +1920,7 @@ private fun EpubReaderReferenceTopBar(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+            .windowInsetsPadding(epubChromeInsets().only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1879,15 +2034,18 @@ private fun EpubReaderBottomControlPanel(
     bookPercent: Int,
     navigationEnabled: Boolean,
     isBookmarked: Boolean,
-    immersiveMode: Boolean,
+    autoHideControls: Boolean,
+    fullscreen: Boolean,
     onPrevious: () -> Unit,
     onOpenChapters: () -> Unit,
     onToggleBookmark: () -> Unit,
     onNext: () -> Unit,
+    onOpenNotes: () -> Unit,
     onOpenFontSettings: () -> Unit,
     onOpenThemeSettings: () -> Unit,
     onOpenImageAlignmentSettings: () -> Unit,
-    onToggleImmersiveMode: (Boolean) -> Unit
+    onToggleAutoHideControls: (Boolean) -> Unit,
+    onToggleFullscreen: () -> Unit
 ) {
     val cardBackground = Color(0xFF1B1F27)
     val cardBorderColor = Color(0xFF2B313D)
@@ -2073,7 +2231,7 @@ private fun EpubReaderBottomControlPanel(
                     EpubToolGridItem(
                         icon = Icons.Rounded.Description,
                         label = "Note",
-                        onClick = {}, // Placeholder
+                        onClick = onOpenNotes,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -2123,7 +2281,7 @@ private fun EpubReaderBottomControlPanel(
             }
         }
 
-        // ─── 4. BOTTOM IMMERSIVE MODE + FULLSCREEN PILL BAR (Placeholders) ───
+        // ─── 4. BOTTOM AUTO-HIDE CONTROLS + FULLSCREEN PILL BAR ───
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
@@ -2143,6 +2301,7 @@ private fun EpubReaderBottomControlPanel(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -2153,15 +2312,19 @@ private fun EpubReaderBottomControlPanel(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Immersive Mode",
+                            text = "Auto-hide controls",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                             color = NovelTextPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
                     Switch(
-                        checked = immersiveMode,
-                        onCheckedChange = onToggleImmersiveMode,
+                        modifier = Modifier.semantics { contentDescription = "Auto-hide reading controls" },
+                        checked = autoHideControls,
+                        onCheckedChange = onToggleAutoHideControls,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = NovelOnPrimary,
                             checkedTrackColor = NovelPrimary,
@@ -2182,20 +2345,21 @@ private fun EpubReaderBottomControlPanel(
                     modifier = Modifier
                         .weight(0.85f)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(role = Role.Button, onClick = {}) // Placeholder
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button, onClick = onToggleFullscreen)
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Fullscreen,
+                        imageVector = if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
                         contentDescription = null,
                         tint = NovelPrimary,
                         modifier = Modifier.size(19.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Fullscreen",
+                        text = if (fullscreen) "Exit fullscreen" else "Fullscreen",
                         color = NovelTextPrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium

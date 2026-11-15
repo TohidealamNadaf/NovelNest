@@ -2,6 +2,10 @@ package com.novelnest.app.feature.epub
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.novelnest.app.data.study.StudyRepository
+import com.novelnest.app.data.study.StudyChapterKey
+import com.novelnest.app.feature.reader.ReaderStudyController
+import com.novelnest.app.feature.reader.ReaderStudyState
 import com.novelnest.app.data.local.epub.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -28,12 +32,38 @@ internal data class EpubImageViewerState(
     val error: String? = null
 )
 
+internal data class EpubReaderChromeState(
+    val fullscreen: Boolean = false,
+    val autoHideControls: Boolean = false,
+    val autoHideControlsRevealed: Boolean = true
+)
+
 class EpubReaderViewModel(private val id: String, private val repository: EpubRepository,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    studyRepository: StudyRepository? = null) : ViewModel() {
+    // The default keeps publication-only lifecycle tests independent of the notes database.
+    private val notes = studyRepository?.let { ReaderStudyController(viewModelScope, it, observeCollections = false) }
+    internal val notesState = notes?.state ?: MutableStateFlow(ReaderStudyState()).asStateFlow()
+    // UI draft only: retained across rotation, never placed in the EPUB or its locator.
+    internal val notesSession = EpubNotesSession()
+    internal fun showNotes(showing: Boolean) {
+        val ready = mutableState.value as? EpubReaderState.Ready
+        val section = latest?.href ?: ready?.publication?.readingOrder?.firstOrNull()?.url()
+        val key = if (ready != null && section != null)
+            StudyChapterKey("LOCAL_EPUB", id, section.toString().substringBefore('#')) else null
+        notes?.open(key, showing && !cleared.get())
+        if (showing && !cleared.get()) notesSession.loadingNoteId?.let { notes?.selectNote(it) }
+    }
+    internal fun selectNote(id: String?) { notes?.selectNote(id) }
+    internal fun saveNote(id: String?, title: String, markdown: String) { notes?.saveNote(id, title, markdown) }
+    internal fun deleteNote(id: String) { notes?.deleteNote(id) }
+    internal fun clearNoteMessage() { notes?.clearMessage() }
+
     private val currentPublication = AtomicReference<Publication?>(null)
     private val cleared = AtomicBoolean(false)
     private val mutableState = MutableStateFlow<EpubReaderState>(EpubReaderState.Loading)
     val state = mutableState.asStateFlow()
+    internal val chapterPositions = EpubChapterPositions()
     @Volatile private var latest: Locator? = null
     @Volatile private var latestProgression = 0.0
     private var lastSaved = 0L
@@ -43,6 +73,27 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
     private var imageGeneration = 0L
     private val mutableImageViewer = MutableStateFlow<EpubImageViewerState?>(null)
     internal val imageViewer = mutableImageViewer.asStateFlow()
+    // One atomic session state keeps the two independent modes and reveal state consistent.
+    private val mutableChromeState = MutableStateFlow(EpubReaderChromeState())
+    internal val chromeState = mutableChromeState.asStateFlow()
+    internal fun setFullscreen(enabled: Boolean) {
+        if (!cleared.get() && (!enabled || mutableState.value is EpubReaderState.Ready))
+            mutableChromeState.update { it.copy(fullscreen = enabled, autoHideControlsRevealed = !enabled) }
+    }
+    internal fun setAutoHideControls(enabled: Boolean) {
+        if (!cleared.get() && (!enabled || mutableState.value is EpubReaderState.Ready))
+            mutableChromeState.update { it.copy(autoHideControls = enabled, autoHideControlsRevealed = true) }
+    }
+    internal fun revealAutoHideControls() {
+        if (!cleared.get()) mutableChromeState.update {
+            if (it.autoHideControls && !it.autoHideControlsRevealed) it.copy(autoHideControlsRevealed = true) else it
+        }
+    }
+    internal fun hideAutoHideControls() {
+        if (!cleared.get()) mutableChromeState.update {
+            if (it.autoHideControls && it.autoHideControlsRevealed) it.copy(autoHideControlsRevealed = false) else it
+        }
+    }
 
     internal fun openImages(section: Url, index: Int = 0) {
         if (cleared.get()) return
@@ -147,6 +198,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
         }
         latest = locator
         latestProgression = progression
+        chapterPositions.remember(locator)
         val now = android.os.SystemClock.elapsedRealtime()
         if (!force && now - lastSaved < 2000) return
         try {

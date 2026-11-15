@@ -53,6 +53,7 @@ internal fun EpubImageViewer(
     onClose: () -> Unit
 ) {
     var controls by rememberSaveable { mutableStateOf(true) }
+    var renderAttempt by remember { mutableIntStateOf(0) }
     val zoom = remember { EpubImageZoomControls() }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(
         usePlatformDefaultWidth = false, decorFitsSystemWindows = false
@@ -102,9 +103,9 @@ internal fun EpubImageViewer(
                                 Spacer(Modifier.height(12.dp))
                                 Button(onClick = onRetry) { Text("Retry") }
                             }
-                            state.asset != null -> key(state.asset) {
+                            state.asset != null -> key(state.asset, renderAttempt) {
                                 EpubZoomImage(state.asset, settings.epubImageFit, settings.epubImageBackground,
-                                    zoom, onRetry, showControls = { controls = true })
+                                    zoom, onRetry = { renderAttempt++ }, showControls = { controls = true })
                             }
                             else -> Text("There are no illustrations in this section.", modifier = Modifier.padding(24.dp),
                                 color = if (lightBackground) Color.Black else Color.White)
@@ -169,7 +170,7 @@ private fun <T> ViewerChoice(label: String, options: List<T>, name: (T) -> Strin
     }
 }
 
-/** Only trusted HTML plus a single validated local image; every other resource request is denied. */
+/** Fixed in-memory document and validated image; no EPUB HTML or network fallback enters this WebView. */
 @Suppress("SetJavaScriptEnabled")
 @Composable
 private fun EpubZoomImage(asset: EpubImageAsset, fit: EpubImageFit, background: EpubImageBackground,
@@ -191,9 +192,9 @@ private fun EpubZoomImage(asset: EpubImageAsset, fit: EpubImageFit, background: 
     DisposableEffect(lifecycle, browser) {
         val web = browser
         controls.zoom = { factor ->
-            if (active.get()) web?.evaluateJavascript("window.nnViewer && window.nnViewer.zoom(" + factor + ");", null)
+            if (active.get() && !failed) web?.evaluateJavascript("window.nnViewer && window.nnViewer.zoom(" + factor + ");", null)
         }
-        controls.reset = { if (active.get()) web?.evaluateJavascript("window.nnViewer && window.nnViewer.reset();", null) }
+        controls.reset = { if (active.get() && !failed) web?.evaluateJavascript("window.nnViewer && window.nnViewer.reset();", null) }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> web?.onPause()
@@ -228,25 +229,54 @@ private fun EpubZoomImage(asset: EpubImageAsset, fit: EpubImageFit, background: 
                     }
                     val web = this
                     addJavascriptInterface(object {
-                        @JavascriptInterface fun ready() { web.post { if (active.get()) ready = true } }
+                        @JavascriptInterface fun ready() { web.post { if (active.get() && !failed) ready = true } }
                         @JavascriptInterface fun failed() { web.post { if (active.get()) failed = true } }
                         @JavascriptInterface fun showControls() { web.post { if (active.get()) currentShowControls() } }
                     }, "ImageViewerEvents")
                     webViewClient = object : WebViewClient() {
-                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse =
-                            if (request.url.toString() == EpubImageViewerDocument.IMAGE_URL)
-                                WebResourceResponse(asset.mimeType, null, 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(asset.bytes))
-                            else WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", emptyMap(), ByteArrayInputStream(byteArrayOf()))
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                            val url = request.url.toString()
+                            val headers = mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff")
+                            if (active.get() && request.method == "GET") {
+                                if (request.isForMainFrame && url == EpubImageViewerDocument.DOCUMENT_URL) {
+                                    return WebResourceResponse("text/html", "UTF-8", 200, "OK", headers,
+                                        ByteArrayInputStream(EpubImageViewerDocument.html.toByteArray(Charsets.UTF_8)))
+                                }
+                                if (!request.isForMainFrame && url == EpubImageViewerDocument.IMAGE_URL) {
+                                    return WebResourceResponse(asset.mimeType, null, 200, "OK", headers, ByteArrayInputStream(asset.bytes))
+                                }
+                                if (!request.isForMainFrame && asset.mimeType == "image/svg+xml" &&
+                                    EpubImageViewerDocument.isEmbeddedRaster(url)) return null
+                            }
+                            // Never fall through to DNS, remote resources, or an untrusted main document.
+                            return WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", headers, ByteArrayInputStream(byteArrayOf()))
+                        }
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                            request.method != "GET" || !request.isForMainFrame ||
+                                request.url.toString() != EpubImageViewerDocument.DOCUMENT_URL
+
+                        private fun affectsViewer(request: WebResourceRequest): Boolean =
+                            request.isForMainFrame || request.url.toString() == EpubImageViewerDocument.IMAGE_URL
+
+                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                            if (active.get() && affectsViewer(request)) failed = true
+                        }
+                        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                            if (active.get() && affectsViewer(request) && errorResponse.statusCode >= 400) failed = true
+                        }
                         override fun onPageFinished(view: WebView, url: String) {
-                            view.evaluateJavascript("window.nnViewer && window.nnViewer.configure('" + currentFit.jsValue + "','" + currentBackground.cssColor + "');", null)
+                            if (active.get() && !failed && url == EpubImageViewerDocument.DOCUMENT_URL) {
+                                view.evaluateJavascript("window.nnViewer && window.nnViewer.configure('" + currentFit.jsValue + "','" + currentBackground.cssColor + "');", null)
+                            }
                         }
                         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                             if (active.get()) failed = true
                             return true // onRelease removes and destroys this viewer after a renderer failure.
                         }
                     }
-                    loadDataWithBaseURL(EpubImageViewerDocument.ORIGIN, EpubImageViewerDocument.html, "text/html", "UTF-8", null)
+                    // Serving the main document explicitly avoids rejecting loadDataWithBaseURL's
+                    // internal data: navigation with our deny-by-default request interceptor.
+                    loadUrl(EpubImageViewerDocument.DOCUMENT_URL)
                 }
             },
             onRelease = { web ->
@@ -266,7 +296,9 @@ private fun EpubZoomImage(asset: EpubImageAsset, fit: EpubImageFit, background: 
                 }
             },
             update = { web ->
-                web.evaluateJavascript("window.nnViewer && window.nnViewer.configure('" + fit.jsValue + "','" + background.cssColor + "');", null)
+                if (active.get() && !failed) {
+                    web.evaluateJavascript("window.nnViewer && window.nnViewer.configure('" + fit.jsValue + "','" + background.cssColor + "');", null)
+                }
             }
         )
         if (!ready && !failed) CircularProgressIndicator()

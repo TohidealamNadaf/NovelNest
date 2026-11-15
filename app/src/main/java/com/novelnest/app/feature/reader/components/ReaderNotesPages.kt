@@ -135,7 +135,8 @@ internal fun ReaderNotesListSubPage(
     onOpenNote: (ChapterNoteUi) -> Unit,
     onDeleteNote: (String) -> Unit,
     onDismissSheet: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Novel Notes"
 ) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
     pendingDelete?.let { id ->
@@ -173,7 +174,7 @@ internal fun ReaderNotesListSubPage(
             Spacer(modifier = Modifier.width(6.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Novel Notes",
+                    text = title,
                     color = textColor,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold

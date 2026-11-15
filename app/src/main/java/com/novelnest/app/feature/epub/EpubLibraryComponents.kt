@@ -48,7 +48,7 @@ internal fun EpubShelfCard(item: EpubShelfItem, repository: EpubRepository, modi
         .semantics { if (selectionMode) this.selected = selected }
         .bounceClick(scaleDown = BounceScale.Large, role = Role.Button,
             onClickLabel = (if (selectionMode) "Toggle selection for " else "Open ") + item.title, onLongClickLabel = "Select " + item.title,
-            onLongClick = onSelect, onClick = onClick), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            onLongClick = onSelect, onClick = onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(10.dp))
             .background(NovelSurfaceVariant).border(if (selected) 2.dp else 1.dp, if (selected) NovelPrimary else NovelSurfaceBorder, RoundedCornerShape(10.dp))) {
             if (entry != null) EpubCover(repository, entry.book.id, Modifier.fillMaxSize())
@@ -77,16 +77,38 @@ internal fun EpubShelfCard(item: EpubShelfItem, repository: EpubRepository, modi
                     modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter))
             }
         }
-        Text(item.title, color = NovelTextPrimary, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium,
-            maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
-        val caption = when (item) {
-            is EpubShelfItem.Series -> item.representative?.takeIf { it.position != null }?.book?.let { book ->
-                book.volumeLabel ?: ("Volume " + (item.volumes.indexOfFirst { it.book.id == book.id } + 1))
-            } ?: (item.volumes.size.toString() + if (item.volumes.size == 1) " volume" else " volumes")
-            is EpubShelfItem.Book -> item.entry.book.volumeLabel ?: volumeNumber?.let { "Volume " + it }
-                ?: item.entry.book.author.ifBlank { "Local EPUB" }
+        Spacer(Modifier.height(6.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = item.title,
+                color = NovelTextPrimary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val caption = when (item) {
+                is EpubShelfItem.Series -> item.representative?.takeIf { it.position != null }?.book?.let { book ->
+                    book.volumeLabel ?: ("Volume " + (item.volumes.indexOfFirst { it.book.id == book.id } + 1))
+                } ?: (item.volumes.size.toString() + if (item.volumes.size == 1) " volume" else " volumes")
+                is EpubShelfItem.Book -> item.entry.book.volumeLabel ?: volumeNumber?.let { "Volume " + it }
+                    ?: item.entry.book.author.ifBlank { "Local EPUB" }
+            }
+            Text(
+                text = caption,
+                color = NovelTextSecondary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        Text(caption, color = NovelTextSecondary, fontSize = 10.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -2,8 +2,17 @@ package com.novelnest.app.feature.epub
 
 /** Trusted, static document. Publication HTML/scripts never enter this WebView. */
 internal object EpubImageViewerDocument {
-    const val ORIGIN = "https://epub-image.invalid/"
+    // Android's reserved in-app origin. These exact routes are always served from memory.
+    const val ORIGIN = "https://appassets.androidplatform.net/epub-image/"
+    const val DOCUMENT_URL = ORIGIN + "viewer.html"
     const val IMAGE_URL = ORIGIN + "current"
+
+    // Sanitized SVG wrappers embed at most 6 MiB of validated rasters as base64.
+    // Let WebView decode these subresources, but never allow a data: main document.
+    private val embeddedRaster = Regex("^data:image/(?:jpeg|png|webp|gif|bmp);base64,", RegexOption.IGNORE_CASE)
+    fun isEmbeddedRaster(url: String): Boolean =
+        url.length <= 8 * 1024 * 1024 + 128 && embeddedRaster.containsMatchIn(url)
+
     val html = """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">

@@ -206,7 +206,7 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
     }
     val searchPlaceholder = if (viewModel.collectionId == null) "Search EPUBs and series..." else "Search volumes..."
     Column(Modifier.fillMaxSize().background(NovelBackground)) {
-        CenterAlignedTopAppBar(
+        TopAppBar(
             title = {
                 Text(if (selectionMode) selection.size.toString() + " selected" else
                     state.collection?.name ?: if (viewModel.collectionId == null) "EPUB Library" else "Series",
@@ -222,14 +222,14 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
             actions = {
                 if (selectionMode) {
                     if (selectedBooksOnly) NovelNestIconButton(Icons.AutoMirrored.Rounded.DriveFileMove,
-                        "Move selected EPUBs", enabled = !operation.busy, onClick = {
+                        "Move selected EPUBs", tint = NovelPrimary, enabled = !operation.busy, onClick = {
                             selectionMenu = false; batchKeys = selection.toList()
                             viewModel.clearMessage(); dialog = "batch-move"
                         })
-                    NovelNestIconButton(Icons.Rounded.SelectAll, "Select all visible items", enabled = !operation.busy,
+                    NovelNestIconButton(Icons.Rounded.SelectAll, "Select all visible items", tint = NovelPrimary, enabled = !operation.busy,
                         onClick = viewModel::selectVisible)
                     Box {
-                        NovelNestIconButton(Icons.Rounded.MoreVert, "Selected item actions", enabled = !operation.busy,
+                        NovelNestIconButton(Icons.Rounded.MoreVert, "Selected item actions", tint = NovelPrimary, enabled = !operation.busy,
                             onClick = { selectionMenu = true })
                         DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
                             if (selectedBooksOnly) {
@@ -259,11 +259,11 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
                         NovelNestIconButton(Icons.Rounded.Search, searchPlaceholder, tint = NovelPrimary,
                             onClick = { searchCollapsed = false; searchRevealedByHeader = true })
                     }
-                    NovelNestIconButton(Icons.Rounded.FileUpload, "Import EPUBs",
+                    NovelNestIconButton(Icons.Rounded.UploadFile, "Import EPUBs", tint = NovelPrimary,
                         enabled = !operation.busy && importState !is EpubImportState.Working && !state.collectionMissing, onClick = ::importBooks)
-                    if (viewModel.collectionId == null) NovelNestIconButton(Icons.Rounded.CreateNewFolder, "Create series",
+                    if (viewModel.collectionId == null) NovelNestIconButton(Icons.Rounded.LibraryAdd, "Create series", tint = NovelPrimary,
                         enabled = !operation.busy, onClick = { viewModel.clearMessage(); dialog = "create" })
-                    else if (state.collection != null) NovelNestIconButton(Icons.Rounded.MoreVert, "Series options",
+                    else if (state.collection != null) NovelNestIconButton(Icons.Rounded.MoreVert, "Series options", tint = NovelPrimary,
                         enabled = !operation.busy, onClick = { viewModel.clearMessage(); dialog = "series-options" })
                 }
             })

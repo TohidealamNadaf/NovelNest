@@ -19,7 +19,8 @@ data class ReaderStudyState(
 )
 
 /** Novel-wide lists are observed only while the sheet is open; writes retain their originating chapter. */
-class ReaderStudyController(private val scope: CoroutineScope, private val repository: StudyRepository) {
+class ReaderStudyController(private val scope: CoroutineScope, private val repository: StudyRepository,
+    private val observeCollections: Boolean = true) {
     private val mutable = MutableStateFlow(ReaderStudyState())
     val state = mutable.asStateFlow()
     private var observer: Job? = null
@@ -51,7 +52,12 @@ class ReaderStudyController(private val scope: CoroutineScope, private val repos
         }
         observer = scope.launch {
             try {
-                combine(repository.notes(key), repository.collections(key)) { notes, collections -> notes to collections }
+                val lists = if (observeCollections) {
+                    combine(repository.notes(key), repository.collections(key)) { notes, collections -> notes to collections }
+                } else {
+                    repository.notes(key).map { it to emptyList<TermCollectionRow>() }
+                }
+                lists
                     .collect { (notes, collections) ->
                         if (!isObserving(key, generation)) return@collect
                         mutable.update { it.copy(notes = notes, collections = collections) }

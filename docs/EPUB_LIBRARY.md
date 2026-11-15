@@ -244,3 +244,15 @@ six-volume interaction has not been reproduced/verified on a physical phone in t
 ### Illustration controls
 
 See [EPUB_IMAGES.md](EPUB_IMAGES.md) for the full-screen image viewer, fit/zoom/background controls, multi-image layout choices, resource bounds and lifecycle behavior.
+
+### EPUB reading controls
+
+See [EPUB_FULLSCREEN.md](EPUB_FULLSCREEN.md) for independent auto-hide/fullscreen controls, overlay behavior, Android system-bar ownership and lifecycle handling.
+
+### EPUB notes
+
+See [EPUB_NOTES.md](EPUB_NOTES.md) for book-wide Markdown notes in the reader controls, persistence, lifecycle, and edit protection.
+
+### Chapter return positions
+
+See [EPUB_READING_POSITIONS.md](EPUB_READING_POSITIONS.md) for continuous chapter return locators and the session-history persistence boundary.
