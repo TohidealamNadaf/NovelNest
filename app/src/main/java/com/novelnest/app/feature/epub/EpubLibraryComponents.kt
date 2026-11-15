@@ -51,8 +51,18 @@ internal fun EpubShelfCard(item: EpubShelfItem, repository: EpubRepository, modi
             onLongClick = onSelect, onClick = onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(10.dp))
             .background(NovelSurfaceVariant).border(if (selected) 2.dp else 1.dp, if (selected) NovelPrimary else NovelSurfaceBorder, RoundedCornerShape(10.dp))) {
-            if (entry != null) EpubCover(repository, entry.book.id, Modifier.fillMaxSize())
-            else Icon(Icons.Rounded.Folder, null, tint = NovelPrimary, modifier = Modifier.size(36.dp).align(Alignment.Center))
+            if (entry != null) {
+                EpubCover(
+                    repository = repository,
+                    id = entry.book.id,
+                    modifier = Modifier.fillMaxSize(),
+                    title = entry.book.title,
+                    author = entry.book.author,
+                    volumeLabel = entry.book.volumeLabel ?: volumeNumber?.let { "Volume $it" }
+                )
+            } else {
+                Icon(Icons.Rounded.Folder, null, tint = NovelPrimary, modifier = Modifier.size(36.dp).align(Alignment.Center))
+            }
             if (isSeries) {
                 Surface(color = NovelBackground.copy(alpha = 0.86f), shape = RoundedCornerShape(5.dp),
                     modifier = Modifier.align(Alignment.TopStart).padding(5.dp)) {

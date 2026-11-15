@@ -87,6 +87,9 @@ class SettingsViewModel(
                 clearOwnedCache {
                     (ctx.applicationContext as? NovelNestApplication)?.aiResultCache?.clear() ?: false
                 }
+                clearOwnedCache {
+                    (ctx.applicationContext as? NovelNestApplication)?.dictionaryRepository?.clearCache() ?: false
+                }
                 val audio = NarrationCache.clear(ctx)
                 _cacheSizeFormatted.value = formatBytes(getFolderSize(ctx.cacheDir))
                 _clearCacheSuccessMessage.value = when {

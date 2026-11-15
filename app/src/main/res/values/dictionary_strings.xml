@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dictionary_action">Define in Novel Nest</string>
+    <string name="dictionary_title">Dictionary</string>
+    <string name="dictionary_refresh">Refresh definition</string>
+    <string name="dictionary_close">Close dictionary</string>
+    <string name="dictionary_retry">Retry</string>
+    <string name="dictionary_loading">Looking up definition...</string>
+    <string name="dictionary_refreshing">Refreshing definition...</string>
+    <string name="dictionary_cached">Cached definition - %1$s</string>
+    <string name="dictionary_stale">Older cached definition ? %1$s</string>
+    <string name="dictionary_cooldown">Refresh is paused until the provider cooldown ends.</string>
+    <string name="dictionary_paused">Lookup paused. Tap Refresh to continue.</string>
+    <string name="dictionary_example">Example: %1$s</string>
+    <string name="dictionary_synonyms">Synonyms</string>
+    <string name="dictionary_antonyms">Antonyms</string>
+    <string name="dictionary_more">Show all</string>
+    <string name="dictionary_source">View source</string>
+    <string name="dictionary_provider">Definitions provided by Free Dictionary API. Examples and phonetics depend on the entry.</string>
+    <string name="dictionary_select_word">Select one word to look up its definition.</string>
+    <string name="dictionary_cannot_open">Could not open the dictionary. Please try again.</string>
+    <item name="epub_define_selection" type="id" />
+</resources>

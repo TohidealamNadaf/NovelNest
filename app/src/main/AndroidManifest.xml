@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- WebView queries text processors through the embedding app's visibility scope. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+
     <application
         android:name=".NovelNestApplication"
         android:allowBackup="true"
@@ -25,6 +33,16 @@
             android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".data.notification.ReaderNotificationJob"
             android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true" />
+        <!-- Validated text-processing entry, also available to compatible external apps. -->
+        <activity android:name=".feature.dictionary.DictionaryLookupActivity"
+            android:exported="true" android:label="@string/dictionary_action"
+            android:theme="@style/Theme.NovelNest.Dictionary">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <activity android:name=".feature.epub.EpubReaderActivity" android:exported="false" android:theme="@style/Theme.NovelNest.Epub" />
         <activity
             android:name=".MainActivity"

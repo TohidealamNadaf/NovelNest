@@ -84,6 +84,9 @@ import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelnest.app.NovelNestApplication
+import com.novelnest.app.data.dictionary.DictionaryException
+import com.novelnest.app.data.dictionary.DictionaryWord
+import com.novelnest.app.feature.dictionary.DictionaryLookupActivity
 import com.novelnest.app.R
 import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.NovelNestIconButton
@@ -502,8 +505,12 @@ class EpubReaderActivity : FragmentActivity() {
                                             update = { host ->
                                                 host.continuousScrolling = settings.scrollMode == ReaderScrollMode.CONTINUOUS
                                                 host.isTextSelectionActive = { hasReaderSelection() }
+                                                host.onDefineSelection = ::defineSelectedWord
                                             },
-                                            onRelease = { host -> host.isTextSelectionActive = { false } }
+                                            onRelease = { host ->
+                                                host.isTextSelectionActive = { false }
+                                                host.onDefineSelection = { _, _, _ -> }
+                                            }
                                         )
 
                                         LaunchedEffect(result.publication) {
@@ -816,6 +823,32 @@ class EpubReaderActivity : FragmentActivity() {
         if (readerSelectionMode === mode) readerSelectionMode = null
         super.onActionModeFinished(mode)
     }
+    private fun defineSelectedWord(source: WebView, mode: ActionMode, selected: String?) {
+        if (isFinishing || isDestroyed || !source.isAttachedToWindow ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || navigator?.isResumed != true) return
+        val root = navigator?.view ?: return
+        var ancestor: View? = source
+        while (ancestor != null && ancestor !== root) ancestor = ancestor.parent as? View
+        if (ancestor == null) return // Reject callbacks from a navigator that has been replaced.
+        val word = try { DictionaryWord.normalize(selected) }
+        catch (_: DictionaryException) {
+            Toast.makeText(this, R.string.dictionary_select_word, Toast.LENGTH_SHORT).show()
+            return // Keep selection handles so the user can narrow a multi-word selection.
+        }
+        val request = Intent(this, DictionaryLookupActivity::class.java)
+            .setAction(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
+            .putExtra(Intent.EXTRA_PROCESS_TEXT, word)
+            .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+        try {
+            startActivity(request)
+            mode.finish() // Capture text before closing native selection.
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, R.string.dictionary_cannot_open, Toast.LENGTH_SHORT).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(this, R.string.dictionary_cannot_open, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun copyChapter() {
         if (copyingChapter || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
         val fragment = navigator ?: return

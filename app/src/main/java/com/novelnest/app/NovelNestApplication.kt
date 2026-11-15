@@ -12,6 +12,10 @@ import com.novelnest.app.data.repository.NovelRepositoryImpl
 
 class NovelNestApplication : Application(), ImageLoaderFactory {
 
+    internal val dictionaryRepository by lazy {
+        com.novelnest.app.data.dictionary.DictionaryRepository(java.io.File(cacheDir, "dictionary"))
+    }
+
     val aiForeground = com.novelnest.app.data.ai.AiForegroundState()
     val aiConfiguration by lazy { com.novelnest.app.data.ai.AiConfigurationStore(this) }
     val aiResultCache by lazy { com.novelnest.app.data.ai.AiResultCache(java.io.File(cacheDir, "ai_results")) }

@@ -22,7 +22,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -225,7 +227,14 @@ fun EpubLibraryDialog(repository: EpubRepository, onDismiss: () -> Unit, onOpen:
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                EpubCover(repository, entry.book.id, Modifier.width(44.dp).height(64.dp))
+                                EpubCover(
+                                    repository = repository,
+                                    id = entry.book.id,
+                                    modifier = Modifier.width(44.dp).height(64.dp),
+                                    title = entry.book.title,
+                                    author = entry.book.author,
+                                    volumeLabel = entry.book.volumeLabel
+                                )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
                                         text = entry.book.title,
@@ -350,11 +359,195 @@ fun EpubLibraryDialog(repository: EpubRepository, onDismiss: () -> Unit, onOpen:
 }
 
 @Composable
-internal fun EpubCover(repository: EpubRepository, id: String, modifier: Modifier = Modifier) {
+internal fun EpubCover(
+    repository: EpubRepository,
+    id: String,
+    modifier: Modifier = Modifier,
+    title: String = "",
+    author: String = "",
+    volumeLabel: String? = null
+) {
     val cover = remember(id, repository) { repository.coverFile(id) }
-    Box(modifier.clip(RoundedCornerShape(8.dp)).background(NovelSurfaceVariant), contentAlignment = Alignment.Center) {
-        Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = NovelPrimary)
-        AsyncImage(model = cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    var coverLoaded by remember(id) { mutableStateOf(false) }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF1F2633),
+                        NovelSurfaceVariant,
+                        Color(0xFF0E1218)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        val isMini = maxWidth < 60.dp
+        val isCompact = maxWidth < 96.dp
+
+        if (!coverLoaded) {
+            if (title.isBlank()) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.MenuBook,
+                    contentDescription = null,
+                    tint = NovelPrimary,
+                    modifier = Modifier.size(if (isMini) 18.dp else 26.dp)
+                )
+            } else {
+                // Ambient top-right warm glow
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    NovelPrimary.copy(alpha = 0.16f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+
+                // Book spine crease along left edge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(if (isMini) 3.dp else 5.dp)
+                        .background(NovelPrimary.copy(alpha = 0.28f))
+                )
+                if (!isMini) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 6.dp)
+                            .fillMaxHeight()
+                            .width(1.dp)
+                            .background(NovelSurfaceBorder.copy(alpha = 0.7f))
+                    )
+                }
+
+                // Inner ornamental frame
+                if (!isMini) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                            .border(
+                                width = 0.8.dp,
+                                color = NovelPrimary.copy(alpha = 0.24f),
+                                shape = RoundedCornerShape(5.dp)
+                            )
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = if (isMini) 6.dp else 14.dp,
+                            end = if (isMini) 4.dp else 10.dp,
+                            top = if (isMini) 5.dp else 10.dp,
+                            bottom = if (isMini) 5.dp else 12.dp
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    if (!isMini) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.MenuBook,
+                                    contentDescription = null,
+                                    tint = NovelPrimary,
+                                    modifier = Modifier.size(if (isCompact) 10.dp else 12.dp)
+                                )
+                                Text(
+                                    text = (volumeLabel?.takeIf { it.isNotBlank() } ?: "EPUB").uppercase(),
+                                    color = NovelPrimary,
+                                    fontSize = if (isCompact) 7.5.sp else 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(if (isCompact) 20.dp else 28.dp)
+                                    .height(1.dp)
+                                    .background(NovelPrimary.copy(alpha = 0.45f))
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(1.dp))
+                    }
+
+                    Text(
+                        text = title,
+                        color = NovelTextPrimary,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = when {
+                            isMini -> 8.sp
+                            isCompact -> 10.sp
+                            else -> 11.5.sp
+                        },
+                        lineHeight = when {
+                            isMini -> 10.sp
+                            isCompact -> 13.sp
+                            else -> 15.sp
+                        },
+                        textAlign = TextAlign.Center,
+                        maxLines = if (isMini) 3 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (!isMini && author.isNotBlank()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(if (isCompact) 16.dp else 22.dp)
+                                    .height(0.8.dp)
+                                    .background(NovelSurfaceBorder)
+                            )
+                            Text(
+                                text = author,
+                                color = NovelPrimary.copy(alpha = 0.85f),
+                                fontSize = if (isCompact) 7.5.sp else 8.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(1.dp))
+                    }
+                }
+            }
+        }
+
+        AsyncImage(
+            model = cover,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            onSuccess = { coverLoaded = true },
+            onError = { coverLoaded = false },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -409,7 +602,14 @@ fun EpubContinueReadingCard(entry: LocalBookEntry, repository: EpubRepository, s
                     )
             )
             Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                EpubCover(repository, entry.book.id, Modifier.width(88.dp).height(132.dp))
+                EpubCover(
+                    repository = repository,
+                    id = entry.book.id,
+                    modifier = Modifier.width(88.dp).height(132.dp),
+                    title = entry.book.title,
+                    author = entry.book.author,
+                    volumeLabel = entry.book.volumeLabel
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(entry.book.title, color = NovelTextPrimary, style = MaterialTheme.typography.titleLarge,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -18,4 +18,13 @@
         <item name="android:windowBackground">@color/novelnest_launcher_background</item>
         <item name="android:colorAccent">#E2A765</item>
     </style>
+    <style name="Theme.NovelNest.Dictionary" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.4</item>
+        <item name="android:colorAccent">#E2AA62</item>
+    </style>
 </resources>

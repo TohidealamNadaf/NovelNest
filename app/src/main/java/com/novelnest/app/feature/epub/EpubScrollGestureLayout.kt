@@ -1,6 +1,9 @@
 package com.novelnest.app.feature.epub
 
 import android.content.Context
+import android.view.ActionMode
+import android.view.View
+import android.webkit.WebView
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -18,6 +21,20 @@ import kotlin.math.max
 internal class EpubScrollGestureLayout(context: Context) : FrameLayout(context) {
     var continuousScrolling: Boolean = false
     var isTextSelectionActive: () -> Boolean = { false }
+
+    var onDefineSelection: (WebView, ActionMode, String?) -> Unit = { _, _, _ -> }
+
+    // Wrap the callback supplied by the actual WebView, retaining all native actions.
+    override fun startActionModeForChild(child: View, callback: ActionMode.Callback): ActionMode? =
+        super.startActionModeForChild(child, dictionaryCallback(child, callback))
+
+    override fun startActionModeForChild(child: View, callback: ActionMode.Callback, type: Int): ActionMode? =
+        super.startActionModeForChild(child, dictionaryCallback(child, callback), type)
+
+    private fun dictionaryCallback(child: View, callback: ActionMode.Callback): ActionMode.Callback =
+        if (child is WebView && callback !is EpubDictionarySelectionCallback)
+            EpubDictionarySelectionCallback(callback, child) { view, mode, word -> onDefineSelection(view, mode, word) }
+        else callback
 
     private enum class Intent { UNDECIDED, VERTICAL, HORIZONTAL, BYPASS }
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
