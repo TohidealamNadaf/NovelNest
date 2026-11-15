@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -74,13 +75,13 @@ class ReaderQuickSettingsSheetTest {
     @Test fun scrimKeepsDirtyNoteUntilDiscardIsConfirmed() {
         compose.setContent { content() }
         editNewNote()
-        compose.onNodeWithContentDescription("Close sheet").performClick()
+        compose.onNodeWithContentDescription("Close sheet").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("Discard note changes?").assertIsDisplayed()
         compose.runOnIdle { assertEquals(0, dismissCount) }
         compose.onNodeWithText("Keep editing").performClick()
         compose.onNodeWithTag("ReaderNoteTitle").assertTextEquals("Keep this draft")
         onView(isAssignableFrom(EditText::class.java)).inRoot(isDialog()).check(matches(withText("**Important note**")))
-        compose.onNodeWithContentDescription("Close sheet").performClick()
+        compose.onNodeWithContentDescription("Close sheet").performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.onNodeWithText("Discard changes").performClick()
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(1, dismissCount) }

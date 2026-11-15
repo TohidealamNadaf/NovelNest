@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -134,6 +135,19 @@ fun ReadingBehaviorPage(
                             subtitle = "Prevents device timeout during active reading sessions",
                             checked = readerSettings.keepScreenOn,
                             onCheckedChange = { viewModel.setKeepScreenOn(it) }
+                        )
+
+                        HorizontalDivider(
+                            color = NovelSurfaceBorder.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+
+                        SettingsToggleRow(
+                            title = "Unicode Escape Decoder",
+                            subtitle = "Decode escaped characters in NovelPhoenix and FreeWebNovel chapters",
+                            checked = readerSettings.unicodeEscapeDecodingEnabled,
+                            onCheckedChange = viewModel::setUnicodeEscapeDecoding,
+                            modifier = Modifier.testTag("UnicodeEscapePreference")
                         )
 
                         HorizontalDivider(

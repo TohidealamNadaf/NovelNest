@@ -45,10 +45,12 @@ class ReaderAutoScrollController {
     }
 }
 
-internal fun readerAutoScrollTarget(reader: ReaderUiState, ai: ReaderAiState): ReaderAutoScrollTarget? {
+internal fun readerAutoScrollTarget(reader: ReaderUiState, ai: ReaderAiState,
+    preparedChapter: Chapter? = reader.chapters.getOrNull(reader.currentChapterIndex)): ReaderAutoScrollTarget? {
     if (reader.isLoading || reader.isChapterLoading) return null
     val novel = reader.novel ?: return null
-    val chapter = reader.chapters.getOrNull(reader.currentChapterIndex) ?: return null
+    val chapter = preparedChapter ?: return null
+    if (chapter.id != reader.chapters.getOrNull(reader.currentChapterIndex)?.id) return null
     if (chapter.paragraphs.none { it.isNotBlank() }) return null
     return ReaderAutoScrollTarget(novel.source.name, novel.id, chapter.id,
         if (ai.matches(chapter)) ai.contentKey else "original")

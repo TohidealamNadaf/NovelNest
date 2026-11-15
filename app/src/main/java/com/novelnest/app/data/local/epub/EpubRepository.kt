@@ -17,7 +17,10 @@ import java.util.UUID
 sealed interface EpubImportState {
     data object Idle : EpubImportState
     data class Working(val message: String) : EpubImportState
-    data class Complete(val book: LocalBookEntity, val duplicate: Boolean) : EpubImportState
+    data class Complete(val book: LocalBookEntity, val duplicate: Boolean,
+        val importedCount: Int = if (duplicate) 0 else 1,
+        val duplicateCount: Int = if (duplicate) 1 else 0,
+        val failedCount: Int = 0, val message: String? = null) : EpubImportState
     data class Failed(val message: String) : EpubImportState
 }
 
@@ -40,10 +43,18 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
     val positionError = mutablePositionError.asStateFlow()
     private val pendingPositions = java.util.concurrent.ConcurrentHashMap<String, EpubPositionEntity>()
     private val checkpoints = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
-    val library = libraryRevision.flatMapLatest { dao.observeLibrary().onEach { if (recoveryComplete) mutableLibraryError.value = null }.catch {
-        mutableLibraryError.value = "Could not load the local library. Please retry. Your imported files are kept."
-        emit(emptyList())
-    } }.map { it.sortedByDescending { entry -> entry.position?.updatedAt ?: entry.book.importedAt } }
+    @Volatile private var lastSnapshot = EpubLibrarySnapshot()
+    val shelf = libraryRevision.flatMapLatest {
+        dao.observeShelfChanges().mapLatest { dao.librarySnapshot() }.onEach {
+            lastSnapshot = it
+            if (recoveryComplete) mutableLibraryError.value = null
+        }.catch { error ->
+            if (error is CancellationException) throw error
+            mutableLibraryError.value = "Could not load the local library. Please retry. Your imported files are kept."
+            emit(lastSnapshot.copy(loaded = true))
+        }
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), EpubLibrarySnapshot())
+    val library = shelf.map { snapshot -> snapshot.books.sortedByDescending { it.position?.updatedAt ?: it.book.importedAt } }
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
     private var importJob: Job? = null
 
@@ -127,24 +138,54 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
         ensureRecovered()
         writes.withLock { if (dao.book(position.bookId) != null) dao.savePosition(position) }
     }
-    @Synchronized fun import(uri: Uri) {
-        // Cancellation does not mean cleanup has completed. Do not let an old job overwrite a new import.
-        if (importJob?.isCompleted == false) return
-        mutableImport.value = EpubImportState.Working("Copying EPUB...")
+    fun import(uri: Uri) { importBooks(listOf(uri)) }
+
+    /** One bounded queue; the destination is captured once and never follows page navigation. */
+    @Synchronized fun importBooks(uris: List<Uri>, destination: String? = null): Boolean {
+        if (importJob?.isCompleted == false) return false
+        if (uris.isEmpty()) return true
+        if (uris.size > MAX_IMPORT_BATCH) {
+            mutableImport.value = EpubImportState.Failed("Select up to " + MAX_IMPORT_BATCH + " EPUBs at a time.")
+            return false
+        }
+        val selected = uris.distinct().toList()
+        mutableImport.value = EpubImportState.Working("Preparing import...")
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 ensureRecovered()
-                val result = imports.withLock { importFile(uri) }
-                mutableImport.value = result
+                if (destination != null && dao.collection(destination) == null)
+                    throw EpubImportException("The destination series no longer exists. Select a series and import again.")
+                var imported = 0
+                var duplicates = 0
+                var failed = 0
+                var last: EpubImportState.Complete? = null
+                var firstFailure: String? = null
+                val notices = linkedSetOf<String>()
+                imports.withLock {
+                    selected.forEachIndexed { index, uri ->
+                        currentCoroutineContext().ensureActive()
+                        fun stage(message: String) {
+                            mutableImport.value = EpubImportState.Working(
+                                if (selected.size == 1) message else (index + 1).toString() + " / " + selected.size + " - " + message)
+                        }
+                        try {
+                            stage("Copying EPUB...")
+                            val result = importFile(uri, destination, ::stage)
+                            if (result.duplicate) duplicates++ else imported++
+                            result.message?.let(notices::add)
+                            last = result
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) { failed++; if (firstFailure == null) firstFailure = importFailure(error) }
+                    }
+                }
+                val result = last
+                mutableImport.value = if (result == null) EpubImportState.Failed(firstFailure ?: "No EPUBs were imported.") else {
+                    if (failed > 0) notices.add(firstFailure.orEmpty())
+                    result.copy(importedCount = imported, duplicateCount = duplicates, failedCount = failed,
+                        message = notices.takeIf { it.isNotEmpty() }?.joinToString(" "))
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                mutableImport.value = EpubImportState.Failed(when (error) {
-                    is EpubImportException -> error.message.orEmpty()
-                    is java.util.zip.ZipException -> "The selected file is damaged or is not a valid EPUB archive."
-                    is java.io.FileNotFoundException -> "The selected file is no longer accessible. Choose it again from the document picker."
-                    else -> "Could not import this EPUB. Check file access and available device storage, then try again."
-                })
-            }
+            catch (error: Exception) { mutableImport.value = EpubImportState.Failed(importFailure(error)) }
         }
         importJob = job
         job.invokeOnCompletion {
@@ -153,6 +194,13 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
             }
         }
         job.start()
+        return true
+    }
+    private fun importFailure(error: Exception): String = when (error) {
+        is EpubImportException -> error.message.orEmpty()
+        is java.util.zip.ZipException -> "The selected file is damaged or is not a valid EPUB archive."
+        is java.io.FileNotFoundException -> "The selected file is no longer accessible. Choose it again from the document picker."
+        else -> "Could not import this EPUB. Check file access and available device storage, then try again."
     }
     @Synchronized fun cancelImport() {
         if (importJob?.isCompleted == false) {
@@ -162,7 +210,7 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
     }
     fun clearImportMessage() { if (mutableImport.value !is EpubImportState.Working) mutableImport.value = EpubImportState.Idle }
 
-    private suspend fun importFile(uri: Uri): EpubImportState.Complete {
+    private suspend fun importFile(uri: Uri, destinationCollection: String?, stageMessage: (String) -> Unit): EpubImportState.Complete {
         if (!root.isDirectory && !root.mkdirs()) throw EpubImportException("The local book folder is unavailable. Check device storage.")
         val stage = File(root, ".import-" + UUID.randomUUID())
         if (!stage.mkdir()) throw EpubImportException("Could not create an import folder. Check device storage.")
@@ -187,9 +235,11 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
                         File(stage, "cover.jpg").takeIf { it.exists() }?.renameTo(coverFile(id))
                     }
                 }
-                return EpubImportState.Complete(existing, true)
+                return EpubImportState.Complete(existing, true, message =
+                    if (destinationCollection != null && existing.collectionId != destinationCollection)
+                        "Already imported EPUBs kept their existing location. Use Move to organize them." else null)
             }
-            mutableImport.value = EpubImportState.Working("Checking EPUB and reading book information...")
+            stageMessage("Checking EPUB and reading book information...")
             EpubArchiveValidator.validate(file) { context.ensureActive() }
             val publication = engine.open(file)
             val book = try {
@@ -199,6 +249,7 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
                     metadata.authors.joinToString(", ") { it.name }.take(2000), metadata.description.orEmpty().take(16000), System.currentTimeMillis(), bytes)
             } finally { publication.close() }
             context.ensureActive()
+            var savedBook = book
             writes.withLock {
                 val destination = directory(id)
                 if (destination.exists() && dao.book(id) == null) destination.deleteRecursively()
@@ -207,15 +258,95 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
                 finalized = destination
                 // File and Room cannot share a transaction. Recovery removes any orphan left before this commit.
                 withContext(NonCancellable) {
-                    check(dao.insert(book) != -1L) { "The imported book could not be recorded" }
+                    savedBook = dao.insertOrganized(book, destinationCollection)
                     committed = true
                     File(destination, ".pending-import").delete()
                 }
             }
-            return EpubImportState.Complete(book, false)
+            return EpubImportState.Complete(savedBook, false, message =
+                if (destinationCollection != null && savedBook.collectionId == null)
+                    "The destination series was removed. Imported books were saved in My Library." else null)
         } finally {
             stage.deleteRecursively()
             if (!committed) finalized?.deleteRecursively()
+        }
+    }
+
+    suspend fun createCollection(name: String): String = withContext(ioDispatcher) {
+        ensureRecovered()
+        val title = checkedLabel(name, 160)
+        val id = "series-" + UUID.randomUUID()
+        writes.withLock { dao.insertCollection(EpubCollectionEntity(id, title, title.lowercase(java.util.Locale.ROOT), System.currentTimeMillis())) }
+        id
+    }
+    suspend fun renameCollection(id: String, name: String) = withContext(ioDispatcher) {
+        ensureRecovered()
+        val title = checkedLabel(name, 160)
+        writes.withLock { check(dao.renameCollection(id, title, title.lowercase(java.util.Locale.ROOT)) == 1) { "This series no longer exists." } }
+    }
+    suspend fun removeCollection(id: String) = withContext(ioDispatcher) {
+        ensureRecovered()
+        writes.withLock { dao.deleteCollection(id) } // FK SET NULL keeps every EPUB and its position.
+    }
+    suspend fun moveBook(id: String, destination: String?) = withContext(ioDispatcher) {
+        ensureRecovered()
+        writes.withLock { dao.organizeBook(id, destination) }
+    }
+    suspend fun moveBooks(ids: List<String>, destination: String?) = withContext(ioDispatcher) {
+        val selected = ids.distinct().toList()
+        ensureRecovered()
+        writes.withLock { dao.organizeBooks(selected, destination) }
+    }
+
+    suspend fun removeBooksFromSeries(ids: List<String>, sourceCollection: String) = withContext(ioDispatcher) {
+        val selected = ids.distinct().toList()
+        ensureRecovered()
+        writes.withLock { dao.detachBooks(selected, sourceCollection) }
+    }
+
+    /** Only explicitly selected books are deleted; removing folders keeps their other volumes. */
+    suspend fun removeItems(bookIds: List<String>, collectionIds: List<String>): Int = withContext(ioDispatcher + NonCancellable) {
+        val books = bookIds.distinct().toList()
+        val collections = collectionIds.distinct().toList()
+        val directories = books.map(::directory) // Validate every ID before filesystem mutation.
+        ensureRecovered()
+        writes.withLock {
+            books.forEach { require(dao.book(it) != null) { "The selection changed. Select the EPUBs again." } }
+            collections.forEach { require(dao.collection(it) != null) { "The selection changed. Select the series again." } }
+            val journaled = mutableListOf<File>()
+            try {
+                directories.filter { it.isDirectory }.forEach { directory ->
+                    val marker = File(directory, ".pending-delete")
+                    journaled.add(marker)
+                    marker.writeText("1")
+                }
+                dao.removeShelfItems(books, collections)
+            } catch (error: Exception) {
+                journaled.forEach { it.delete() }
+                throw error
+            }
+            books.forEach(pendingPositions::remove)
+            // Keep a journal if OS file handles/storage prevent cleanup; recovery retries it.
+            directories.count { directory ->
+                try { directory.exists() && !directory.deleteRecursively() }
+                catch (_: Exception) { true }
+            }
+        }
+    }
+
+    suspend fun labelVolume(id: String, label: String) = withContext(ioDispatcher) {
+        ensureRecovered()
+        val title = label.trim().takeIf { it.isNotEmpty() }?.let { checkedLabel(it, 128) }
+        writes.withLock { check(dao.labelVolume(id, title) == 1) { "This EPUB is no longer in the library." } }
+    }
+    suspend fun reorderVolumes(id: String, orderedIds: List<String>) = withContext(ioDispatcher) {
+        ensureRecovered()
+        val snapshot = orderedIds.toList()
+        writes.withLock { dao.reorderVolumes(id, snapshot) }
+    }
+    private fun checkedLabel(value: String, limit: Int): String = value.trim().also {
+        require(it.isNotEmpty() && it.length <= limit && it.none { char -> Character.isISOControl(char) }) {
+            "Enter a name of 1 to " + limit + " characters."
         }
     }
 
@@ -244,6 +375,8 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
             directory.deleteRecursively() // recovery retries app-owned orphan cleanup after interrupted deletion
         }
     }
+    companion object { const val MAX_IMPORT_BATCH = 100 }
+
     private suspend fun recover() {
         val ids = dao.ids().toSet() // if storage fails, preserve all files
         val directories = if (!root.exists()) emptyArray() else root.listFiles()

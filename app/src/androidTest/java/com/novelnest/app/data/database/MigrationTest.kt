@@ -52,7 +52,7 @@ class MigrationTest {
     @Test
     fun migrateOldestSupportedDatabaseToCurrentSchema() {
         helper.createDatabase("study-migration-all", 1).close()
-        helper.runMigrationsAndValidate("study-migration-all", 6, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
+        helper.runMigrationsAndValidate("study-migration-all", 7, true, *DatabaseMigrations.ALL_MIGRATIONS).close()
     }
 
     @Test
@@ -92,6 +92,30 @@ class MigrationTest {
             execSQL("INSERT INTO epub_positions VALUES ('epub-test', '{}', 0.5, 'Second', 2)")
             execSQL("DELETE FROM local_books WHERE id='epub-test'")
             query("SELECT COUNT(*) FROM epub_positions").use { it.moveToFirst(); assertEquals(0, it.getInt(0)) }
+            close()
+        }
+    }
+
+    @Test fun migrateFrom6To7KeepsLocalFilesIdentityPositionsAndOnlineData() {
+        helper.createDatabase("epub-series-migration", 6).apply {
+            execSQL("INSERT INTO local_books VALUES ('epub-kept', 'hash', 'Title', 'Author', 'Description', 1, 100)")
+            execSQL("INSERT INTO epub_positions VALUES ('epub-kept', '{saved}', 0.4, 'Chapter', 55)")
+            execSQL("INSERT INTO reading_progress VALUES ('np-book', 'ch87', 86, 'Chapter 87', 123, '[]', -1, 0, 0)")
+            close()
+        }
+        helper.runMigrationsAndValidate("epub-series-migration", 7, true, DatabaseMigrations.MIGRATION_6_7).apply {
+            query("SELECT id, sha256, collectionId, volumeLabel, volumeOrder FROM local_books").use {
+                it.moveToFirst(); assertEquals("epub-kept", it.getString(0)); assertEquals("hash", it.getString(1))
+                org.junit.Assert.assertTrue(it.isNull(2)); org.junit.Assert.assertTrue(it.isNull(3)); assertEquals(0, it.getInt(4))
+            }
+            query("SELECT locatorJson, progression FROM epub_positions").use { it.moveToFirst(); assertEquals("{saved}", it.getString(0)); assertEquals(0.4, it.getDouble(1), 0.0) }
+            query("SELECT lastReadChapterId FROM reading_progress").use { it.moveToFirst(); assertEquals("ch87", it.getString(0)) }
+            execSQL("PRAGMA foreign_keys=ON")
+            execSQL("INSERT INTO epub_collections VALUES ('series', 'Series', 'series', 1)")
+            execSQL("UPDATE local_books SET collectionId='series' WHERE id='epub-kept'")
+            execSQL("DELETE FROM epub_collections WHERE id='series'")
+            query("SELECT collectionId FROM local_books WHERE id='epub-kept'").use { org.junit.Assert.assertTrue(it.moveToFirst()); org.junit.Assert.assertTrue(it.isNull(0)) }
+            query("SELECT COUNT(*) FROM epub_positions").use { it.moveToFirst(); assertEquals(1, it.getInt(0)) }
             close()
         }
     }

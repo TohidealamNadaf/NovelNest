@@ -51,6 +51,7 @@ class SettingsViewModel(
     fun setKeepScreenOn(enabled: Boolean) = preferencesManager.updateKeepScreenOn(enabled)
     fun setVolumeKeyNavigation(enabled: Boolean) = preferencesManager.updateVolumeKeyNavigation(enabled)
     fun setFullscreen(enabled: Boolean) = preferencesManager.updateFullscreenReading(enabled)
+    fun setUnicodeEscapeDecoding(enabled: Boolean) = preferencesManager.updateUnicodeEscapeDecoding(enabled)
     fun resetReadingDefaults() = preferencesManager.resetReadingSettings()
 
     fun setAmoledAppMode(enabled: Boolean) = preferencesManager.updateAmoledAppMode(enabled)

@@ -2,6 +2,10 @@ package com.novelnest.app.navigation
 
 sealed class NovelNestDestination(val route: String) {
     data object Home : NovelNestDestination("home")
+    data object EpubLibrary : NovelNestDestination("epub-library")
+    data object EpubCollection : NovelNestDestination("epub-collection/{collectionId}") {
+        fun createRoute(collectionId: String) = "epub-collection/" + collectionId
+    }
     data object Discover : NovelNestDestination("discover")
     data object Browse : NovelNestDestination("browse/{sourceOrdinal}") {
         fun createRoute(sourceOrdinal: Int) = "browse/$sourceOrdinal"

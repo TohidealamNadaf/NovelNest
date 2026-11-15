@@ -83,7 +83,28 @@ class EpubReliabilityTest {
         val saved = mutableListOf<EpubPositionEntity>()
         var recoveryFailures = 0
         var saveFailures = 0
-        override fun observeLibrary() = flowOf(books.values.map { LocalBookEntry(it, positions[it.id]) })
+        private val groups = mutableMapOf<String, EpubCollectionEntity>()
+        override fun observeShelfChanges() = flowOf(0L)
+        override suspend fun libraryEntries() = books.values.map { LocalBookEntry(it, positions[it.id]?.preview()) }
+        override suspend fun collections() = groups.values.toList()
+        override suspend fun collection(id: String) = groups[id]
+        override suspend fun insertCollection(collection: EpubCollectionEntity) { groups[collection.id] = collection }
+        override suspend fun renameCollection(id: String, name: String, nameKey: String): Int {
+            val group = groups[id] ?: return 0
+            groups[id] = group.copy(name = name, nameKey = nameKey); return 1
+        }
+        override suspend fun deleteCollection(id: String) { groups.remove(id) }
+        override suspend fun collectionBookIds(id: String) = books.values.filter { it.collectionId == id }.sortedBy { it.volumeOrder }.map { it.id }
+        override suspend fun lastVolumeOrder(id: String) = books.values.filter { it.collectionId == id }.maxOfOrNull { it.volumeOrder } ?: -1L
+        override suspend fun moveBook(id: String, collectionId: String?, order: Long): Int {
+            val book = books[id] ?: return 0
+            books[id] = book.copy(collectionId = collectionId, volumeOrder = order); return 1
+        }
+        override suspend fun labelVolume(id: String, label: String?): Int {
+            val book = books[id] ?: return 0
+            books[id] = book.copy(volumeLabel = label); return 1
+        }
+        override fun observeLibrary() = flowOf(books.values.map { LocalBookEntry(it, positions[it.id]?.preview()) })
         override suspend fun book(id: String) = books[id]
         override suspend fun position(id: String) = positions[id]
         override suspend fun insert(book: LocalBookEntity): Long { books[book.id] = book; return 1 }

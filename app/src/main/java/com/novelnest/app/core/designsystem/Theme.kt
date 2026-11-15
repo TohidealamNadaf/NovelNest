@@ -32,10 +32,11 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun NovelNestTheme(
+    manageSystemBars: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val view = LocalView.current
-    if (!view.isInEditMode) {
+    if (manageSystemBars && !view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {

@@ -11,7 +11,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.novelnest.app.feature.epub.*
+import com.novelnest.app.feature.epub.EpubLibraryButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -39,21 +39,12 @@ fun HomeScreen(
     onContinueReading: (Novel, Int) -> Unit = { novel, _ -> onNovelClick(novel) },
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToEpub: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
     val app = LocalContext.current.applicationContext as NovelNestApplication
     val profile by app.profileManager.profile.collectAsStateWithLifecycle()
-    var showLocalBooks by rememberSaveable { mutableStateOf(false) }
-    val localBooks by app.epubRepository.library.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val continueBook = remember(state.currentReading, localBooks) { selectContinueBook(state.currentReading, localBooks) }
-    if (showLocalBooks) EpubLibraryDialog(app.epubRepository,
-        onDismiss = { showLocalBooks = false }, onOpen = { id ->
-            showLocalBooks = false
-            app.epubRepository.clearImportMessage()
-            if (!EpubReaderActivity.open(context, id)) android.widget.Toast.makeText(context, "Could not open the EPUB reader. Please try again.", android.widget.Toast.LENGTH_LONG).show()
-        })
     val gridStates = remember { NovelSourceType.entries.associateWith { LazyGridState() } }
     var selected by remember { mutableStateOf<Novel?>(null) }
     val shownHistory = remember { mutableSetOf<NovelSourceType>() }
@@ -105,7 +96,7 @@ fun HomeScreen(
                             onClick = { onNavigateToSearch(state.selectedSource) }
                         )
                     }
-                    NovelNestIconButton(Icons.Rounded.Add, "Import EPUB / Local books", onClick = { showLocalBooks = true })
+                    EpubLibraryButton(onClick = onNavigateToEpub)
                     NovelNestIconButton(Icons.Rounded.NotificationsNone, "Notifications", onClick = onNavigateToNotifications)
                     NovelNestIconButton(
                         icon = Icons.Rounded.Person,
@@ -141,20 +132,12 @@ fun HomeScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                when (val current = continueBook) {
-                    is HomeContinueBook.Local -> item(key = "current_epub", span = { GridItemSpan(maxLineSpan) }, contentType = "current") {
-                        EpubContinueReadingCard(current.entry, app.epubRepository) {
-                            if (!EpubReaderActivity.open(context, current.entry.book.id)) android.widget.Toast.makeText(context, "Could not open the EPUB reader. Please try again.", android.widget.Toast.LENGTH_LONG).show()
-                        }
+                state.currentReading?.let { current ->
+                    item(key = "current_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "current") {
+                        HomeContinueReadingCard(entry = current,
+                            onOpenDetails = { onNovelClick(current.novel) },
+                            onContinue = { onContinueReading(current.novel, current.progress.lastReadChapterIndex) })
                     }
-                    is HomeContinueBook.Online -> item(key = "current_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "current") {
-                        HomeContinueReadingCard(
-                            entry = current.entry,
-                            onOpenDetails = { onNovelClick(current.entry.novel) },
-                            onContinue = { onContinueReading(current.entry.novel, current.entry.progress.lastReadChapterIndex) }
-                        )
-                    }
-                    null -> Unit
                 }
                 if (state.recentlyRead.isNotEmpty()) {
                     item(key = "recent_reading", span = { GridItemSpan(maxLineSpan) }, contentType = "recent") {

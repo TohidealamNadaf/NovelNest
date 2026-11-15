@@ -15,10 +15,12 @@ internal fun retainReaderContent(
     } else chapter
 }
 
+internal fun Chapter.hasReadableText(): Boolean = paragraphs.any { it.isNotBlank() }
+
 /** An outgoing or still-loading chapter cannot consume another navigation gesture. */
 internal fun ReaderUiState.canNavigateFrom(expectedChapterIndex: Int): Boolean =
     !isLoading && !isChapterLoading && currentChapterIndex == expectedChapterIndex &&
-        chapters.getOrNull(currentChapterIndex)?.paragraphs?.isNotEmpty() == true
+        chapters.getOrNull(currentChapterIndex)?.hasReadableText() == true
 
 /** Explicit chapter buttons may leave a failed chapter so cached chapters remain reachable. */
 internal fun ReaderUiState.canNavigateUsingControls(expectedChapterIndex: Int): Boolean =

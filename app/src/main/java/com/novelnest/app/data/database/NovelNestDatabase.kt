@@ -22,9 +22,10 @@ import com.novelnest.app.data.database.migration.DatabaseMigrations
         com.novelnest.app.data.study.TermCollectionEntity::class,
         com.novelnest.app.data.study.TermDiscoveryEntity::class,
         com.novelnest.app.data.local.epub.LocalBookEntity::class,
-        com.novelnest.app.data.local.epub.EpubPositionEntity::class
+        com.novelnest.app.data.local.epub.EpubPositionEntity::class,
+        com.novelnest.app.data.local.epub.EpubCollectionEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

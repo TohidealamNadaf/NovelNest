@@ -37,6 +37,10 @@ class ReaderPreferencesManager(context: Context) {
         val font = try { ReaderFont.valueOf(fontName) } catch (_: Exception) { ReaderFont.SERIF }
         val theme = try { ReaderTheme.valueOf(themeName) } catch (_: Exception) { ReaderTheme.DARK }
         val scrollMode = try { ReaderScrollMode.valueOf(scrollModeName) } catch (_: Exception) { ReaderScrollMode.CONTINUOUS }
+        val epubImageVName = prefs.getString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, EpubImageVerticalAlignment.CENTER.name) ?: EpubImageVerticalAlignment.CENTER.name
+        val epubImageHName = prefs.getString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, EpubImageHorizontalAlignment.CENTER.name) ?: EpubImageHorizontalAlignment.CENTER.name
+        val epubImageVerticalAlignment = try { EpubImageVerticalAlignment.valueOf(epubImageVName) } catch (_: Exception) { EpubImageVerticalAlignment.CENTER }
+        val epubImageHorizontalAlignment = try { EpubImageHorizontalAlignment.valueOf(epubImageHName) } catch (_: Exception) { EpubImageHorizontalAlignment.CENTER }
 
         return ReaderSettings(
             fontSizeSp = fontSize,
@@ -49,7 +53,10 @@ class ReaderPreferencesManager(context: Context) {
             keepScreenOn = keepScreenOn,
             volumeKeyNavigation = volumeNav,
             fullscreenReading = fullscreen,
-            autoScrollSpeed = AutoScrollSpeed.validated(prefs.getFloat(KEY_AUTO_SCROLL_SPEED, AutoScrollSpeed.DEFAULT))
+            autoScrollSpeed = AutoScrollSpeed.validated(prefs.getFloat(KEY_AUTO_SCROLL_SPEED, AutoScrollSpeed.DEFAULT)),
+            unicodeEscapeDecodingEnabled = prefs.getBoolean(KEY_UNICODE_ESCAPE_DECODING, false),
+            epubImageVerticalAlignment = epubImageVerticalAlignment,
+            epubImageHorizontalAlignment = epubImageHorizontalAlignment
         )
     }
 
@@ -131,6 +138,35 @@ class ReaderPreferencesManager(context: Context) {
         _readerSettings.update { it.copy(autoScrollSpeed = validated) }
     }
 
+    fun updateUnicodeEscapeDecoding(enabled: Boolean) {
+        if (_readerSettings.value.unicodeEscapeDecodingEnabled == enabled) return
+        prefs.edit().putBoolean(KEY_UNICODE_ESCAPE_DECODING, enabled).apply()
+        _readerSettings.update { it.copy(unicodeEscapeDecodingEnabled = enabled) }
+    }
+
+    fun updateEpubImageVerticalAlignment(alignment: EpubImageVerticalAlignment) {
+        prefs.edit().putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, alignment.name).apply()
+        _readerSettings.update { it.copy(epubImageVerticalAlignment = alignment) }
+    }
+
+    fun updateEpubImageHorizontalAlignment(alignment: EpubImageHorizontalAlignment) {
+        prefs.edit().putString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, alignment.name).apply()
+        _readerSettings.update { it.copy(epubImageHorizontalAlignment = alignment) }
+    }
+
+    fun resetEpubImageAlignment() {
+        prefs.edit()
+            .putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, EpubImageVerticalAlignment.CENTER.name)
+            .putString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, EpubImageHorizontalAlignment.CENTER.name)
+            .apply()
+        _readerSettings.update {
+            it.copy(
+                epubImageVerticalAlignment = EpubImageVerticalAlignment.CENTER,
+                epubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER
+            )
+        }
+    }
+
     fun resetReadingSettings() {
         val defaults = ReaderSettings()
         prefs.edit()
@@ -145,6 +181,9 @@ class ReaderPreferencesManager(context: Context) {
             .putBoolean(KEY_VOLUME_NAV, defaults.volumeKeyNavigation)
             .putBoolean(KEY_FULLSCREEN, defaults.fullscreenReading)
             .putFloat(KEY_AUTO_SCROLL_SPEED, defaults.autoScrollSpeed)
+            .putBoolean(KEY_UNICODE_ESCAPE_DECODING, defaults.unicodeEscapeDecodingEnabled)
+            .putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, defaults.epubImageVerticalAlignment.name)
+            .putString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, defaults.epubImageHorizontalAlignment.name)
             .apply()
         _readerSettings.value = defaults
     }
@@ -194,6 +233,9 @@ class ReaderPreferencesManager(context: Context) {
         private const val KEY_VOLUME_NAV = "reader_volume_nav"
         private const val KEY_FULLSCREEN = "reader_fullscreen"
         private const val KEY_AUTO_SCROLL_SPEED = "reader_auto_scroll_speed"
+        private const val KEY_UNICODE_ESCAPE_DECODING = "reader_unicode_escape_decoding"
+        private const val KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT = "reader_epub_image_vertical_alignment"
+        private const val KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT = "reader_epub_image_horizontal_alignment"
 
         // App preference keys
         private const val KEY_AMOLED_APP = "app_amoled_mode"

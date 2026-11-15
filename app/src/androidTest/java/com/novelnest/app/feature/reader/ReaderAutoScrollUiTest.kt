@@ -122,8 +122,9 @@ class ReaderAutoScrollUiTest {
                 )
             }
         }
-        compose.onNodeWithText("Auto Scroll").performClick()
-        compose.onNodeWithContentDescription("Faster auto scroll").performClick()
+        compose.onNodeWithText("Size & Spacing").performClick()
+        compose.onNodeWithText("Auto Scroll").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Faster speed").performClick()
         compose.runOnIdle { assertEquals(1.25f, savedSpeed, 0f) }
         compose.onNodeWithText("Start").performClick()
         compose.waitForIdle()

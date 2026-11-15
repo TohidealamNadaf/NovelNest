@@ -82,6 +82,24 @@ enum class ReaderScrollMode(val displayName: String) {
 }
 
 /**
+ * Vertical alignment options for EPUB illustrations and images.
+ */
+enum class EpubImageVerticalAlignment(val displayName: String, val cssPosition: String, val svgAlign: String) {
+    TOP("Top", "top", "YMin"),
+    CENTER("Center", "center", "YMid"),
+    BOTTOM("Bottom", "bottom", "YMax")
+}
+
+/**
+ * Horizontal alignment options for EPUB illustrations and images.
+ */
+enum class EpubImageHorizontalAlignment(val displayName: String, val cssPosition: String, val svgAlign: String) {
+    LEFT("Left", "left", "xMin"),
+    CENTER("Center", "center", "xMid"),
+    RIGHT("Right", "right", "xMax")
+}
+
+/**
  * Complete novel reading personalization state.
  */
 data class ReaderSettings(
@@ -95,7 +113,10 @@ data class ReaderSettings(
     val keepScreenOn: Boolean = true,
     val volumeKeyNavigation: Boolean = false,
     val fullscreenReading: Boolean = false,
-    val autoScrollSpeed: Float = AutoScrollSpeed.DEFAULT
+    val autoScrollSpeed: Float = AutoScrollSpeed.DEFAULT,
+    val unicodeEscapeDecodingEnabled: Boolean = false,
+    val epubImageVerticalAlignment: EpubImageVerticalAlignment = EpubImageVerticalAlignment.CENTER,
+    val epubImageHorizontalAlignment: EpubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER
 )
 
 /**

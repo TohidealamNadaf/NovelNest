@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -56,10 +58,14 @@ class ReaderViewModel(
     aiRepository: ChapterAiRepository? = null,
     aiConfigurationRevision: StateFlow<Long>? = null,
     private val aiForeground: StateFlow<Boolean>? = null,
-    private val studyRepository: com.novelnest.app.data.study.StudyRepository? = null
+    private val studyRepository: com.novelnest.app.data.study.StudyRepository? = null,
+    private val textDispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default,
+    textPreparationTimeoutMs: Long = ReaderTextController.PREPARATION_TIMEOUT_MS
 ) : ViewModel() {
 
     val readerSettings: StateFlow<ReaderSettings> = preferencesManager.readerSettings
+    private val textController = ReaderTextController(viewModelScope, textDispatcher, textPreparationTimeoutMs)
+    val chapterText = textController.state
     private val autoScrollController = ReaderAutoScrollController()
     val autoScrollState = autoScrollController.state
     private val scrollCheckpoint = ReaderScrollCheckpoint()
@@ -74,18 +80,32 @@ class ReaderViewModel(
     )
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
     private val prefetchedChapterIds = mutableSetOf<String>()
+    private var foregroundLoadGeneration = 0L
+    private var foregroundLoadJob: kotlinx.coroutines.Job? = null
     private val aiController = aiRepository?.let { ReaderAiController(viewModelScope, it) }
     val aiState: StateFlow<ReaderAiState> = aiController?.state ?: MutableStateFlow(ReaderAiState()).asStateFlow()
     private val studyController = studyRepository?.let { ReaderStudyController(viewModelScope, it) }
     val studyState: StateFlow<ReaderStudyState> = studyController?.state ?: MutableStateFlow(ReaderStudyState()).asStateFlow()
 
     init {
+        viewModelScope.launch {
+            combine(uiState, readerSettings.map { it.unicodeEscapeDecodingEnabled }.distinctUntilChanged()) { reader, enabled ->
+                Triple(reader.novel?.source, reader.chapters.getOrNull(reader.currentChapterIndex), enabled)
+            }.distinctUntilChanged { previous, next ->
+                previous.first == next.first && previous.second === next.second && previous.third == next.third
+            }.collect { (source, chapter, enabled) -> textController.submit(source, chapter, enabled) }
+        }
+        viewModelScope.launch {
+            readerSettings.map { it.unicodeEscapeDecodingEnabled }.distinctUntilChanged().drop(1).collect { pauseAutoScroll() }
+        }
         loadNovelAndChapters()
         observeReadingProgress()
         viewModelScope.launch {
-            combine(uiState, aiState, readerSettings) { reader, ai, settings ->
+            combine(uiState, aiState, readerSettings, chapterText) { reader, ai, settings, text ->
+                val chapter = reader.chapters.getOrNull(reader.currentChapterIndex)
+                val prepared = chapter?.let { text.resolve(reader.novel?.source, it, settings.unicodeEscapeDecodingEnabled) }
                 if (settings.scrollMode == com.novelnest.app.data.preferences.ReaderScrollMode.CONTINUOUS)
-                    readerAutoScrollTarget(reader, ai) else null
+                    readerAutoScrollTarget(reader, ai, prepared) else null
             }.distinctUntilChanged().collect {
                 flushScrollPosition()
                 autoScrollController.sourceChanged(it)
@@ -102,7 +122,9 @@ class ReaderViewModel(
         } }
         if (aiController != null) {
             viewModelScope.launch {
-                uiState.map(::aiInput).distinctUntilChanged().collect { aiController.sourceChanged(it) }
+                combine(uiState, chapterText, readerSettings.map { it.unicodeEscapeDecodingEnabled }.distinctUntilChanged()) { reader, text, enabled ->
+                    aiInput(reader, text, enabled)
+                }.distinctUntilChanged().collect { aiController.sourceChanged(it) }
             }
             aiConfigurationRevision?.let { revision -> viewModelScope.launch {
                 revision.drop(1).collect { aiController.cancel() }
@@ -113,10 +135,12 @@ class ReaderViewModel(
         }
     }
 
-    private fun aiInput(state: ReaderUiState): AiChapterInput? {
+    private fun aiInput(state: ReaderUiState, text: ReaderTextState = chapterText.value,
+        enabled: Boolean = readerSettings.value.unicodeEscapeDecodingEnabled): AiChapterInput? {
         if (state.isLoading || state.isChapterLoading) return null
         val novel = state.novel ?: return null
-        val chapter = state.chapters.getOrNull(state.currentChapterIndex) ?: return null
+        val raw = state.chapters.getOrNull(state.currentChapterIndex) ?: return null
+        val chapter = text.resolve(novel.source, raw, enabled) ?: return null
         if (chapter.paragraphs.none { it.isNotBlank() }) return null
         return AiChapterInput(novel.source.name, novel.id, chapter.id, chapter.title, chapter.paragraphs)
     }
@@ -125,7 +149,8 @@ class ReaderViewModel(
     fun requestAiRewrite() = requestAi(AiAction.REWRITE)
     private fun requestAi(action: AiAction) {
         if (aiForeground?.value == false) return
-        aiController?.sourceChanged(aiInput(uiState.value))
+        val input = aiInput(uiState.value) ?: return
+        aiController?.sourceChanged(input)
         aiController?.request(action)
     }
     fun cancelAiRequest() { aiController?.cancel() }
@@ -133,7 +158,9 @@ class ReaderViewModel(
         stopAutoScroll()
         aiController?.showVersion(version)
     }
-    fun displayedChapterParagraphs(chapter: Chapter): List<String> = aiState.value.paragraphs(chapter)
+    fun preparedChapter(chapter: Chapter): Chapter? = chapterText.value.resolve(uiState.value.novel?.source, chapter,
+        readerSettings.value.unicodeEscapeDecodingEnabled)
+    fun displayedChapterParagraphs(chapter: Chapter): List<String> = preparedChapter(chapter)?.let(aiState.value::paragraphs) ?: emptyList()
     fun saveChapterNote(id: String?, title: String, markdown: String) { studyController?.saveNote(id, title, markdown) }
     fun deleteChapterNote(id: String) { studyController?.deleteNote(id) }
     fun selectChapterNote(id: String?) { studyController?.selectNote(id) }
@@ -189,7 +216,8 @@ class ReaderViewModel(
 
     fun startAutoScroll() {
         if (readerSettings.value.scrollMode != com.novelnest.app.data.preferences.ReaderScrollMode.CONTINUOUS) return
-        readerAutoScrollTarget(uiState.value, aiState.value)?.let(autoScrollController::start)
+        val raw = uiState.value.chapters.getOrNull(uiState.value.currentChapterIndex) ?: return
+        readerAutoScrollTarget(uiState.value, aiState.value, preparedChapter(raw))?.let(autoScrollController::start)
     }
     fun pauseAutoScroll(runId: Long? = null) {
         autoScrollController.pause(runId)
@@ -227,7 +255,11 @@ class ReaderViewModel(
 
     fun saveScrollPosition(chapterIndex: Int, item: Int, offset: Int, contentKey: String = "original") {
         if (_uiState.value.currentChapterIndex != chapterIndex) return
-        if (aiState.value.contentKey != contentKey) return
+        val raw = uiState.value.chapters.getOrNull(chapterIndex) ?: return
+        // The visible raw rows remain scrollable while optional decoding is pending.
+        val prepared = preparedChapter(raw) ?: raw
+        val currentKey = if (aiState.value.matches(prepared)) aiState.value.contentKey else "original"
+        if (currentKey != contentKey) return
         scrollCheckpoint.record(ReaderScrollPosition(chapterIndex, item, offset, contentKey), SystemClock.elapsedRealtime())
             ?.let(::writeScrollPosition)
     }
@@ -257,8 +289,9 @@ class ReaderViewModel(
             aiController?.sourceChanged(null)
             val nextIndex = state.currentChapterIndex + 1
             savedStateHandle["readerChapterIndex"] = nextIndex
-            _uiState.update { it.copy(currentChapterIndex = nextIndex, chapters = retainReaderContent(it.chapters, nextIndex)) }
             val nextChapter = state.chapters[nextIndex]
+            _uiState.update { it.copy(currentChapterIndex = nextIndex, chapters = retainReaderContent(it.chapters, nextIndex),
+                isChapterLoading = !nextChapter.hasReadableText(), errorMessage = null) }
             loadChapterContent(nextIndex, nextChapter, forceRefresh = false)
         }
     }
@@ -271,8 +304,9 @@ class ReaderViewModel(
             aiController?.sourceChanged(null)
             val prevIndex = state.currentChapterIndex - 1
             savedStateHandle["readerChapterIndex"] = prevIndex
-            _uiState.update { it.copy(currentChapterIndex = prevIndex, chapters = retainReaderContent(it.chapters, prevIndex)) }
             val prevChapter = state.chapters[prevIndex]
+            _uiState.update { it.copy(currentChapterIndex = prevIndex, chapters = retainReaderContent(it.chapters, prevIndex),
+                isChapterLoading = !prevChapter.hasReadableText(), errorMessage = null) }
             loadChapterContent(prevIndex, prevChapter, forceRefresh = false)
         }
     }
@@ -283,8 +317,9 @@ class ReaderViewModel(
             stopAutoScroll()
             if (index != state.currentChapterIndex) aiController?.sourceChanged(null)
             savedStateHandle["readerChapterIndex"] = index
-            _uiState.update { it.copy(currentChapterIndex = index, chapters = retainReaderContent(it.chapters, index)) }
             val selected = state.chapters[index]
+            _uiState.update { it.copy(currentChapterIndex = index, chapters = retainReaderContent(it.chapters, index),
+                isChapterLoading = !selected.hasReadableText(), errorMessage = null) }
             loadChapterContent(index, selected, forceRefresh = false)
         }
     }
@@ -293,6 +328,7 @@ class ReaderViewModel(
     fun setTheme(theme: ReaderTheme) = preferencesManager.updateTheme(theme)
     fun setLineHeight(multiplier: Float) { pauseAutoScroll(); preferencesManager.updateLineHeight(multiplier) }
     fun setFontFamily(font: ReaderFont) { pauseAutoScroll(); preferencesManager.updateFontFamily(font) }
+    fun setUnicodeEscapeDecoding(enabled: Boolean) { pauseAutoScroll(); preferencesManager.updateUnicodeEscapeDecoding(enabled) }
     fun setParagraphSpacing(spacingDp: Float) { pauseAutoScroll(); preferencesManager.updateParagraphSpacing(spacingDp) }
 
     fun retryCurrentChapter() {
@@ -485,9 +521,14 @@ class ReaderViewModel(
         isPrefetch: Boolean = false,
         pendingContent: Deferred<Result<Chapter>>? = null
     ) {
-        viewModelScope.launch {
+        val generation = if (isPrefetch) null else ++foregroundLoadGeneration
+        if (!isPrefetch) foregroundLoadJob?.cancel()
+        val job = viewModelScope.launch {
             val novel = _uiState.value.novel ?: return@launch
-            if (!forceRefresh && chapter.paragraphs.isNotEmpty()) {
+            fun isCurrentRequest(): Boolean = isPrefetch ||
+                (generation == foregroundLoadGeneration && _uiState.value.chapters.getOrNull(_uiState.value.currentChapterIndex)?.id == chapter.id)
+            if (!isCurrentRequest()) return@launch
+            if (!forceRefresh && chapter.hasReadableText()) {
                 if (!isPrefetch) {
                     _uiState.update { it.copy(isChapterLoading = false, errorMessage = null) }
                     readingProgressManager?.markChapterRead(novelId, chapter.id, chapterIndex, chapter.title)
@@ -512,6 +553,7 @@ class ReaderViewModel(
                     forceRefresh = forceRefresh
                 )
             } catch (cancelled: CancellationException) {
+                pendingContent?.cancel()
                 throw cancelled
             } catch (error: Exception) {
                 Result.failure(error)
@@ -519,13 +561,20 @@ class ReaderViewModel(
                 if (isPrefetch) prefetchedChapterIds.remove(chapter.id)
             }
 
-            contentResult.fold(
+            currentCoroutineContext().ensureActive()
+            if (!isCurrentRequest()) return@launch
+            val validatedContent = contentResult.mapCatching { content ->
+                if (!content.hasReadableText()) throw java.io.IOException("Source returned an empty chapter.")
+                content
+            }
+            validatedContent.fold(
                 onSuccess = { liveChapter ->
                     val resolvedTitle = liveChapter.title.ifBlank { chapter.title }
                     _uiState.update { state ->
                         val updatedList = state.chapters.toMutableList()
                         val index = updatedList.indexOfFirst { it.id == chapter.id }
-                        if (index >= 0) {
+                        // A late speculative fetch must not replace a newer foreground result.
+                        if (index >= 0 && (!isPrefetch || !updatedList[index].hasReadableText())) {
                             updatedList[index] = liveChapter.copy(
                                 id = chapter.id,
                                 title = resolvedTitle
@@ -576,6 +625,13 @@ class ReaderViewModel(
                 }
             )
         }
+        if (!isPrefetch) {
+            foregroundLoadJob = job
+            // Also cover cancellation before the coroutine body starts awaiting startup content.
+            job.invokeOnCompletion { cause ->
+                if (cause is CancellationException) pendingContent?.cancel()
+            }
+        }
     }
 
     private fun prefetchSurroundingChapters(currentIndex: Int) {
@@ -586,7 +642,7 @@ class ReaderViewModel(
         val chapters = state.chapters
         if (nextIndex in chapters.indices) {
             val nextChapter = chapters[nextIndex]
-            if (nextChapter.paragraphs.isEmpty() && prefetchedChapterIds.size < 2 && prefetchedChapterIds.add(nextChapter.id)) {
+            if (!nextChapter.hasReadableText() && prefetchedChapterIds.size < 2 && prefetchedChapterIds.add(nextChapter.id)) {
                 loadChapterContent(nextIndex, nextChapter, forceRefresh = false, isPrefetch = true)
             }
         }

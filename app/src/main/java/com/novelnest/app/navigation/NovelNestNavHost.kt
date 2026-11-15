@@ -30,6 +30,9 @@ import com.novelnest.app.feature.detail.NovelDetailScreen
 import com.novelnest.app.feature.detail.NovelDetailViewModel
 import com.novelnest.app.feature.discover.DiscoverScreen
 import com.novelnest.app.feature.discover.DiscoverViewModel
+import com.novelnest.app.feature.epub.EpubLibraryScreen
+import com.novelnest.app.feature.epub.EpubLibraryViewModel
+import com.novelnest.app.feature.epub.EpubReaderActivity
 import com.novelnest.app.feature.home.HomeScreen
 import com.novelnest.app.feature.home.HomeViewModel
 import com.novelnest.app.feature.manhwa.ManhwaReaderScreen
@@ -92,6 +95,7 @@ fun NovelNestNavHost(
                     }
                 },
                 onNovelClick = onNovelClick,
+                onNavigateToEpub = { navController.navigate(NovelNestDestination.EpubLibrary.route) { launchSingleTop = true } },
                 onNavigateToNotifications = {
                     navController.navigate(NovelNestDestination.Notifications.route)
                 },
@@ -99,6 +103,21 @@ fun NovelNestNavHost(
                     navController.navigate(NovelNestDestination.Profile.route)
                 }
             )
+        }
+
+        composable(NovelNestDestination.EpubLibrary.route) {
+            val model: EpubLibraryViewModel = viewModel(factory = epubLibraryFactory(app.epubRepository, null))
+            EpubLibraryScreen(model, onBack = { navController.popBackStack() },
+                onOpenBook = { id -> openLocalEpub(context, id) },
+                onOpenSeries = { id -> navController.navigate(NovelNestDestination.EpubCollection.createRoute(id)) { launchSingleTop = true } })
+        }
+        composable(NovelNestDestination.EpubCollection.route,
+            arguments = listOf(navArgument("collectionId") { type = NavType.StringType })) { entry ->
+            val id = entry.arguments?.getString("collectionId").orEmpty()
+            val model: EpubLibraryViewModel = viewModel(factory = epubLibraryFactory(app.epubRepository, id))
+            EpubLibraryScreen(model, onBack = { navController.popBackStack() },
+                onOpenBook = { bookId -> openLocalEpub(context, bookId) },
+                onOpenSeries = { seriesId -> navController.navigate(NovelNestDestination.EpubCollection.createRoute(seriesId)) { launchSingleTop = true } })
         }
 
         // DISCOVER SCREEN
@@ -411,3 +430,15 @@ private fun <VM : ViewModel> screenFactory(create: () -> VM): ViewModelProvider.
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = create() as T
     }
+
+private fun openLocalEpub(context: android.content.Context, id: String) {
+    if (!EpubReaderActivity.open(context, id)) android.widget.Toast.makeText(context,
+        "Could not open the EPUB reader. Please try again.", android.widget.Toast.LENGTH_LONG).show()
+}
+
+private fun epubLibraryFactory(repository: com.novelnest.app.data.local.epub.EpubRepository,
+    collectionId: String?): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T =
+        EpubLibraryViewModel(repository, collectionId, extras.createSavedStateHandle()) as T
+}

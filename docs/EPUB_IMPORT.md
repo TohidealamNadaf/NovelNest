@@ -2,16 +2,24 @@
 
 ## Using it
 
-Home header **+** opens Local Books. Import EPUB invokes Android's document picker.
-The picker also accepts generic ZIP/binary MIME labels for providers that mislabel
-EPUBs; validation still requires a real EPUB.
-Select a DRM-free, reflowable EPUB 2 or EPUB 3 publication (maximum compressed file
-size 100 MiB). Import progress, cancellation, success, duplicates and errors appear
-in the modal. Tap an imported book to read; Delete asks for confirmation.
+Home's **EPUB** letter button opens the dedicated EPUB Library. Its header imports
+one or multiple EPUBs using Android's document picker (up to 100 selections per batch).
+The picker accepts generic ZIP/binary MIME labels for providers that mislabel EPUBs;
+validation still requires a real DRM-free, reflowable EPUB 2 or EPUB 3 publication
+(maximum compressed size 100 MiB per file). Imports are processed sequentially.
 
-The original document is never changed. The modal lists books by most recent
-reading/import time. An EPUB read more recently than the selected source's latest
-online reading appears in Home's Continue card. Website tabs/ordinals are unchanged.
+The page has a Continue card, up to ten grouped Recently Read entries, and a
+three-column My Library grid. Create a series to group separate volume files.
+Inside a series, Import EPUBs captures that series as its destination. Long-press
+a card for Move, volume labels, rename, volume order, and removal actions.
+Series deletion keeps its volumes and reading positions in My Library. Removing an
+EPUB separately asks for confirmation and removes only the app-owned copy.
+
+Continue and Recently Read resume a particular volume's saved position. A series
+appears once in the main grid/history, not once per volume. Individual volume
+progress is never averaged into a fabricated series percentage. Home's website
+tabs retain their source-specific Continue cards. EPUBs remain independent of
+website source IDs, bookmarks and update jobs. See [EPUB_LIBRARY.md](EPUB_LIBRARY.md).
 
 ## Architecture
 
@@ -20,8 +28,9 @@ online reading appears in Home's Continue card. Website tabs/ordinals are unchan
   assets/licenses/readium.txt.
 - EpubRepository owns one application-scope import, bounded streaming copy/SHA-256,
   archive validation, metadata/thumbnail extraction, and durable storage.
-- Room version 6 adds local_books and epub_positions with an additive 5-to-6
-  migration. Existing website, notes, terms and manhwa progress tables are retained.
+- Room version 6 introduced local_books and epub_positions. Version 7 adds series
+  organization through the registered, additive 6-to-7 migration. Existing website,
+  notes, terms, manhwa and per-volume progress tables are retained.
 - Local IDs are epub- followed by the entire SHA-256 fingerprint. They never enter
   NovelSourceType, BookmarkManager, NovelRepository or remote chapter update jobs.
 - EpubReaderActivity hosts Readium fragments separately from MainActivity. Readium's
@@ -40,7 +49,7 @@ No broad storage permission, persistable URI grant, network upload or foreground
 service is added. Selected-provider access is needed only while copying.
 
 A single import streams 32-KiB buffers on Dispatchers.IO. It survives rotation and
-modal dismissal while the process lives. Process death interrupts import; next
+leaving the library page while the process lives. Completed volumes survive cancellation. Process death interrupts import; next
 initialization removes staged .import-* folders. A pending-import marker identifies interrupted finalization; only journal-proven
 uncommitted folders are removed. Unexplained durable files without a database row
 are preserved. Files are finalized before the database record is inserted;
@@ -84,26 +93,89 @@ continuous/paged preferences are reused. Text size/theme controls are available 
 the EPUB reader. AI tools, notes/terms, cloud narration, auto-scroll and the novel
 quick settings sheet are not wired into EPUBs; these require dedicated adapters.
 
+## Reliability audit (2026-11-12)
+
+Confirmed gaps and fixes:
+
+- **Resource policy was not installed.** The pinned Readium 3.0.3 binary ignores
+  the PublicationOpener constructor callback and invokes its per-open callback
+  twice. Real EPUB 2/3 integration tests reproduced raw, unsanitized HTML without
+  the offline CSP. ReadiumEpubEngine now passes an idempotent callback directly to
+  open(): OfflineEpubContainer is installed once, before publication services are
+  created. No library upgrade or Android compatibility change was needed.
+- **Resource errors could escape rendering coroutines.** EpubMarkupResource
+  converts oversized/malformed markup and resource allocation/read failures into
+  Readium errors, retaining cancellation. It also avoids the 3.0.3 double transform
+  in read(null) with cacheBytes=false. Section data is not retained across reads.
+- **Navigator readiness and TOC results could be misleading.** Controls wait for
+  attachment, preferences are reapplied when the navigator becomes available,
+  and navigation is guarded by resumed activity/fragment state. TOC destinations
+  must match a reading-order resource; invalid targets show an error. Readium's
+  go() can otherwise return true without finding a matching resource. Valid
+  fragment targets continue to work. Launches validate local IDs, support an
+  application context, and report launch failures from Home.
+- **Closing and saving could fail on Main.** Checkpoint serialization failures
+  are reported, and Publication release runs on the repository IO dispatcher with
+  cleanup exceptions contained. Cancelled opening releases the publication once.
+  A restored percentage is retained when the initial locator lacks aggregate
+  progression. Invalid checkpoints cannot silently replace saved progress, and
+  conflation uses arrival order rather than a potentially backwards wall clock.
+- **Import cancellation could race a replacement or stay stuck before startup.**
+  The import job is assigned before starting, completion handles cancellation even
+  before the body executes, and a replacement waits until prior cleanup completes.
+  An unresponsive document provider can still delay a blocking read's return;
+  cancellation is displayed and overlapping imports are prevented during cleanup.
+- **A transient recovery failure was permanent until process restart.** Library
+  Retry and a subsequent import can now retry recovery. Failed folder access is
+  reported; unexplained durable files are preserved.
+
+The EPUB activity, identifiers, files, local tables and locators remain independent
+of website sources. This audit adds no database migration, storage permission,
+network service, or dependency in the production APK. The existing coroutine test
+library is also used by Android lifecycle tests.
+
 ## Verification
 
-36 focused offline unit tests passed. Both debug APKs compiled and packaged. Device
-instrumentation tests are compiled but not executed: no phone was connected, and
-the configured Pixel 8 AVD has no installed system image. Physical-device rendering,
-gestures, import-provider behavior and lifecycle checks remain release checks.
+- **48 focused offline tests passed**, with zero failures or skips.
+- **15 instrumentation tests passed** on the Pixel 8 AVD, Android API 36.
+- Both debug APKs compiled and packaged. The final diff passed whitespace checks.
 
 Offline tests: EpubArchiveValidatorTest, EpubContentSanitizerTest,
-HomeEpubContinueTest, plus existing HomeHistoryTest, ReaderEntrySourceTest,
-ProgressPersistenceTest and BookmarkSnapshotWriterTest.
+EpubReliabilityTest, HomeEpubContinueTest, HomeHistoryTest, ReaderEntrySourceTest,
+ProgressPersistenceTest and BookmarkSnapshotWriterTest. They cover resource-error
+containment, one read per request, range handling, cancellation propagation,
+bounded checkpoint retries, recovery retry, invalid checkpoints, backwards-clock
+ordering, deleted-book protection and asynchronous cleanup failures.
 
 Device tests: EpubImportIntegrationTest uses real Readium + Room against generated
 EPUB 2/3 fixtures: metadata, spine order independent of ZIP/manifest order, TOC
-fragments, safe resource access, duplicate import, retained progress, missing-file
-repair, independence from the original, and deletion. MigrationTest verifies 5-to-6
-preserves online reading history and notes and cascades only local positions.
+fragments, offline sanitization, duplicate import, retained progress, missing-file
+repair, independence from the original, and deletion. Its real reader activity
+also renders chapter text in WebViews, changes chapter, recreates the activity,
+backgrounds/resumes, and verifies the durable locator. EpubLifecycleTest covers
+controlled cancellation/opening faults, retry, invalid locator serialization,
+restored percentage and valid/invalid TOC targets. All five MigrationTest cases
+passed, including 5-to-6 preserving online history/notes and cascading only local
+positions.
 
-Before release: run device tests and manually exercise document providers, a large
-real book, embedded images, keyboard/accessibility, large text, rotation/background,
-process death, low storage, import cancellation, missing files and restored backups.
+Verification commands:
+
+~~~powershell
+.\gradlew.bat :app:testDebugUnitTest --tests '*Epub*Test' --tests '*HomeHistoryTest' --tests '*ReaderEntrySourceTest' --tests '*ProgressPersistenceTest' --tests '*BookmarkSnapshotWriterTest' --offline --max-workers=2 --console=plain
+.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --max-workers=2 --console=plain
+adb -s emulator-5554 shell am instrument -w -r -e class com.novelnest.app.data.local.epub.EpubImportIntegrationTest,com.novelnest.app.data.local.epub.EpubLifecycleTest,com.novelnest.app.data.database.MigrationTest com.novelnest.app.test/androidx.test.runner.AndroidJUnitRunner
+~~~
+
+Local diagnostic logs are under build/diagnostics/epub (ignored build output).
+The before-fix resource diagnostic records the missing policy;
+audit-instrumentation-fixed.log records the passing device run.
+
+Remaining release checks: physical-device document providers, large real books,
+long-session heap/CPU profiling, accessibility, process death, low storage,
+unresponsive provider cancellation, and backup/device-transfer restoration.
+The tested paths do not establish zero crashes or leaks for every publication or
+OEM. In particular, Android may terminate the process, and a stalled document
+provider is outside this repository's direct control.
 
 References:
 - https://developer.android.com/training/data-storage/shared/documents-files

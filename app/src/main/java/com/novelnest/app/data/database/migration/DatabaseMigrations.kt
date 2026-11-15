@@ -58,7 +58,19 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS epub_collections (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, nameKey TEXT NOT NULL, createdAt INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_epub_collections_nameKey ON epub_collections (nameKey)")
+            // Nullable REFERENCES with a NULL default is safe with SQLite foreign keys enabled.
+            db.execSQL("ALTER TABLE local_books ADD COLUMN collectionId TEXT REFERENCES epub_collections(id) ON UPDATE NO ACTION ON DELETE SET NULL")
+            db.execSQL("ALTER TABLE local_books ADD COLUMN volumeLabel TEXT")
+            db.execSQL("ALTER TABLE local_books ADD COLUMN volumeOrder INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_local_books_collectionId ON local_books (collectionId)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6
+        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
     )
 }

@@ -23,7 +23,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
     private val mutableState = MutableStateFlow<EpubReaderState>(EpubReaderState.Loading)
     val state = mutableState.asStateFlow()
     @Volatile private var latest: Locator? = null
-    private var latestProgression = 0.0
+    @Volatile private var latestProgression = 0.0
     private var lastSaved = 0L
     private var loadJob: Job? = null
     init { load() }
@@ -40,7 +40,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
                 opened = repository.engine.open(repository.bookFile(id))
                 ensureActive()
                 val publication = opened
-                val resume = saved?.takeIf { locator -> publication.readingOrder.any { it.href.toString().substringBefore('#') == locator.href.toString().substringBefore('#') } }
+                val resume = saved?.takeIf { publication.containsReadingResource(it.href) }
                 latest = resume
                 latestProgression = if (resume != null) position?.progression?.takeIf { it.isFinite() && it in 0.0..1.0 } ?: 0.0 else 0.0
                 currentPublication.set(publication)
@@ -76,6 +76,7 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
             repository.reportPositionFailure()
         }
     }
+    fun progression(): Double = latestProgression
     fun resumeLocator(): Locator? = latest
     fun flush() { latest?.let { checkpoint(it, true) } }
     override fun onCleared() {

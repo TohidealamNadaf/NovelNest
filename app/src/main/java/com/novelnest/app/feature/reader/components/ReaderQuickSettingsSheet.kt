@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -180,6 +182,9 @@ fun ReaderQuickSettingsSheet(
     onSetLineHeight: (Float) -> Unit,
     onSetFontFamily: (ReaderFont) -> Unit,
     onSetParagraphSpacing: (Float) -> Unit = {},
+    onSetUnicodeEscapeDecoding: (Boolean) -> Unit = {},
+    preparedChapter: com.novelnest.app.data.model.Chapter? = null,
+    isTextPreparing: Boolean = false,
     reader: ReaderUiState? = null,
     hasPrevChapter: Boolean = false,
     hasNextChapter: Boolean = false,
@@ -219,7 +224,7 @@ fun ReaderQuickSettingsSheet(
         pageTransition.currentState == QuickSettingsSheetPage.MAIN && !pageTransition.isRunning
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Theme & Font, 1: Sizing & Spacing
 
-    val currentChapter = reader?.chapters?.getOrNull(reader.currentChapterIndex)
+    val currentChapter = preparedChapter ?: reader?.chapters?.getOrNull(reader.currentChapterIndex)
     val playHaptic = rememberNovelNestHaptic()
     var chapterCopyTrigger by remember(currentChapterKey(reader)) { mutableLongStateOf(0L) }
     val isChapterCopied = chapterCopyTrigger > 0L
@@ -229,7 +234,7 @@ fun ReaderQuickSettingsSheet(
             chapterCopyTrigger = 0L
         }
     }
-    val canStartAutoScroll = reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
+    val canStartAutoScroll = !isTextPreparing && reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
         currentChapter?.paragraphs?.any { it.isNotBlank() } == true &&
         settings.scrollMode == ReaderScrollMode.CONTINUOUS
     val autoScrollRequestKey = if (canStartAutoScroll) currentChapterKey(reader) to
@@ -298,20 +303,20 @@ fun ReaderQuickSettingsSheet(
             onDismissStudyMessage()
         }
     }
-    val extractionEnabled = reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
+    val extractionEnabled = !isTextPreparing && reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
         currentChapter?.paragraphs?.any { it.isNotBlank() } == true && aiState?.busy != true && !studyState.saving
 
     // Narration state handling
     val store = remember { NarrationStore(context.applicationContext) }
     val narrationState by NarrationStatus.state.collectAsStateWithLifecycle()
     val configuredNarration = store.endpoint.isNotBlank()
-    val isMatchingChapter = currentChapter != null && aiState?.matches(currentChapter) == true
+    val isMatchingChapter = !isTextPreparing && currentChapter != null && aiState?.matches(currentChapter) == true
     val currentSummary = if (isMatchingChapter) aiState?.summary else null
     val currentNovel = reader?.novel
     val isCurrentAudioSession = narrationState.novelId == currentNovel?.id && narrationState.chapterId == currentChapter?.id
     val isAudioPlaying = isCurrentAudioSession && narrationState.playing
     val isAudioLoading = isCurrentAudioSession && narrationState.loading
-    val hasPlayableAudio = currentNovel != null && currentChapter?.paragraphs?.any { it.isNotBlank() } == true
+    val hasPlayableAudio = !isTextPreparing && currentNovel != null && currentChapter?.paragraphs?.any { it.isNotBlank() } == true
 
     val coroutineScope = rememberCoroutineScope()
     var pendingAutoScrollKey by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -502,7 +507,8 @@ fun ReaderQuickSettingsSheet(
                             currentChapter = currentChapter,
                             aiState = aiState,
                             theme = settings.theme,
-                            canGenerate = reader?.let { !it.isLoading && !it.isChapterLoading } == true,
+                            canGenerate = !isTextPreparing && reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
+                                currentChapter?.paragraphs?.any { it.isNotBlank() } == true,
                             textColor = textColor,
                             secondaryColor = secondaryColor,
                             onBack = { currentSheetPage = QuickSettingsSheetPage.MAIN },
@@ -817,7 +823,8 @@ fun ReaderQuickSettingsSheet(
                 aiState = aiState,
                 currentChapter = currentChapter,
                 theme = settings.theme,
-                canGenerate = reader?.let { !it.isLoading && !it.isChapterLoading } == true,
+                canGenerate = !isTextPreparing && reader?.let { !it.isLoading && !it.isChapterLoading } == true &&
+                    currentChapter?.paragraphs?.any { it.isNotBlank() } == true,
                 textColor = textColor,
                 secondaryColor = secondaryColor,
                 onRequestSummary = onRequestSummary,
@@ -1121,6 +1128,22 @@ fun ReaderQuickSettingsSheet(
                             }
                         }
                     } else if (tab == 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ReaderUnicodeEscapeToggle")
+                                .toggleable(value = settings.unicodeEscapeDecodingEnabled, role = Role.Switch,
+                                    onValueChange = onSetUnicodeEscapeDecoding)
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Unicode Escape Decoder", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("NovelPhoenix and FreeWebNovel", color = secondaryColor, fontSize = 11.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Switch(checked = settings.unicodeEscapeDecodingEnabled, onCheckedChange = null,
+                                colors = SwitchDefaults.colors(checkedTrackColor = NovelPrimary, checkedThumbColor = NovelOnPrimary))
+                        }
+                        Spacer(Modifier.height(10.dp))
                         // ─── TAB 1: SIZING & SPACING ───
                         ReaderAutoScrollEntry(
                             state = autoScrollState,

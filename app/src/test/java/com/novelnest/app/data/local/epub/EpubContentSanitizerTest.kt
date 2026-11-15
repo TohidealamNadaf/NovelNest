@@ -33,4 +33,23 @@ class EpubContentSanitizerTest {
         assertEquals(words, Jsoup.parse(result).selectFirst("p")!!.text())
         assertFalse(result.contains("UTF-16", ignoreCase = true))
     }
+
+    @Test fun marksIllustrationPagesAndAppliesSelectedImageAlignment() {
+        EpubContentSanitizer.updateImageAlignment(
+            com.novelnest.app.data.preferences.EpubImageVerticalAlignment.BOTTOM,
+            com.novelnest.app.data.preferences.EpubImageHorizontalAlignment.RIGHT
+        )
+        try {
+            val html = "<html><head><title>Illustrations</title></head><body><div class='main'><img src='../Images/01.jpg'/></div></body></html>"
+            val doc = Jsoup.parse(EpubContentSanitizer.sanitize(html.toByteArray()).toString(Charsets.UTF_8))
+            assertTrue(doc.body().hasClass("nn-illustration-page"))
+            val style = doc.getElementById("nn-epub-image-style")?.html().orEmpty()
+            assertTrue(style.contains("object-position: right bottom !important"))
+        } finally {
+            EpubContentSanitizer.updateImageAlignment(
+                com.novelnest.app.data.preferences.EpubImageVerticalAlignment.CENTER,
+                com.novelnest.app.data.preferences.EpubImageHorizontalAlignment.CENTER
+            )
+        }
+    }
 }

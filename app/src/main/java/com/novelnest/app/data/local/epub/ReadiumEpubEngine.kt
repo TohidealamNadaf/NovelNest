@@ -23,25 +23,21 @@ class ReadiumEpubEngine(context: Context) : EpubEngine {
             Try.failure(HttpError.IO(IOException("Local EPUB network access is disabled.")))
     }
     private val retriever = AssetRetriever(context.contentResolver, offlineHttp)
-    private val opener = PublicationOpener(EpubParser(), onCreatePublication = {
-        val original = container
-        val htmlPaths = (manifest.readingOrder + manifest.resources).filter {
-            it.mediaType?.toString()?.substringBefore(';')?.lowercase() in setOf("application/xhtml+xml", "text/html")
-        }.map { it.href.toString().substringBefore('#').substringBefore('?').trimStart('/') }.toSet()
-        container = object : Container<Resource> by original {
-            override fun get(url: Url): Resource? {
-                val resource = original[url] ?: return null
-                val path = url.toString().substringBefore('?').substringBefore('#').lowercase()
-                return if (url.toString().substringBefore('#').substringBefore('?').trimStart('/') in htmlPaths || path.endsWith(".xhtml") || path.endsWith(".html") || path.endsWith(".htm"))
-                    EpubMarkupResource(resource)
-                else resource
-            }
+    private val opener = PublicationOpener(EpubParser())
+    // 3.0.3 skips the constructor callback and invokes the per-open callback twice.
+    // Use the latter and make installation idempotent, so resources are sanitized exactly once.
+    private val offlinePublication: Publication.Builder.() -> Unit = {
+        if (container !is OfflineEpubContainer) {
+            val htmlPaths = (manifest.readingOrder + manifest.resources).filter {
+                it.mediaType?.toString()?.substringBefore(';')?.lowercase() in setOf("application/xhtml+xml", "text/html")
+            }.map { it.url().removeQuery().removeFragment().toString().trimStart('/') }.toSet()
+            container = OfflineEpubContainer(container, htmlPaths)
         }
-    })
+    }
     override suspend fun open(file: File): Publication {
         val asset = retriever.retrieve(file.toUrl()).getOrElse { throw EpubImportException("Cannot access the EPUB file.") }
         val publication = try {
-            opener.open(asset, allowUserInteraction = false).getOrElse {
+            opener.open(asset, allowUserInteraction = false, onCreatePublication = offlinePublication).getOrElse {
                 throw EpubImportException("This EPUB is damaged, protected, or uses an unsupported format.")
             }
         } catch (error: Exception) { asset.close(); throw error }
@@ -58,5 +54,18 @@ class ReadiumEpubEngine(context: Context) : EpubEngine {
             }
             return publication
         } catch (error: Exception) { publication.close(); throw error }
+    }
+}
+
+private class OfflineEpubContainer(
+    private val original: Container<Resource>,
+    private val htmlPaths: Set<String>
+) : Container<Resource> by original {
+    override fun get(url: Url): Resource? {
+        val resource = original[url] ?: return null
+        val path = url.removeQuery().removeFragment().toString().trimStart('/')
+        return if (path in htmlPaths || path.substringAfterLast('.').lowercase() in setOf("xhtml", "html", "htm"))
+            EpubMarkupResource(resource)
+        else resource
     }
 }

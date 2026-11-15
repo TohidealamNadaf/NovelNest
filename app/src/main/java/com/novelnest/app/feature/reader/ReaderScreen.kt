@@ -70,6 +70,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -94,6 +95,7 @@ import com.novelnest.app.feature.reader.components.ReaderTopBar
 import com.novelnest.app.feature.reader.components.ReaderFastScroller
 import com.novelnest.app.core.ui.LocalNarrationBottomPadding
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun ReaderScreen(
@@ -103,6 +105,7 @@ fun ReaderScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val aiState by viewModel.aiState.collectAsState()
+    val chapterText by viewModel.chapterText.collectAsStateWithLifecycle()
     val studyState by viewModel.studyState.collectAsStateWithLifecycle()
     val settings by viewModel.readerSettings.collectAsState()
     val autoScroll by viewModel.autoScrollState.collectAsStateWithLifecycle()
@@ -250,13 +253,19 @@ fun ReaderScreen(
                 label = "chapter_reading_transition"
             ) { chapterIndex ->
                 val chapter = uiState.chapters.getOrNull(chapterIndex) ?: return@AnimatedContent
-                val displayedParagraphs = aiState.paragraphs(chapter)
-                val contentKey = if (aiState.matches(chapter)) aiState.contentKey else "original"
+                val preparedChapter = chapterText.resolve(uiState.novel?.source, chapter, settings.unicodeEscapeDecodingEnabled)
+                // Keep the same paragraph rows while the short background transform is pending.
+                val displayChapter = preparedChapter ?: chapter
+                val displayedParagraphs = aiState.paragraphs(displayChapter)
+                val contentKey = if (aiState.matches(displayChapter)) aiState.contentKey else "original"
                 val restoredScroll = remember(chapterIndex, contentKey) { viewModel.scrollPosition(chapterIndex, contentKey) }
                 val listState = key(contentKey) { rememberLazyListState() }
                 var scrollRestored by remember(chapterIndex, contentKey) { mutableStateOf(false) }
-                LaunchedEffect(chapterIndex, contentKey, chapter.paragraphs.isNotEmpty()) {
-                    if (!scrollRestored && chapter.paragraphs.isNotEmpty()) {
+                // Restore against the immediately visible text; decoding must not delay the reader
+                // or later overwrite a user's scroll with an old saved position.
+                val hasChapterText = chapter.hasReadableText()
+                LaunchedEffect(chapterIndex, contentKey, hasChapterText) {
+                    if (!scrollRestored && hasChapterText) {
                         listState.scrollToItem(restoredScroll.first.coerceIn(0, displayedParagraphs.size), restoredScroll.second.coerceAtLeast(0))
                         scrollRestored = true
                     }
@@ -278,8 +287,30 @@ fun ReaderScreen(
                 var pullOffset by remember(chapterIndex) { mutableFloatStateOf(0f) }
                 var releasingPull by remember(chapterIndex) { mutableStateOf(false) }
                 var fastScrolling by remember(chapterIndex) { mutableStateOf(false) }
-                val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex))
+                val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex) &&
+                    !uiState.showQuickSettingsSheet &&
+                    drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
+                    drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed)
                 val thresholdPx = with(density) { 75.dp.toPx() }
+
+                LaunchedEffect(swipeEnabled) {
+                    if (!swipeEnabled) pullOffset = 0f
+                }
+                var previousDisplay by remember(chapterIndex, contentKey) { mutableStateOf(displayChapter) }
+                LaunchedEffect(displayChapter) {
+                    val previous = previousDisplay
+                    previousDisplay = displayChapter
+                    if ((previous.title != displayChapter.title || previous.paragraphs != displayChapter.paragraphs) && scrollRestored) {
+                        // Never cancel a drag/fling/pull because prepared text arrived. The lazy list
+                        // keeps stable paragraph keys; adjust wrapping only after interaction settles.
+                        androidx.compose.runtime.snapshotFlow {
+                            !listState.isScrollInProgress && pullOffset == 0f && !releasingPull && !fastScrolling
+                        }.first { it }
+                        if (chapterIndex == uiState.currentChapterIndex) {
+                            listState.scrollToItem(listState.firstVisibleItemIndex, 0)
+                        }
+                    }
+                }
 
                 // NestedScrollConnection detects overscroll at boundaries
                 val pullScrollConnection = remember(listState, hasPrevChapter, hasNextChapter, thresholdPx) {
@@ -369,7 +400,7 @@ fun ReaderScreen(
 
                 ReaderAutoScrollEffect(
                     listState = listState,
-                    target = if (chapterIndex == uiState.currentChapterIndex) readerAutoScrollTarget(uiState, aiState) else null,
+                    target = if (chapterIndex == uiState.currentChapterIndex) readerAutoScrollTarget(uiState, aiState, preparedChapter) else null,
                     session = autoScroll,
                     eligible = readerResumed && readerWindowFocused && scrollRestored && swipeEnabled && !fastScrolling &&
                         pullOffset == 0f && !releasingPull && !uiState.showQuickSettingsSheet &&
@@ -389,6 +420,7 @@ fun ReaderScreen(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
+                            .testTag("NovelChapterText")
                             .pointerInput(chapter.id) {
                                 awaitEachGesture {
                                     // Do not consume side touches, scrolling, long presses, or child controls.
@@ -416,7 +448,7 @@ fun ReaderScreen(
                         item {
                             Column {
                                 Text(
-                                    text = chapter.title,
+                                    text = displayChapter.title,
                                     fontFamily = settings.fontFamily.fontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
@@ -426,7 +458,10 @@ fun ReaderScreen(
                                     modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
                                 )
 
-                                if (aiState.matches(chapter) && aiState.rewrite != null) {
+                                chapterText.failure?.takeIf { settings.unicodeEscapeDecodingEnabled && preparedChapter != null }?.let { message ->
+                                    Text(message, color = secondaryColor, fontSize = 12.sp)
+                                }
+                                if (aiState.matches(displayChapter) && aiState.rewrite != null) {
                                     val isRewrite = aiState.version == ReaderContentVersion.REWRITE
                                     Card(
                                         shape = RoundedCornerShape(12.dp),
@@ -541,7 +576,7 @@ fun ReaderScreen(
                         }
 
                         // Chapter Loading Skeleton/Spinner when paragraphs are fetching
-                        if (chapter.paragraphs.isEmpty() && uiState.isChapterLoading) {
+                        if (!hasChapterText && uiState.isChapterLoading) {
                             item(key = "${chapter.id}_loading") {
                                 Box(
                                     modifier = Modifier
@@ -559,7 +594,7 @@ fun ReaderScreen(
                         }
 
                         // Chapter Failure State with Retry button
-                        if (chapter.paragraphs.isEmpty() && !uiState.isChapterLoading && uiState.errorMessage != null) {
+                        if (!hasChapterText && !uiState.isChapterLoading && uiState.errorMessage != null) {
                             item(key = "${chapter.id}_retry") {
                                 Column(
                                     modifier = Modifier
@@ -585,7 +620,7 @@ fun ReaderScreen(
 
                         // End-of-chapter cut section with '---' border space and Tap/Swipe Up caption
                         // Only show when chapter content is actually present or loaded to prevent anchor jumps
-                        if (chapter.paragraphs.isNotEmpty()) {
+                        if (hasChapterText) {
                             item(key = "${chapter.id}_cut_section") {
                                 ChapterCutSection(
                                     hasNextChapter = uiState.chapters.getOrNull(chapterIndex + 1) != null,
@@ -600,7 +635,7 @@ fun ReaderScreen(
 
                     ReaderFastScroller(
                         listState = listState,
-                        enabled = scrollRestored && swipeEnabled && chapter.paragraphs.isNotEmpty() &&
+                        enabled = scrollRestored && swipeEnabled && hasChapterText &&
                             !uiState.showQuickSettingsSheet &&
                             drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
                             drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed,
@@ -639,7 +674,9 @@ fun ReaderScreen(
         // Fixed Top Reading Control Header (pinned, does not collapse or slide up on tap)
         ReaderTopBar(
             novelTitle = uiState.novel?.title ?: "NovelNest",
-            chapterTitle = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.title.orEmpty(),
+            chapterTitle = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.let {
+                chapterText.resolve(uiState.novel?.source, it, settings.unicodeEscapeDecodingEnabled)?.title ?: it.title
+            }.orEmpty(),
             currentTheme = currentTheme,
             textColor = textColor,
             secondaryColor = secondaryColor,
@@ -679,6 +716,13 @@ fun ReaderScreen(
                 onSetLineHeight = { viewModel.setLineHeight(it) },
                 onSetFontFamily = { viewModel.setFontFamily(it) },
                 onSetParagraphSpacing = { viewModel.setParagraphSpacing(it) },
+                onSetUnicodeEscapeDecoding = viewModel::setUnicodeEscapeDecoding,
+                preparedChapter = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.let {
+                    chapterText.resolve(uiState.novel?.source, it, settings.unicodeEscapeDecodingEnabled)
+                },
+                isTextPreparing = uiState.chapters.getOrNull(uiState.currentChapterIndex)?.let {
+                    chapterText.resolve(uiState.novel?.source, it, settings.unicodeEscapeDecodingEnabled) == null
+                } == true,
                 autoScrollState = autoScroll,
                 onStartAutoScroll = viewModel::startAutoScroll,
                 onPauseAutoScroll = { viewModel.pauseAutoScroll() },
@@ -703,17 +747,18 @@ fun ReaderScreen(
                 onCancelAi = { viewModel.cancelAiRequest() },
                 onShowVersion = { viewModel.showAiContentVersion(it) },
                 canCopyChapter = !uiState.isLoading && uiState.chapters.getOrNull(uiState.currentChapterIndex)
-                    ?.paragraphs?.any { it.isNotBlank() } == true,
+                    ?.let { viewModel.preparedChapter(it)?.paragraphs?.any(String::isNotBlank) } == true,
                 onCopyChapter = {
                     // Resolve on tap so the clipboard always receives the active chapter, not an outgoing animation frame.
                     val state = viewModel.uiState.value
                     val chapter = state.chapters.getOrNull(state.currentChapterIndex)
                     if (!state.isLoading && chapter != null && chapter.paragraphs.any { it.isNotBlank() }) {
-                        val chapterText = (listOf(chapter.title) + viewModel.displayedChapterParagraphs(chapter))
+                        val prepared = viewModel.preparedChapter(chapter) ?: return@ReaderQuickSettingsSheet
+                        val chapterText = (listOf(prepared.title) + viewModel.displayedChapterParagraphs(chapter))
                             .filter { it.isNotBlank() }.joinToString("\n\n")
                         try {
                             val clipboard = context.getSystemService(ClipboardManager::class.java)
-                            checkNotNull(clipboard).setPrimaryClip(ClipData.newPlainText(chapter.title, chapterText))
+                            checkNotNull(clipboard).setPrimaryClip(ClipData.newPlainText(prepared.title, chapterText))
                             // Android 13+ supplies its own clipboard confirmation.
                             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                                 Toast.makeText(context, "Chapter copied", Toast.LENGTH_SHORT).show()
