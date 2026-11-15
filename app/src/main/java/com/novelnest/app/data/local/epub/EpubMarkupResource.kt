@@ -13,7 +13,7 @@ internal class EpubMarkupResource(private val source: Resource) : TransformingRe
         try {
             if (bytes.size > EpubArchiveValidator.MAX_MARKUP_BYTES)
                 Try.failure(ReadError.Decoding("This EPUB section exceeds the supported size."))
-            else Try.success(EpubContentSanitizer.sanitize(bytes))
+            else Try.success(EpubImageDocument.attach(EpubContentSanitizer.sanitize(bytes)))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) { Try.failure(ReadError.Decoding(error)) }
         catch (error: OutOfMemoryError) { Try.failure(ReadError.OutOfMemory(error)) }

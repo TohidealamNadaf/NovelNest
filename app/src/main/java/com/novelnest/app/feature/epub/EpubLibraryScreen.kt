@@ -39,6 +39,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -82,24 +84,26 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
     val searchFocusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
     var searchRevealedByHeader by rememberSaveable { mutableStateOf(false) }
-    val isScrolled by remember(gridState) {
-        derivedStateOf {
-            gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 24
+    var searchCollapsed by rememberSaveable { mutableStateOf(false) }
+    val isSearchBarVisible = !searchCollapsed || searchRevealedByHeader || isSearchFocused || query.isNotEmpty()
+    val onSearchScroll by rememberUpdatedState<(Boolean) -> Unit> { collapse ->
+        if (query.isEmpty()) {
+            if (collapse) {
+                searchRevealedByHeader = false
+                if (isSearchFocused) {
+                    focus.clearFocus()
+                    keyboardController?.hide()
+                }
+            }
+            searchCollapsed = collapse
         }
     }
-    val isSearchBarVisible = !isScrolled || searchRevealedByHeader || isSearchFocused || query.isNotEmpty()
+    val scrollThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
+    val searchScrollConnection = remember(gridState, scrollThresholdPx) {
+        EpubSearchScrollConnection(scrollThresholdPx, atStart = { !gridState.canScrollBackward },
+            onCollapseChange = { onSearchScroll(it) })
+    }
 
-    LaunchedEffect(isScrolled) {
-        if (!isScrolled) {
-            searchRevealedByHeader = false
-        }
-    }
-    LaunchedEffect(gridState.isScrollInProgress) {
-        if (gridState.isScrollInProgress && isScrolled && query.isEmpty()) {
-            if (isSearchFocused) focus.clearFocus()
-            searchRevealedByHeader = false
-        }
-    }
     LaunchedEffect(searchRevealedByHeader) {
         if (searchRevealedByHeader) {
             runCatching { searchFocusRequester.requestFocus() }
@@ -178,7 +182,15 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
             else -> Unit
         }
     }
-    LaunchedEffect(query) { gridState.scrollToItem(0) }
+    var previousQuery by rememberSaveable { mutableStateOf(query) }
+    LaunchedEffect(query) {
+        // Filtering starts at the top; entering/restoring the page must keep its saved position.
+        if (query != previousQuery) {
+            previousQuery = query
+            searchCollapsed = false
+            gridState.scrollToItem(0)
+        }
+    }
     fun select(item: EpubShelfItem) {
         if (viewModel.operation.value.busy) return
         // A long-press only selects, including when fast input arrives before recomposition.
@@ -245,7 +257,7 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
                     AnimatedVisibility(visible = !isSearchBarVisible,
                         enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f)) {
                         NovelNestIconButton(Icons.Rounded.Search, searchPlaceholder, tint = NovelPrimary,
-                            onClick = { searchRevealedByHeader = true })
+                            onClick = { searchCollapsed = false; searchRevealedByHeader = true })
                     }
                     NovelNestIconButton(Icons.Rounded.FileUpload, "Import EPUBs",
                         enabled = !operation.busy && importState !is EpubImportState.Working && !state.collectionMissing, onClick = ::importBooks)
@@ -280,7 +292,7 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val cardWidth = (maxWidth - 56.dp) / 3
             val bottom = rememberPageBottomPadding()
-            LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, modifier = Modifier.fillMaxSize().testTag("EpubLibraryGrid"),
+            LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, modifier = Modifier.fillMaxSize().nestedScroll(searchScrollConnection).testTag("EpubLibraryGrid"),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottom),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (importState is EpubImportState.Working) item(key = "import", span = { GridItemSpan(maxLineSpan) }) {

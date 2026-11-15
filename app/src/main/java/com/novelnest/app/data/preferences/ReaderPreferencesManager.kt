@@ -56,7 +56,10 @@ class ReaderPreferencesManager(context: Context) {
             autoScrollSpeed = AutoScrollSpeed.validated(prefs.getFloat(KEY_AUTO_SCROLL_SPEED, AutoScrollSpeed.DEFAULT)),
             unicodeEscapeDecodingEnabled = prefs.getBoolean(KEY_UNICODE_ESCAPE_DECODING, false),
             epubImageVerticalAlignment = epubImageVerticalAlignment,
-            epubImageHorizontalAlignment = epubImageHorizontalAlignment
+            epubImageHorizontalAlignment = epubImageHorizontalAlignment,
+            epubMultiImageLayout = enumPreference(KEY_EPUB_MULTI_IMAGE_LAYOUT, EpubMultiImageLayout.COMPACT),
+            epubImageFit = enumPreference(KEY_EPUB_IMAGE_FIT, EpubImageFit.SCREEN),
+            epubImageBackground = enumPreference(KEY_EPUB_IMAGE_BACKGROUND, EpubImageBackground.DARK)
         )
     }
 
@@ -154,15 +157,35 @@ class ReaderPreferencesManager(context: Context) {
         _readerSettings.update { it.copy(epubImageHorizontalAlignment = alignment) }
     }
 
+    private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T =
+        enumValues<T>().firstOrNull { it.name == prefs.getString(key, null) } ?: fallback
+
+    fun updateEpubMultiImageLayout(layout: EpubMultiImageLayout) {
+        prefs.edit().putString(KEY_EPUB_MULTI_IMAGE_LAYOUT, layout.name).apply()
+        _readerSettings.update { it.copy(epubMultiImageLayout = layout) }
+    }
+
+    fun updateEpubImageFit(fit: EpubImageFit) {
+        prefs.edit().putString(KEY_EPUB_IMAGE_FIT, fit.name).apply()
+        _readerSettings.update { it.copy(epubImageFit = fit) }
+    }
+
+    fun updateEpubImageBackground(background: EpubImageBackground) {
+        prefs.edit().putString(KEY_EPUB_IMAGE_BACKGROUND, background.name).apply()
+        _readerSettings.update { it.copy(epubImageBackground = background) }
+    }
+
     fun resetEpubImageAlignment() {
         prefs.edit()
             .putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, EpubImageVerticalAlignment.CENTER.name)
             .putString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, EpubImageHorizontalAlignment.CENTER.name)
+            .putString(KEY_EPUB_MULTI_IMAGE_LAYOUT, EpubMultiImageLayout.COMPACT.name)
             .apply()
         _readerSettings.update {
             it.copy(
                 epubImageVerticalAlignment = EpubImageVerticalAlignment.CENTER,
-                epubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER
+                epubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER,
+                epubMultiImageLayout = EpubMultiImageLayout.COMPACT
             )
         }
     }
@@ -184,6 +207,9 @@ class ReaderPreferencesManager(context: Context) {
             .putBoolean(KEY_UNICODE_ESCAPE_DECODING, defaults.unicodeEscapeDecodingEnabled)
             .putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, defaults.epubImageVerticalAlignment.name)
             .putString(KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT, defaults.epubImageHorizontalAlignment.name)
+            .putString(KEY_EPUB_MULTI_IMAGE_LAYOUT, defaults.epubMultiImageLayout.name)
+            .putString(KEY_EPUB_IMAGE_FIT, defaults.epubImageFit.name)
+            .putString(KEY_EPUB_IMAGE_BACKGROUND, defaults.epubImageBackground.name)
             .apply()
         _readerSettings.value = defaults
     }
@@ -236,6 +262,10 @@ class ReaderPreferencesManager(context: Context) {
         private const val KEY_UNICODE_ESCAPE_DECODING = "reader_unicode_escape_decoding"
         private const val KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT = "reader_epub_image_vertical_alignment"
         private const val KEY_EPUB_IMAGE_HORIZONTAL_ALIGNMENT = "reader_epub_image_horizontal_alignment"
+
+        private const val KEY_EPUB_MULTI_IMAGE_LAYOUT = "reader_epub_multi_image_layout"
+        private const val KEY_EPUB_IMAGE_FIT = "reader_epub_image_fit"
+        private const val KEY_EPUB_IMAGE_BACKGROUND = "reader_epub_image_background"
 
         // App preference keys
         private const val KEY_AMOLED_APP = "app_amoled_mode"

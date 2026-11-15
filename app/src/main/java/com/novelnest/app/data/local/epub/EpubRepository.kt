@@ -107,6 +107,14 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
     fun reportPositionFailure() {
         mutablePositionError.value = "Reading position could not be saved. Check device storage and tap Retry."
     }
+    internal fun releasePublicationAfter(publication: Publication, mutex: kotlinx.coroutines.sync.Mutex) {
+        scope.launch(ioDispatcher) {
+            mutex.lock()
+            try { publication.close() }
+            catch (error: Exception) { android.util.Log.w("EpubRepository", "Could not release EPUB resources", error) }
+            finally { mutex.unlock() }
+        }
+    }
     internal fun releasePublication(publication: Publication) {
         scope.launch(ioDispatcher) {
             try { publication.close() }

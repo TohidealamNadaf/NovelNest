@@ -216,3 +216,31 @@ tests and automated suites have not been run for this correction. The prior moda
 report could not be reproduced from the checked active long-press routing; it already
 used selection, and the legacy single-document importer was not an active navigation
 route. Install the newly built APK when checking the updated behavior.
+
+
+### Short-series header animation correction (2026-11-15)
+
+The previous search visibility depended on firstVisibleItemIndex/scrollOffset > 24 raw
+pixels. Search height animation resized the grid. Near the end of a short shelf, that
+larger viewport clamped its offset below the threshold, immediately reversing the
+animation and shrinking the viewport again. The isScrollInProgress observer also
+mixed actual gestures with programmatic scrolling.
+
+EpubSearchScrollConnection observes vertical user input and returns zero consumption.
+It accumulates direction using a density-scaled 24-dp threshold and latches the target
+visibility. A fast release can commit the already observed drag direction once; layout
+remeasurement and subsequent fling/programmatic movement cannot reverse the target.
+Fully fitting content cannot trigger collapse from an upward unconsumed overscroll.
+A downward pull at the start can reveal the search field, and the header search icon
+remains an explicit reveal action. Horizontal recent-book gestures are ignored.
+
+The existing search expand/collapse animation and visual layout are retained. A nonempty
+query pins search visibility. Only actual query changes scroll results to the beginning;
+restoring a page no longer unconditionally resets its grid position. This controller is
+shared by the library and series pages. No fetching, caching, import, selection, or
+reading-progress code changed. Debug assembly and whitespace checks passed; the reported
+six-volume interaction has not been reproduced/verified on a physical phone in this turn.
+
+### Illustration controls
+
+See [EPUB_IMAGES.md](EPUB_IMAGES.md) for the full-screen image viewer, fit/zoom/background controls, multi-image layout choices, resource bounds and lifecycle behavior.

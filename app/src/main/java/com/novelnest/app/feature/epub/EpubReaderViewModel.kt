@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.novelnest.app.data.local.epub.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.readium.r2.shared.util.Url
 import org.json.JSONObject
 import org.readium.r2.shared.publication.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -16,6 +19,15 @@ sealed interface EpubReaderState {
     data class Failed(val message: String) : EpubReaderState
 }
 
+internal data class EpubImageViewerState(
+    val section: Url,
+    val images: List<EpubImageRef> = emptyList(),
+    val index: Int = 0,
+    val loading: Boolean = true,
+    val asset: EpubImageAsset? = null,
+    val error: String? = null
+)
+
 class EpubReaderViewModel(private val id: String, private val repository: EpubRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
     private val currentPublication = AtomicReference<Publication?>(null)
@@ -26,6 +38,76 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
     @Volatile private var latestProgression = 0.0
     private var lastSaved = 0L
     private var loadJob: Job? = null
+    private val imageMutex = Mutex()
+    private var imageJob: Job? = null
+    private var imageGeneration = 0L
+    private val mutableImageViewer = MutableStateFlow<EpubImageViewerState?>(null)
+    internal val imageViewer = mutableImageViewer.asStateFlow()
+
+    internal fun openImages(section: Url, index: Int = 0) {
+        if (cleared.get()) return
+        val publication = currentPublication.get() ?: return
+        imageJob?.cancel()
+        val generation = ++imageGeneration
+        mutableImageViewer.value = EpubImageViewerState(section)
+        imageJob = viewModelScope.launch {
+            try {
+                val images = withContext(ioDispatcher) {
+                    imageMutex.withLock { ensureActive(); EpubImages.catalog(publication, section) }
+                }
+                ensureActive()
+                if (generation != imageGeneration) return@launch
+                if (images.isEmpty()) {
+                    mutableImageViewer.value = EpubImageViewerState(section, loading = false)
+                } else {
+                    mutableImageViewer.value = EpubImageViewerState(section, images, index.coerceIn(images.indices))
+                    imageJob = null
+                    selectImage(index.coerceIn(images.indices))
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { failImage(generation, error.message ?: "Could not list illustrations.") }
+            catch (_: OutOfMemoryError) { failImage(generation, "Not enough memory to open these illustrations.") }
+        }
+    }
+
+    internal fun selectImage(index: Int) {
+        val previous = mutableImageViewer.value ?: return
+        if (index !in previous.images.indices || cleared.get()) return
+        val publication = currentPublication.get() ?: return
+        imageJob?.cancel()
+        val generation = ++imageGeneration
+        mutableImageViewer.value = previous.copy(index = index, asset = null, loading = true, error = null)
+        imageJob = viewModelScope.launch {
+            try {
+                val asset = withContext(ioDispatcher) {
+                    imageMutex.withLock { ensureActive(); EpubImages.load(publication, previous.images[index]) }
+                }
+                ensureActive()
+                if (generation == imageGeneration) mutableImageViewer.value =
+                    mutableImageViewer.value?.copy(asset = asset, loading = false)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { failImage(generation, error.message ?: "Could not open this illustration.") }
+            catch (_: OutOfMemoryError) { failImage(generation, "Not enough memory to display this illustration.") }
+        }
+    }
+
+    private fun failImage(generation: Long, message: String) {
+        if (generation == imageGeneration && !cleared.get())
+            mutableImageViewer.value = mutableImageViewer.value?.copy(loading = false, asset = null, error = message)
+    }
+
+    internal fun retryImage() {
+        val current = mutableImageViewer.value ?: return
+        if (current.images.isEmpty()) openImages(current.section) else selectImage(current.index)
+    }
+
+    internal fun closeImages() {
+        ++imageGeneration
+        imageJob?.cancel()
+        imageJob = null
+        mutableImageViewer.value = null
+    }
+
     init { load() }
     fun load() {
         if (currentPublication.get() != null || loadJob?.isActive == true) return
@@ -82,6 +164,9 @@ class EpubReaderViewModel(private val id: String, private val repository: EpubRe
     override fun onCleared() {
         flush()
         cleared.set(true)
-        currentPublication.getAndSet(null)?.let(repository::releasePublication)
+        closeImages()
+        val publication = currentPublication.getAndSet(null)
+        // Let a cancelled resource read close its handle before releasing the shared publication.
+        if (publication != null) repository.releasePublicationAfter(publication, imageMutex)
     }
 }

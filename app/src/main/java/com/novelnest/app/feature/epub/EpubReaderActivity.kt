@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import android.webkit.JavascriptInterface
 import android.widget.Toast
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -120,6 +121,7 @@ class EpubReaderActivity : FragmentActivity() {
         setContent {
             NovelNestTheme(manageSystemBars = false) {
                 val state by model.state.collectAsStateWithLifecycle()
+                val imageViewer by model.imageViewer.collectAsStateWithLifecycle()
                 val settings by app.preferencesManager.readerSettings.collectAsStateWithLifecycle()
                 val appSettings by app.preferencesManager.appSettings.collectAsStateWithLifecycle()
                 val saveError by app.epubRepository.positionError.collectAsStateWithLifecycle()
@@ -154,11 +156,12 @@ class EpubReaderActivity : FragmentActivity() {
                 SideEffect {
                     EpubContentSanitizer.updateImageAlignment(
                         settings.epubImageVerticalAlignment,
-                        settings.epubImageHorizontalAlignment
+                        settings.epubImageHorizontalAlignment,
+                        settings.epubMultiImageLayout
                     )
                 }
                 LaunchedEffect(settings.keepScreenOn) { window.decorView.keepScreenOn = settings.keepScreenOn }
-                val canTapReader = ready != null && drawerState.currentValue == DrawerValue.Closed &&
+                val canTapReader = ready != null && imageViewer == null && drawerState.currentValue == DrawerValue.Closed &&
                     drawerState.targetValue == DrawerValue.Closed
                 val toggleReaderControls by rememberUpdatedState<() -> Boolean> {
                     if (!canTapReader || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) false
@@ -295,7 +298,22 @@ class EpubReaderActivity : FragmentActivity() {
                                                 val factory = EpubNavigatorFactory(result.publication).createFragmentFactory(
                                                     // Header/footer own vertical insets; Compose protects horizontal cutouts.
                                                     // Readium must not add the status-bar/cutout height a second time.
-                                                    configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false),
+                                                    configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false).apply {
+                                                        registerJavascriptInterface("NovelNestImageTap") { resource ->
+                                                            if (!result.publication.containsReadingResource(resource.url())) null
+                                                            else object {
+                                                                @JavascriptInterface fun open(index: Int) {
+                                                                    if (index !in 0 until 256) return
+                                                                    runOnUiThread {
+                                                                        if (!isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                                                            showControlSheet = false
+                                                                            model.openImages(resource.url(), index)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    },
                                                     initialLocator = model.resumeLocator() ?: result.initialLocator,
                                                     initialPreferences = epubPreferences,
                                                     listener = object : EpubNavigatorFragment.Listener {
@@ -336,17 +354,20 @@ class EpubReaderActivity : FragmentActivity() {
                                         LaunchedEffect(
                                             settings.epubImageVerticalAlignment,
                                             settings.epubImageHorizontalAlignment,
+                                            settings.epubMultiImageLayout,
                                             currentHref,
                                             navigator
                                         ) {
                                             EpubContentSanitizer.updateImageAlignment(
                                                 settings.epubImageVerticalAlignment,
-                                                settings.epubImageHorizontalAlignment
+                                                settings.epubImageHorizontalAlignment,
+                                                settings.epubMultiImageLayout
                                             )
                                             val rootView = navigator?.view ?: return@LaunchedEffect
                                             val js = EpubContentSanitizer.buildLiveUpdateJs(
                                                 settings.epubImageVerticalAlignment,
-                                                settings.epubImageHorizontalAlignment
+                                                settings.epubImageHorizontalAlignment,
+                                                settings.epubMultiImageLayout
                                             )
                                             rootView.applyEpubImageAlignmentJs(js)
                                             delay(120)
@@ -575,6 +596,11 @@ class EpubReaderActivity : FragmentActivity() {
                                                     }
                                                     EpubBottomSheetPage.IMAGE_ALIGNMENT -> {
                                                         EpubImageAlignmentSubMenu(
+                                                            onOpenImages = {
+                                                                val href = currentHref ?: model.resumeLocator()?.href
+                                                                    ?: ready?.publication?.readingOrder?.firstOrNull()?.url()
+                                                                if (href != null) { showControlSheet = false; model.openImages(href) }
+                                                            },
                                                             settings = settings,
                                                             preferences = app.preferencesManager,
                                                             onBackToControls = {
@@ -602,6 +628,10 @@ class EpubReaderActivity : FragmentActivity() {
                             }
                         }
                     }
+                }
+                imageViewer?.let { images ->
+                    EpubImageViewer(images, settings, app.preferencesManager,
+                        onSelect = model::selectImage, onRetry = model::retryImage, onClose = model::closeImages)
                 }
             }
         }
@@ -1313,6 +1343,7 @@ private fun EpubThemeSettingsSubMenu(
 
 @Composable
 private fun EpubImageAlignmentSubMenu(
+    onOpenImages: () -> Unit,
     settings: ReaderSettings,
     preferences: ReaderPreferencesManager,
     onBackToControls: () -> Unit,
@@ -1331,11 +1362,28 @@ private fun EpubImageAlignmentSubMenu(
         EpubSubMenuHeader(
             icon = Icons.Rounded.FormatAlignCenter,
             title = "Image Alignment",
-            subtitle = "Vertical & horizontal illustration position",
+            subtitle = "Position, page layout & image viewer",
             onBack = onBackToControls,
             onReset = preferences::resetEpubImageAlignment,
             onClose = onCloseSheet
         )
+
+        OutlinedButton(onClick = onOpenImages, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Open illustrations in this section")
+        }
+        Text("Pages with several illustrations", color = NovelTextPrimary,
+            style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EpubMultiImageLayout.entries.forEach { layout ->
+                FilterChip(selected = settings.epubMultiImageLayout == layout,
+                    onClick = { preferences.updateEpubMultiImageLayout(layout) },
+                    label = { Text(layout.displayName) }, modifier = Modifier.weight(1f))
+            }
+        }
+        Text("Compact flow keeps images together without extra page-sized gaps.",
+            color = NovelTextSecondary, style = MaterialTheme.typography.bodySmall)
 
         // ─── 1. VERTICAL ALIGNMENT CARD ───
         Surface(

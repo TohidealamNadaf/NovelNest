@@ -2,6 +2,7 @@ package com.novelnest.app.data.local.epub
 
 import com.novelnest.app.data.preferences.EpubImageHorizontalAlignment
 import com.novelnest.app.data.preferences.EpubImageVerticalAlignment
+import com.novelnest.app.data.preferences.EpubMultiImageLayout
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
@@ -13,17 +14,23 @@ object EpubContentSanitizer {
     @Volatile
     private var horizontalAlignment: EpubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER
 
+    @Volatile
+    private var multiImageLayout: EpubMultiImageLayout = EpubMultiImageLayout.COMPACT
+
     fun updateImageAlignment(
         vertical: EpubImageVerticalAlignment,
-        horizontal: EpubImageHorizontalAlignment
+        horizontal: EpubImageHorizontalAlignment,
+        layout: EpubMultiImageLayout = multiImageLayout
     ) {
         verticalAlignment = vertical
         horizontalAlignment = horizontal
+        multiImageLayout = layout
     }
 
     fun buildImageAlignmentCss(
         vertical: EpubImageVerticalAlignment = verticalAlignment,
-        horizontal: EpubImageHorizontalAlignment = horizontalAlignment
+        horizontal: EpubImageHorizontalAlignment = horizontalAlignment,
+        layout: EpubMultiImageLayout = multiImageLayout
     ): String {
         val hPos = horizontal.cssPosition
         val vPos = vertical.cssPosition
@@ -40,6 +47,21 @@ object EpubContentSanitizer {
             EpubImageVerticalAlignment.BOTTOM -> "8px"
         }
 
+        val compactCss = if (layout == EpubMultiImageLayout.COMPACT) """
+            html body.nn-illustration-page.nn-multi-image-page img,
+            html body.nn-illustration-page.nn-multi-image-page svg {
+                height: auto !important;
+                max-height: none !important;
+                margin-top: 0 !important;
+                margin-bottom: 8px !important;
+            }
+            html body.nn-multi-image-page div,
+            html body.nn-multi-image-page p,
+            html body.nn-multi-image-page figure {
+                min-height: 0 !important;
+                height: auto !important;
+            }
+        """.trimIndent() else ""
         return """
             html body.nn-illustration-page {
                 margin: 0 !important;
@@ -92,14 +114,15 @@ object EpubContentSanitizer {
                 margin-top: $inlineTopMargin !important;
                 margin-bottom: $inlineBottomMargin !important;
             }
-        """.trimIndent()
+        """.trimIndent() + "\n" + compactCss
     }
 
     fun buildLiveUpdateJs(
         vertical: EpubImageVerticalAlignment,
-        horizontal: EpubImageHorizontalAlignment
+        horizontal: EpubImageHorizontalAlignment,
+        layout: EpubMultiImageLayout = multiImageLayout
     ): String {
-        val css = buildImageAlignmentCss(vertical, horizontal)
+        val css = buildImageAlignmentCss(vertical, horizontal, layout)
             .replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\n", " ")
@@ -107,11 +130,11 @@ object EpubContentSanitizer {
         return """
             (function() {
                 if (!document || !document.head || !document.body) return;
-                var hasMedia = document.querySelectorAll('img, svg, image').length > 0;
+                var visuals = Array.from(document.body.querySelectorAll('img, svg')).filter(function(el) { return !el.parentElement.closest('svg'); });
+                var hasMedia = visuals.length > 0;
                 var textLen = (document.body.innerText || '').trim().length;
-                if (hasMedia && textLen <= 40) {
-                    document.body.classList.add('nn-illustration-page');
-                }
+                document.body.classList.toggle('nn-illustration-page', hasMedia && textLen <= 40);
+                document.body.classList.toggle('nn-multi-image-page', visuals.length > 1 && textLen <= 40);
                 var styleEl = document.getElementById('nn-epub-image-style');
                 if (!styleEl) {
                     styleEl = document.createElement('style');
@@ -144,8 +167,10 @@ object EpubContentSanitizer {
         }
         val vAlign = verticalAlignment
         val hAlign = horizontalAlignment
-        if (doc.body().text().trim().length <= 40 && doc.select("img, svg, image").isNotEmpty()) {
+        val visuals = doc.body().select("img, svg").filter { el -> el.parents().none { it.normalName() == "svg" } }
+        if (doc.body().text().trim().length <= 40 && visuals.isNotEmpty()) {
             doc.body().addClass("nn-illustration-page")
+            if (visuals.size > 1) doc.body().addClass("nn-multi-image-page")
         }
         val preserveAspect = "${hAlign.svgAlign}${vAlign.svgAlign} meet"
         doc.select("svg").forEach { svg ->

@@ -99,6 +99,20 @@ enum class EpubImageHorizontalAlignment(val displayName: String, val cssPosition
     RIGHT("Right", "right", "xMax")
 }
 
+enum class EpubMultiImageLayout(val displayName: String) {
+    COMPACT("Compact flow"), PAGES("One image per page")
+}
+
+enum class EpubImageFit(val displayName: String, val jsValue: String) {
+    SCREEN("Fit screen", "screen"), WIDTH("Fit width", "width"),
+    HEIGHT("Fit height", "height"), ORIGINAL("Original size", "original")
+}
+
+enum class EpubImageBackground(val displayName: String, val cssColor: String) {
+    DARK("Dark", "#1E242C"), BLACK("Black", "#000000"),
+    WHITE("White", "#FFFFFF"), SEPIA("Parchment", "#F5EEDA")
+}
+
 /**
  * Complete novel reading personalization state.
  */
@@ -116,7 +130,10 @@ data class ReaderSettings(
     val autoScrollSpeed: Float = AutoScrollSpeed.DEFAULT,
     val unicodeEscapeDecodingEnabled: Boolean = false,
     val epubImageVerticalAlignment: EpubImageVerticalAlignment = EpubImageVerticalAlignment.CENTER,
-    val epubImageHorizontalAlignment: EpubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER
+    val epubImageHorizontalAlignment: EpubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER,
+    val epubMultiImageLayout: EpubMultiImageLayout = EpubMultiImageLayout.COMPACT,
+    val epubImageFit: EpubImageFit = EpubImageFit.SCREEN,
+    val epubImageBackground: EpubImageBackground = EpubImageBackground.DARK
 )
 
 /**
