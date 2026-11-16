@@ -58,7 +58,8 @@ internal fun EpubShelfCard(item: EpubShelfItem, repository: EpubRepository, modi
                     modifier = Modifier.fillMaxSize(),
                     title = entry.book.title,
                     author = entry.book.author,
-                    volumeLabel = entry.book.volumeLabel ?: volumeNumber?.let { "Volume $it" }
+                    volumeLabel = entry.book.volumeLabel ?: volumeNumber?.let { "Volume $it" },
+                    seriesId = entry.book.collectionId
                 )
             } else {
                 Icon(Icons.Rounded.Folder, null, tint = NovelPrimary, modifier = Modifier.size(36.dp).align(Alignment.Center))

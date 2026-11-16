@@ -20,4 +20,11 @@
     <string name="dictionary_select_word">Select one word to look up its definition.</string>
     <string name="dictionary_cannot_open">Could not open the dictionary. Please try again.</string>
     <item name="epub_define_selection" type="id" />
+    <string name="dictionary_audio_play">Hear pronunciation</string>
+    <string name="dictionary_audio_stop">Stop pronunciation</string>
+    <string name="dictionary_audio_unavailable">Pronunciation recording unavailable.</string>
+    <string name="dictionary_audio_loading">Loading pronunciation. Tap again to cancel.</string>
+    <string name="dictionary_audio_playing">Playing pronunciation. Tap again to stop.</string>
+    <string name="dictionary_audio_source">Pronunciation source</string>
+    <item name="reader_define_selection" type="id" />
 </resources>

@@ -111,7 +111,22 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
                     .maxSizeBytes(150L * 1024 * 1024) // 150 MB image cache
                     .build()
             }
-            .okHttpClient { HttpFactory.getClient() }
+            .okHttpClient {
+                HttpFactory.getClient().newBuilder()
+                    .addInterceptor(com.novelnest.app.data.remote.asura.AsuraCoverInterceptor(
+                        debug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0))
+                    .build()
+            }
+            .eventListenerFactory { request ->
+                val url = request.data?.toString().orEmpty()
+                if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 && url.startsWith("https://cdn.asurascans.com/asura-images/")) {
+                    object : coil.EventListener {
+                        override fun onError(request: coil.request.ImageRequest, result: coil.request.ErrorResult) {
+                            android.util.Log.w("AsuraCover", "Image load failed: $url", result.throwable)
+                        }
+                    }
+                } else coil.EventListener.NONE
+            }
             .respectCacheHeaders(false)
             .crossfade(true)
             .build()

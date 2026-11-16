@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 internal class DictionaryRepository(directory: File) {
     private val cache = DictionaryCache(directory)
     private val api = DictionaryApi()
+    val pronunciation = DictionaryAudioStore(File(directory, "audio"))
     private val work = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private data class FlightKey(val word: String, val generation: Long)
@@ -89,9 +90,10 @@ internal class DictionaryRepository(directory: File) {
 
     suspend fun clearCache(): Boolean {
         val cleared = cache.clear()
+        val audioCleared = pronunciation.clear()
         synchronized(lock) { missing.clear() }
         // A cache clear does not bypass an active provider cooldown.
-        return cleared
+        return cleared && audioCleared
     }
     private fun notFound() = DictionaryException(DictionaryError.NOT_FOUND,
         "No dictionary entry was found. Try the base form of the word. Fictional names and terms may not be included.")

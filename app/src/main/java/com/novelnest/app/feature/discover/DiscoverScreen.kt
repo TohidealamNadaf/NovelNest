@@ -14,16 +14,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.isActive
 import com.novelnest.app.core.designsystem.*
 import com.novelnest.app.core.ui.HeroCarousel
 import com.novelnest.app.core.ui.NovelNestIconButton
@@ -61,19 +60,40 @@ fun DiscoverScreen(
         }
     }
 
-    // Do not keep scheduling animation frames when the refresh icon is idle.
-    val refreshRotation = if (state.isRefreshing) {
-        val transition = rememberInfiniteTransition(label = "refresh_spin")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 800, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "refresh_rotation"
-        )
-    } else null
+    val refreshRotation = remember { Animatable(0f) }
+    var refreshSpinTrigger by remember { mutableIntStateOf(0) }
+    var hasPendingSpin by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.isRefreshing, refreshSpinTrigger) {
+        if (state.isRefreshing) {
+            hasPendingSpin = true
+            while (isActive) {
+                refreshRotation.animateTo(
+                    targetValue = refreshRotation.value + 360f,
+                    animationSpec = tween(durationMillis = 650, easing = LinearEasing)
+                )
+            }
+        } else if (hasPendingSpin || refreshRotation.value > 0f) {
+            val currentMod = refreshRotation.value % 360f
+            val remaining = when {
+                refreshRotation.value < 15f -> 360f - currentMod
+                currentMod > 0.5f -> 360f - currentMod
+                else -> 0f
+            }
+            if (remaining > 0f) {
+                val duration = ((remaining / 360f) * 520f).toInt().coerceIn(220, 520)
+                refreshRotation.animateTo(
+                    targetValue = refreshRotation.value + remaining,
+                    animationSpec = tween(
+                        durationMillis = duration,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+            }
+            refreshRotation.snapTo(0f)
+            hasPendingSpin = false
+        }
+    }
 
     Column(modifier.fillMaxSize().background(NovelBackground)) {
         NovelNestHeader(
@@ -104,23 +124,18 @@ fun DiscoverScreen(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = "Refresh discoveries",
                     tint = NovelPrimary,
-                    enabled = !state.isRefreshing,
-                    modifier = Modifier.graphicsLayer {
-                        rotationZ = refreshRotation?.value ?: 0f
+                    enabled = !state.isRefreshing && !hasPendingSpin,
+                    iconModifier = Modifier.graphicsLayer {
+                        rotationZ = refreshRotation.value
                     },
-                    onClick = viewModel::refresh
+                    onClick = {
+                        hasPendingSpin = true
+                        refreshSpinTrigger++
+                        viewModel.refresh()
+                    }
                 )
             }
         )
-
-        // Live refresh network activity indicator
-        if (state.isRefreshing) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(2.5.dp),
-                color = NovelPrimary,
-                trackColor = NovelBackground
-            )
-        }
 
         // Collapsible Source Tabs and Search Bar: hide and blend away when scrolled
         androidx.compose.animation.AnimatedVisibility(

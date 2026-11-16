@@ -6,6 +6,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -13,13 +15,17 @@ import com.novelnest.app.NovelNestApplication
 import com.novelnest.app.core.designsystem.NovelNestTheme
 import kotlin.math.min
 
-/** Native text-processing entry: never modifies selected text or changes the reader's back stack. */
+/** Private reader dictionary entry: never modifies selected text or changes the reader's back stack. */
 class DictionaryLookupActivity : ComponentActivity() {
     private lateinit var model: DictionaryViewModel
+    private lateinit var pronunciation: DictionaryPronunciationPlayer
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as NovelNestApplication
+        pronunciation = DictionaryPronunciationPlayer(this, lifecycleScope, app.dictionaryRepository.pronunciation) {
+            !isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
         val initial = savedInstanceState?.getString(WORD) ?: selectedWord(intent)
         model = ViewModelProvider(this, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -33,7 +39,9 @@ class DictionaryLookupActivity : ComponentActivity() {
             val settings by app.preferencesManager.readerSettings.collectAsStateWithLifecycle()
             val state by model.state.collectAsStateWithLifecycle()
             NovelNestTheme(manageSystemBars = false) {
-                DictionaryPanel(state, settings.theme, model::retry, ::finish)
+                DictionaryPanel(state, settings.theme,
+                    onRetry = { pronunciation.stop(); model.retry() }, onClose = ::finish,
+                    pronunciation = pronunciation.state, onPronounce = { audio -> pronunciation.toggle(audio) })
             }
         }
     }
@@ -41,6 +49,14 @@ class DictionaryLookupActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (::model.isInitialized) model.activate()
+    }
+    override fun onPause() {
+        if (::pronunciation.isInitialized) pronunciation.stop()
+        super.onPause()
+    }
+    override fun onDestroy() {
+        if (::pronunciation.isInitialized) pronunciation.close()
+        super.onDestroy()
     }
     override fun onStop() {
         // Configuration recreation retains the running ViewModel request and avoids a second HTTP call.
@@ -54,12 +70,13 @@ class DictionaryLookupActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (::pronunciation.isInitialized) pronunciation.stop()
         if (::model.isInitialized) model.select(selectedWord(intent))
     }
     private fun selectedWord(intent: Intent?): String? = try {
         if (intent?.action != Intent.ACTION_PROCESS_TEXT || intent.type != "text/plain") null
         else intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.takeIf { it.length <= 512 }?.toString()
-    } catch (_: RuntimeException) { null } // Exported text-processing inputs can contain malformed parcels.
+    } catch (_: RuntimeException) { null } // Keep intent-extra validation defensive, even for internal callers.
 
     companion object { private const val WORD = "dictionary_query" }
 }

@@ -59,7 +59,8 @@ class ReaderPreferencesManager(context: Context) {
             epubImageHorizontalAlignment = epubImageHorizontalAlignment,
             epubMultiImageLayout = enumPreference(KEY_EPUB_MULTI_IMAGE_LAYOUT, EpubMultiImageLayout.COMPACT),
             epubImageFit = enumPreference(KEY_EPUB_IMAGE_FIT, EpubImageFit.SCREEN),
-            epubImageBackground = enumPreference(KEY_EPUB_IMAGE_BACKGROUND, EpubImageBackground.DARK)
+            epubImageBackground = enumPreference(KEY_EPUB_IMAGE_BACKGROUND, EpubImageBackground.DARK),
+            epubAutoHideControls = prefs.getBoolean(KEY_EPUB_AUTO_HIDE_CONTROLS, false)
         )
     }
 
@@ -175,6 +176,11 @@ class ReaderPreferencesManager(context: Context) {
         _readerSettings.update { it.copy(epubImageBackground = background) }
     }
 
+    fun updateEpubAutoHideControls(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_EPUB_AUTO_HIDE_CONTROLS, enabled).apply()
+        _readerSettings.update { it.copy(epubAutoHideControls = enabled) }
+    }
+
     fun resetEpubImageAlignment() {
         prefs.edit()
             .putString(KEY_EPUB_IMAGE_VERTICAL_ALIGNMENT, EpubImageVerticalAlignment.CENTER.name)
@@ -210,6 +216,7 @@ class ReaderPreferencesManager(context: Context) {
             .putString(KEY_EPUB_MULTI_IMAGE_LAYOUT, defaults.epubMultiImageLayout.name)
             .putString(KEY_EPUB_IMAGE_FIT, defaults.epubImageFit.name)
             .putString(KEY_EPUB_IMAGE_BACKGROUND, defaults.epubImageBackground.name)
+            .putBoolean(KEY_EPUB_AUTO_HIDE_CONTROLS, defaults.epubAutoHideControls)
             .apply()
         _readerSettings.value = defaults
     }
@@ -266,6 +273,7 @@ class ReaderPreferencesManager(context: Context) {
         private const val KEY_EPUB_MULTI_IMAGE_LAYOUT = "reader_epub_multi_image_layout"
         private const val KEY_EPUB_IMAGE_FIT = "reader_epub_image_fit"
         private const val KEY_EPUB_IMAGE_BACKGROUND = "reader_epub_image_background"
+        private const val KEY_EPUB_AUTO_HIDE_CONTROLS = "reader_epub_auto_hide_controls"
 
         // App preference keys
         private const val KEY_AMOLED_APP = "app_amoled_mode"

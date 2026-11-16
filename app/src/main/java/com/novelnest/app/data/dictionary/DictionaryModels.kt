@@ -7,9 +7,10 @@ import java.util.Locale
 internal data class DictionaryDefinition(val text: String, val example: String?, val synonyms: List<String>, val antonyms: List<String>)
 internal data class DictionaryMeaning(val partOfSpeech: String, val definitions: List<DictionaryDefinition>, val synonyms: List<String>, val antonyms: List<String>)
 internal data class DictionaryLicense(val name: String, val url: String?)
-internal data class DictionaryEntry(val word: String, val phonetics: List<String>, val meanings: List<DictionaryMeaning>, val sources: List<String>, val license: DictionaryLicense?)
-internal data class DictionaryResult(val query: String, val entries: List<DictionaryEntry>, val fetchedAtMs: Long) {
-    fun isFresh(now: Long): Boolean = fetchedAtMs in 1..now && now - fetchedAtMs <= FRESH_MS
+internal data class DictionaryRecording(val url: String, val phonetic: String?, val source: String?, val license: DictionaryLicense?)
+internal data class DictionaryEntry(val word: String, val phonetics: List<String>, val meanings: List<DictionaryMeaning>, val sources: List<String>, val license: DictionaryLicense?, val recordings: List<DictionaryRecording> = emptyList())
+internal data class DictionaryResult(val query: String, val entries: List<DictionaryEntry>, val fetchedAtMs: Long, val recordingMetadataLoaded: Boolean = true) {
+    fun isFresh(now: Long): Boolean = recordingMetadataLoaded && fetchedAtMs in 1..now && now - fetchedAtMs <= FRESH_MS
     companion object { const val FRESH_MS = 30L * 24 * 60 * 60 * 1000 }
 }
 internal enum class DictionaryError { INVALID_WORD, NOT_FOUND, RATE_LIMIT, NETWORK, TIMEOUT, UNAVAILABLE, INVALID_RESPONSE, BUSY }

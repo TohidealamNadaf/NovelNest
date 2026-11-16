@@ -49,6 +49,7 @@ fun NovelNestIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    iconModifier: Modifier = Modifier,
     tint: Color = NovelTextPrimary,
     iconSize: Dp = 22.dp,
     enabled: Boolean = true,
@@ -120,7 +121,7 @@ fun NovelNestIconButton(
                 imageVector = icon,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier
+                modifier = iconModifier
                     .size(iconSize)
                     .clearAndSetSemantics { }
             )

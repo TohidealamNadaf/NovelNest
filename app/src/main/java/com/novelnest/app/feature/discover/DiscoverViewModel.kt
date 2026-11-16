@@ -136,27 +136,39 @@ class DiscoverViewModel(
         val source = _uiState.value.selectedSource
         loadJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = it.sections.isEmpty(), isRefreshing = forceRefresh, errorMessage = null) }
-            repository.getHomeSections(source, forceRefresh).collect { result ->
-                if (_uiState.value.selectedSource != source) return@collect
-                result.fold(
-                    onSuccess = { sections ->
-                        _uiState.update { previous ->
-                            val known = previous.sections.flatMap { it.novels }.filter { it.hasRating() }
-                                .associateBy { it.source to it.id }
-                            val enriched = sections.map { section -> section.copy(novels = section.novels.map { novel ->
-                                if (novel.hasRating()) novel else known[novel.source to novel.id]
-                                    ?.let { novel.copy(rating = it.rating) } ?: novel
-                            }) }.reuseRatings()
-                            previous.copy(sections = enriched, isLoading = false, isRefreshing = false, errorMessage = null)
+            try {
+                repository.getHomeSections(source, forceRefresh).collect { result ->
+                    if (_uiState.value.selectedSource != source) return@collect
+                    result.fold(
+                        onSuccess = { sections ->
+                            _uiState.update { previous ->
+                                val known = previous.sections.flatMap { it.novels }.filter { it.hasRating() }
+                                    .associateBy { it.source to it.id }
+                                val enriched = sections.map { section -> section.copy(novels = section.novels.map { novel ->
+                                    if (novel.hasRating()) novel else known[novel.source to novel.id]
+                                        ?.let { novel.copy(rating = it.rating) } ?: novel
+                                }) }.reuseRatings()
+                                previous.copy(sections = enriched, isLoading = false, errorMessage = null)
+                            }
+                            val visible = visibleRatings.keys.toSet()
+                            sections.flatMap { it.novels }.distinctBy { it.source to it.id }.forEach {
+                                if ((it.source to it.id) in visible) requestMissingRating(it)
+                            }
+                        },
+                        onFailure = { error ->
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    errorMessage = error.localizedMessage ?: "Unable to load novels. Please retry."
+                                )
+                            }
                         }
-                        val visible = visibleRatings.keys.toSet()
-                        sections.flatMap { it.novels }.distinctBy { it.source to it.id }.forEach {
-                            if ((it.source to it.id) in visible) requestMissingRating(it)
-                        }
-                    },
-                    onFailure = { error -> _uiState.update { it.copy(isLoading = false, isRefreshing = false,
-                        errorMessage = error.localizedMessage ?: "Unable to load novels. Please retry.") } }
-                )
+                    )
+                }
+            } finally {
+                _uiState.update { state ->
+                    if (state.selectedSource != source) state else state.copy(isLoading = false, isRefreshing = false)
+                }
             }
         }
     }

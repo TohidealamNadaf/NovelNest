@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -43,16 +46,19 @@ import com.novelnest.app.core.designsystem.NovelError
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
 import com.novelnest.app.data.preferences.ReaderTheme
+import com.novelnest.app.data.dictionary.DictionaryRecording
 import java.text.DateFormat
 import java.util.Date
 
-/** Native, lazy definition rows; no reader/WebView re-layout or audio focus changes. */
+/** Native, lazy definition rows. Pronunciation is explicitly user-started and Activity-owned. */
 @Composable
 internal fun DictionaryPanel(
     state: DictionaryUiState,
     theme: ReaderTheme,
     onRetry: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    pronunciation: DictionaryPronunciationState,
+    onPronounce: (DictionaryRecording?) -> Unit
 ) {
     val isDark = theme.isDark
     val primaryAccent = if (isDark) NovelPrimary else Color(0xFF9A5B13)
@@ -85,8 +91,11 @@ internal fun DictionaryPanel(
     }
 
     val maxModalHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.54f).coerceIn(260.dp, 420.dp)
+    val recording = remember(state.result) {
+        state.result?.entries?.firstNotNullOfOrNull { it.recordings.firstOrNull() }
+    }
     val primaryPhonetic = remember(state.result) {
-        state.result?.entries?.firstOrNull { it.phonetics.isNotEmpty() }?.phonetics?.firstOrNull()
+        recording?.phonetic ?: state.result?.entries?.firstOrNull { it.phonetics.isNotEmpty() }?.phonetics?.firstOrNull()
     }
 
     MaterialTheme(colorScheme = colors) {
@@ -138,21 +147,19 @@ internal fun DictionaryPanel(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(1.dp)
                         ) {
+                            Text(
+                                text = state.query.ifBlank { stringResource(R.string.dictionary_title) },
+                                color = primaryText,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.semantics { heading() }
+                            )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Text(
-                                    text = state.query.ifBlank { stringResource(R.string.dictionary_title) },
-                                    color = primaryText,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier
-                                        .weight(1f, fill = false)
-                                        .semantics { heading() }
-                                )
                                 if (!primaryPhonetic.isNullOrBlank()) {
                                     Text(
                                         text = primaryPhonetic,
@@ -160,17 +167,80 @@ internal fun DictionaryPanel(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Text(
+                                        text = "•",
+                                        color = secondaryText.copy(alpha = 0.6f),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.dictionary_title),
+                                    color = secondaryText,
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        if (state.query.isNotBlank()) {
+                            val isAudioActive = pronunciation.loading || pronunciation.playing
+                            val isAudioEnabled = recording != null || isAudioActive
+                            val audioDescription = stringResource(
+                                when {
+                                    isAudioActive -> R.string.dictionary_audio_stop
+                                    recording == null -> R.string.dictionary_audio_unavailable
+                                    else -> R.string.dictionary_audio_play
+                                }
+                            )
+                            val audioBgColor = when {
+                                isAudioActive -> primaryAccent.copy(alpha = 0.16f)
+                                else -> cardBackground
+                            }
+                            val audioBorderColor = when {
+                                isAudioActive -> primaryAccent.copy(alpha = 0.5f)
+                                else -> cardBorderColor
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(audioBgColor)
+                                    .border(1.dp, audioBorderColor, RoundedCornerShape(9.dp))
+                                    .semantics { contentDescription = audioDescription }
+                                    .clickable(
+                                        enabled = isAudioEnabled,
+                                        role = Role.Button,
+                                        onClickLabel = audioDescription,
+                                        onClick = { onPronounce(recording) }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (pronunciation.loading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(15.dp),
+                                        color = primaryAccent,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (pronunciation.playing) {
+                                            Icons.Rounded.Stop
+                                        } else {
+                                            Icons.AutoMirrored.Rounded.VolumeUp
+                                        },
+                                        contentDescription = null,
+                                        tint = if (isAudioEnabled) primaryAccent else secondaryText.copy(alpha = 0.38f),
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
-                            Text(
-                                text = stringResource(R.string.dictionary_title),
-                                color = secondaryText,
-                                fontSize = 10.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                         }
 
                         if (state.query.isNotBlank()) {
@@ -223,6 +293,22 @@ internal fun DictionaryPanel(
                     }
 
                     HorizontalDivider(color = cardBorderColor.copy(alpha = 0.7f))
+
+                    val audioStatus = pronunciation.error ?: when {
+                        pronunciation.loading -> stringResource(R.string.dictionary_audio_loading)
+                        pronunciation.playing -> stringResource(R.string.dictionary_audio_playing)
+                        else -> null
+                    }
+                    if (audioStatus != null) {
+                        Text(
+                            text = audioStatus,
+                            fontSize = 10.5.sp,
+                            color = if (pronunciation.error != null) NovelError else primaryAccent,
+                            modifier = Modifier
+                                .padding(horizontal = 2.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
+                        )
+                    }
 
                     // ─── STATUS BANNERS (Refreshing / Cached) ───
                     if (state.loading && state.result != null) {
@@ -309,6 +395,7 @@ internal fun DictionaryPanel(
                                                 horizontalArrangement = Arrangement.End
                                             ) {
                                                 TextButton(
+                                            
                                                     onClick = onRetry,
                                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                                                     modifier = Modifier.height(28.dp)
@@ -544,6 +631,40 @@ internal fun DictionaryPanel(
                             }
                         }
 
+                        if (recording != null && (recording.source != null || recording.license != null)) {
+                            item(key = "audio-attribution") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    recording.source?.let { sourceUrl ->
+                                        DictionarySourceLink(
+                                            url = sourceUrl,
+                                            label = stringResource(R.string.dictionary_audio_source),
+                                            primaryAccent = primaryAccent
+                                        )
+                                    }
+                                    recording.license?.let { license ->
+                                        if (license.url != null) {
+                                            DictionarySourceLink(
+                                                url = license.url,
+                                                label = license.name,
+                                                primaryAccent = primaryAccent
+                                            )
+                                        } else {
+                                            Text(
+                                                text = license.name,
+                                                color = secondaryText,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         item(key = "provider") {
                             Text(
                                 text = stringResource(R.string.dictionary_provider),

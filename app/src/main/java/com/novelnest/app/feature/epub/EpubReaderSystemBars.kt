@@ -2,6 +2,7 @@ package com.novelnest.app.feature.epub
 
 import android.view.ViewTreeObserver
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,10 +55,10 @@ internal fun EpubReaderSystemBars(activity: ComponentActivity, hideBars: Boolean
 
 /** Positioned over Readium; animation never changes the publication viewport height. */
 @Composable
-internal fun EpubReaderChromeOverlay(visible: Boolean, fromTop: Boolean, reducedMotion: Boolean,
+internal fun EpubReaderChromeOverlay(transition: Transition<Boolean>, fromTop: Boolean, reducedMotion: Boolean,
     modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val duration = if (reducedMotion) 0 else 180
-    AnimatedVisibility(visible = visible, modifier = modifier,
+    transition.AnimatedVisibility(visible = { it }, modifier = modifier,
         enter = slideInVertically(tween(duration)) { height -> if (fromTop) -height else height } + fadeIn(tween(duration)),
         exit = slideOutVertically(tween(duration)) { height -> if (fromTop) -height else height } + fadeOut(tween(duration))) {
         content()

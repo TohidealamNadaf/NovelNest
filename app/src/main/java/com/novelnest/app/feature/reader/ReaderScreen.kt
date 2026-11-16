@@ -17,6 +17,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.magnifier
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -65,6 +66,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -91,6 +95,10 @@ import com.novelnest.app.feature.reader.components.ChapterCutSection
 import com.novelnest.app.feature.reader.components.PullChapterIndicator
 import com.novelnest.app.feature.reader.components.ReaderQuickSettingsSheet
 import com.novelnest.app.feature.reader.components.ReaderNavigationBar
+import com.novelnest.app.feature.reader.components.ReaderChapterSelection
+import com.novelnest.app.feature.reader.components.ReaderSelectionOverlay
+import com.novelnest.app.feature.reader.components.readerSelectionGesture
+import com.novelnest.app.feature.reader.components.ReaderTextSelection
 import com.novelnest.app.feature.reader.components.ReaderTopBar
 import com.novelnest.app.feature.reader.components.ReaderFastScroller
 import com.novelnest.app.core.ui.LocalNarrationBottomPadding
@@ -258,6 +266,10 @@ fun ReaderScreen(
                 val displayChapter = preparedChapter ?: chapter
                 val displayedParagraphs = aiState.paragraphs(displayChapter)
                 val contentKey = if (aiState.matches(displayChapter)) aiState.contentKey else "original"
+                val selectionParagraphs = remember(displayChapter.title, displayedParagraphs) {
+                    listOf(displayChapter.title) + displayedParagraphs
+                }
+                val selection = remember(chapter.id, contentKey, selectionParagraphs) { ReaderChapterSelection(selectionParagraphs) }
                 val restoredScroll = remember(chapterIndex, contentKey) { viewModel.scrollPosition(chapterIndex, contentKey) }
                 val listState = key(contentKey) { rememberLazyListState() }
                 var scrollRestored by remember(chapterIndex, contentKey) { mutableStateOf(false) }
@@ -287,7 +299,11 @@ fun ReaderScreen(
                 var pullOffset by remember(chapterIndex) { mutableFloatStateOf(0f) }
                 var releasingPull by remember(chapterIndex) { mutableStateOf(false) }
                 var fastScrolling by remember(chapterIndex) { mutableStateOf(false) }
-                val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex) &&
+                val selectionAllowed by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex) && readerResumed && readerWindowFocused &&
+                    !uiState.showQuickSettingsSheet && !fastScrolling && !releasingPull && pullOffset == 0f &&
+                    drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
+                    drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed)
+                val swipeEnabled by rememberUpdatedState(uiState.canNavigateFrom(chapterIndex) && !selection.active &&
                     !uiState.showQuickSettingsSheet &&
                     drawerState.currentValue == androidx.compose.material3.DrawerValue.Closed &&
                     drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed)
@@ -415,21 +431,46 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(pullScrollConnection)
+                        .magnifier(sourceCenter = {
+                            val point = selection.pointer
+                            if (!selection.dragging || point == null || selection.viewport.height <= 0f) Offset.Unspecified
+                            else Offset(point.x.coerceIn(selection.viewport.left, selection.viewport.right),
+                                point.y.coerceIn(selection.viewport.top, selection.viewport.bottom)) - selection.hostBounds.topLeft
+                        })
+                        .onGloballyPositioned {
+                            val bounds = it.boundsInWindow()
+                            selection.hostBounds = bounds
+                            val top = (bounds.top + with(density) { topPadding.toPx() }).coerceAtMost(bounds.bottom)
+                            val bottom = (bounds.bottom - with(density) { (48.dp + narrationBottomPadding).toPx() }).coerceIn(top, bounds.bottom)
+                            selection.viewport = Rect(bounds.left, top, bounds.right, bottom)
+                        }
                 ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("NovelChapterText")
-                            .pointerInput(chapter.id) {
+                            .readerSelectionGesture(selection) { selectionAllowed }
+                            .pointerInput(chapter.id, selection) {
                                 awaitEachGesture {
                                     // Do not consume side touches, scrolling, long presses, or child controls.
                                     val down = awaitFirstDown(requireUnconsumed = true)
+                                    // Dismiss a selection without also opening quick settings.
+                                    if (selection.active) {
+                                        val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                        if (up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis &&
+                                            (up.position - down.position).getDistance() <= viewConfiguration.touchSlop) {
+                                            selection.clear()
+                                            up.consume()
+                                        }
+                                        return@awaitEachGesture
+                                    }
                                     if (down.position.x !in (size.width * 0.2f)..(size.width * 0.8f) ||
                                         !swipeEnabled || (listState.isScrollInProgress && !autoScrollTouchInterrupted) ||
                                         pullOffset != 0f) return@awaitEachGesture
                                     val up = waitForUpOrCancellation() ?: return@awaitEachGesture
-                                    if (up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis &&
+                                    if (!selection.active &&
+                                        up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis &&
                                         (up.position - down.position).getDistance() <= viewConfiguration.touchSlop) {
                                         up.consume()
                                         viewModel.showQuickSettings(true)
@@ -447,16 +488,19 @@ fun ReaderScreen(
                         // Keep title and rewrite controls in one item so paragraph indexes stay stable.
                         item {
                             Column {
-                                Text(
-                                    text = displayChapter.title,
-                                    fontFamily = settings.fontFamily.fontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
-                                    lineHeight = (((settings.fontSizeSp + 4f) * 0.975f) * settings.lineHeightMultiplier).sp,
-                                    letterSpacing = 0.15.sp,
-                                    color = textColor,
-                                    modifier = Modifier.padding(top = 18.dp, bottom = 22.dp)
-                                )
+                                ReaderTextSelection(selection, 0, currentTheme, enabled = { selectionAllowed }) { selectionModifier, onTextLayout ->
+                                    Text(
+                                        text = displayChapter.title,
+                                        fontFamily = settings.fontFamily.fontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = ((settings.fontSizeSp + 4f) * 0.975f).sp,
+                                        lineHeight = (((settings.fontSizeSp + 4f) * 0.975f) * settings.lineHeightMultiplier).sp,
+                                        letterSpacing = 0.15.sp,
+                                        color = textColor,
+                                        onTextLayout = onTextLayout,
+                                        modifier = Modifier.padding(top = 18.dp, bottom = 22.dp).then(selectionModifier)
+                                    )
+                                }
 
                                 chapterText.failure?.takeIf { settings.unicodeEscapeDecodingEnabled && preparedChapter != null }?.let { message ->
                                     Text(message, color = secondaryColor, fontSize = 12.sp)
@@ -563,16 +607,19 @@ fun ReaderScreen(
                         itemsIndexed(
                             items = displayedParagraphs,
                             key = { index, _ -> readerParagraphKey(if (contentKey == "original") chapter.id else "${chapter.id}:$contentKey", index) }
-                        ) { _, paragraph ->
-                            Text(
-                                text = paragraph,
-                                fontFamily = settings.fontFamily.fontFamily,
-                                fontSize = (settings.fontSizeSp * 0.975f).sp,
-                                lineHeight = ((settings.fontSizeSp * 0.975f) * settings.lineHeightMultiplier).sp,
-                                letterSpacing = 0.2.sp,
-                                color = textColor,
-                                modifier = Modifier.padding(bottom = settings.paragraphSpacingDp.dp)
-                            )
+                        ) { index, paragraph ->
+                            ReaderTextSelection(selection, index + 1, currentTheme, enabled = { selectionAllowed }) { selectionModifier, onTextLayout ->
+                                Text(
+                                    text = paragraph,
+                                    fontFamily = settings.fontFamily.fontFamily,
+                                    fontSize = (settings.fontSizeSp * 0.975f).sp,
+                                    lineHeight = ((settings.fontSizeSp * 0.975f) * settings.lineHeightMultiplier).sp,
+                                    letterSpacing = 0.2.sp,
+                                    color = textColor,
+                                    onTextLayout = onTextLayout,
+                                    modifier = Modifier.padding(bottom = settings.paragraphSpacingDp.dp).then(selectionModifier)
+                                )
+                            }
                         }
 
                         // Chapter Loading Skeleton/Spinner when paragraphs are fetching
@@ -632,6 +679,8 @@ fun ReaderScreen(
                             }
                         }
                     }
+
+                    ReaderSelectionOverlay(selection, listState, selectionAllowed)
 
                     ReaderFastScroller(
                         listState = listState,

@@ -32,7 +32,7 @@ internal class EpubDictionarySelectionCallback(
 
     private fun addDefine(menu: Menu): Boolean {
         var changed = false
-        // Some WebViews discover our exported processor too. Keep just the local action.
+        // Defensively deduplicate a host callback that already includes our private Activity.
         for (index in menu.size() - 1 downTo 0) {
             val item = menu.getItem(index)
             val component = item.intent?.component

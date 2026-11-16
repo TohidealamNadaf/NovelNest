@@ -133,7 +133,8 @@ data class ReaderSettings(
     val epubImageHorizontalAlignment: EpubImageHorizontalAlignment = EpubImageHorizontalAlignment.CENTER,
     val epubMultiImageLayout: EpubMultiImageLayout = EpubMultiImageLayout.COMPACT,
     val epubImageFit: EpubImageFit = EpubImageFit.SCREEN,
-    val epubImageBackground: EpubImageBackground = EpubImageBackground.DARK
+    val epubImageBackground: EpubImageBackground = EpubImageBackground.DARK,
+    val epubAutoHideControls: Boolean = false
 )
 
 /**

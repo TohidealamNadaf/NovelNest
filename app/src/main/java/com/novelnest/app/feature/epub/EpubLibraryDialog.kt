@@ -233,7 +233,8 @@ fun EpubLibraryDialog(repository: EpubRepository, onDismiss: () -> Unit, onOpen:
                                     modifier = Modifier.width(44.dp).height(64.dp),
                                     title = entry.book.title,
                                     author = entry.book.author,
-                                    volumeLabel = entry.book.volumeLabel
+                                    volumeLabel = entry.book.volumeLabel,
+                                    seriesId = entry.book.collectionId
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
@@ -359,29 +360,38 @@ fun EpubLibraryDialog(repository: EpubRepository, onDismiss: () -> Unit, onOpen:
 }
 
 @Composable
+private fun rememberEpubCoverRequest(repository: EpubRepository, id: String, size: Int? = null): ImageRequest? {
+    val context = LocalContext.current
+    val snapshot by remember(repository, id) { repository.observeCover(id) }.collectAsStateWithLifecycle(initialValue = null)
+    return remember(snapshot, context, size) {
+        snapshot?.let { cover ->
+            ImageRequest.Builder(context).data(cover.file)
+                .memoryCacheKey("epub-cover2|" + id + "|" + cover.modifiedAt + "|" + cover.byteCount)
+                .apply { if (size != null) size(size) }.build()
+        }
+    }
+}
+
+@Composable
 internal fun EpubCover(
     repository: EpubRepository,
     id: String,
     modifier: Modifier = Modifier,
     title: String = "",
     author: String = "",
-    volumeLabel: String? = null
+    volumeLabel: String? = null,
+    seriesId: String? = null
 ) {
-    val cover = remember(id, repository) { repository.coverFile(id) }
-    var coverLoaded by remember(id) { mutableStateOf(false) }
+    val cover = rememberEpubCoverRequest(repository, id)
+    var coverLoaded by remember(id, cover) { mutableStateOf(false) }
+    val palette = remember(id, seriesId) { epubCoverPalette(seriesId ?: id) }
+    val background = remember(palette) { Brush.linearGradient(listOf(palette.top, palette.middle, palette.bottom)) }
+    val glow = remember(palette) { Brush.radialGradient(listOf(palette.accent.copy(alpha = 0.16f), Color.Transparent)) }
 
     BoxWithConstraints(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF1F2633),
-                        NovelSurfaceVariant,
-                        Color(0xFF0E1218)
-                    )
-                )
-            ),
+            .background(background),
         contentAlignment = Alignment.Center
     ) {
         val isMini = maxWidth < 60.dp
@@ -392,7 +402,7 @@ internal fun EpubCover(
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.MenuBook,
                     contentDescription = null,
-                    tint = NovelPrimary,
+                    tint = palette.accent,
                     modifier = Modifier.size(if (isMini) 18.dp else 26.dp)
                 )
             } else {
@@ -401,12 +411,7 @@ internal fun EpubCover(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    NovelPrimary.copy(alpha = 0.16f),
-                                    Color.Transparent
-                                )
-                            )
+                            glow
                         )
                 )
 
@@ -416,7 +421,7 @@ internal fun EpubCover(
                         .align(Alignment.CenterStart)
                         .fillMaxHeight()
                         .width(if (isMini) 3.dp else 5.dp)
-                        .background(NovelPrimary.copy(alpha = 0.28f))
+                        .background(palette.accent.copy(alpha = 0.28f))
                 )
                 if (!isMini) {
                     Box(
@@ -437,7 +442,7 @@ internal fun EpubCover(
                             .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
                             .border(
                                 width = 0.8.dp,
-                                color = NovelPrimary.copy(alpha = 0.24f),
+                                color = palette.accent.copy(alpha = 0.24f),
                                 shape = RoundedCornerShape(5.dp)
                             )
                     )
@@ -467,12 +472,12 @@ internal fun EpubCover(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.MenuBook,
                                     contentDescription = null,
-                                    tint = NovelPrimary,
+                                    tint = palette.accent,
                                     modifier = Modifier.size(if (isCompact) 10.dp else 12.dp)
                                 )
                                 Text(
                                     text = (volumeLabel?.takeIf { it.isNotBlank() } ?: "EPUB").uppercase(),
-                                    color = NovelPrimary,
+                                    color = palette.accent,
                                     fontSize = if (isCompact) 7.5.sp else 8.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -483,7 +488,7 @@ internal fun EpubCover(
                                 modifier = Modifier
                                     .width(if (isCompact) 20.dp else 28.dp)
                                     .height(1.dp)
-                                    .background(NovelPrimary.copy(alpha = 0.45f))
+                                    .background(palette.accent.copy(alpha = 0.45f))
                             )
                         }
                     } else {
@@ -524,7 +529,7 @@ internal fun EpubCover(
                             )
                             Text(
                                 text = author,
-                                color = NovelPrimary.copy(alpha = 0.85f),
+                                color = palette.accent.copy(alpha = 0.85f),
                                 fontSize = if (isCompact) 7.5.sp else 8.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.Center,
@@ -544,6 +549,7 @@ internal fun EpubCover(
             model = cover,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            onLoading = { coverLoaded = false },
             onSuccess = { coverLoaded = true },
             onError = { coverLoaded = false },
             modifier = Modifier.fillMaxSize()
@@ -553,11 +559,7 @@ internal fun EpubCover(
 
 @Composable
 fun EpubContinueReadingCard(entry: LocalBookEntry, repository: EpubRepository, seriesName: String? = null, enabled: Boolean = true, onOpen: () -> Unit) {
-    val context = LocalContext.current
-    val coverFile = remember(entry.book.id, repository) { repository.coverFile(entry.book.id) }
-    val coverRequest = remember(coverFile, context) {
-        ImageRequest.Builder(context).data(coverFile).size(360).build()
-    }
+    val coverRequest = rememberEpubCoverRequest(repository, entry.book.id, size = 360)
     Card(
         onClick = onOpen,
         enabled = enabled,
@@ -608,7 +610,8 @@ fun EpubContinueReadingCard(entry: LocalBookEntry, repository: EpubRepository, s
                     modifier = Modifier.width(88.dp).height(132.dp),
                     title = entry.book.title,
                     author = entry.book.author,
-                    volumeLabel = entry.book.volumeLabel
+                    volumeLabel = entry.book.volumeLabel,
+                    seriesId = entry.book.collectionId
                 )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(entry.book.title, color = NovelTextPrimary, style = MaterialTheme.typography.titleLarge,

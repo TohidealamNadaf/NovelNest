@@ -3,6 +3,12 @@
 Verified against public pages on **27 October 2026**. This is a fetching/state implementation;
 the separate manhwa screen is intentionally left for the UI agent. See [UI_AGENT_PROMPT.md](UI_AGENT_PROMPT.md).
 
+Poster transport rechecked on **15 November 2026** against live public pages and the
+Android Studio emulator. See [COVERS.md](COVERS.md) for the reproduced HTTP 403 cause,
+centralized image-header fix and before/after verification. No metadata schema break
+was found in this follow-up; the original source/reader verification below retains
+its original date and scope.
+
 ## What changed
 
 The previous `remote/AsuraSource.kt` fetched the obsolete `asuracomic.net` homepage,
@@ -49,6 +55,7 @@ There is no dependency on a browser, WebView, JavaScript engine, third-party scr
 | `AsuraParser.kt` | Pure mapping of captured site data to domain models |
 | `AsuraModels.kt` | Cache/response limits |
 | `AsuraErrors.kt` | Explicit blocked, locked, account, quota, network, parse and size failures |
+| `AsuraCoverInterceptor.kt` | Source headers for Coil poster/banner requests across Discover, detail and other shared image entry points |
 | `AsuraHttp.kt` | Cancellation, response ownership, bounded reads, redirects, rate/concurrency limits |
 | `AsuraSource.kt` | Caches, request coalescing and `NovelSource`/`ManhwaSource` adapter |
 | `data/model/Manhwa.kt` | Typed details, chapter metadata, ordered page manifest |

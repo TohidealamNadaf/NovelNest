@@ -3,8 +3,6 @@
 package com.novelnest.app.data.local.epub
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -39,6 +37,7 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
     private val mutableLibraryError = MutableStateFlow<String?>(null)
     val libraryError = mutableLibraryError.asStateFlow()
     private val libraryRevision = MutableStateFlow(0)
+    private val coverRevision = MutableStateFlow(0L)
     private val mutablePositionError = MutableStateFlow<String?>(null)
     val positionError = mutablePositionError.asStateFlow()
     private val pendingPositions = java.util.concurrent.ConcurrentHashMap<String, EpubPositionEntity>()
@@ -136,6 +135,15 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
     }
     fun bookFile(id: String) = File(directory(id), "book.epub")
     fun coverFile(id: String) = File(directory(id), "cover.jpg")
+    /** File metadata only: never open a Publication or decode a bitmap while browsing cards. */
+    internal fun observeCover(id: String): Flow<EpubCoverSnapshot?> {
+        val file = coverFile(id)
+        return coverRevision.map {
+            withContext(ioDispatcher) {
+                if (file.isFile && file.length() > 0) EpubCoverSnapshot(file, file.lastModified(), file.length()) else null
+            }
+        }.distinctUntilChanged()
+    }
     suspend fun book(id: String) = dao.book(id)
     suspend fun position(id: String) = dao.position(id)
     private fun validPosition(position: EpubPositionEntity) =
@@ -231,16 +239,25 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
             val (hash, bytes) = stream.use { EpubArchiveValidator.copyAndHash(it, file, { context.ensureActive() }) }
             val id = "epub-" + hash
             dao.book(id)?.let { existing ->
-                if (!bookFile(id).isFile) {
-                    // A backup restored metadata without its large publication: reimport repairs the file.
-                    EpubArchiveValidator.validate(file) { context.ensureActive() }
-                    val publication = engine.open(file)
-                    try { saveCover(publication, File(stage, "cover.jpg")) } finally { publication.close() }
-                    writes.withLock {
-                        if (dao.book(id) == null) throw EpubImportException("The book was removed during import. Please import again.")
-                        directory(id).mkdirs()
-                        if (!file.renameTo(bookFile(id))) throw EpubImportException("Could not restore the imported book file.")
-                        File(stage, "cover.jpg").takeIf { it.exists() }?.renameTo(coverFile(id))
+                val restoreBook = !bookFile(id).isFile
+                if (restoreBook || !EpubCoverExtractor.isUsable(coverFile(id))) {
+                    // Reimport can repair an optional cover too, without replacing book metadata or position.
+                    val publication = try {
+                        EpubArchiveValidator.validate(file) { context.ensureActive() }
+                        engine.open(file)
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (error: Exception) { if (restoreBook) throw error else null }
+                    if (publication != null) {
+                        try { saveCover(publication, File(stage, "cover.jpg")) } finally { publication.close() }
+                        context.ensureActive()
+                        writes.withLock {
+                            if (dao.book(id) == null) throw EpubImportException("The book was removed during import. Please import again.")
+                            if (restoreBook) {
+                                directory(id).mkdirs()
+                                if (!file.renameTo(bookFile(id))) throw EpubImportException("Could not restore the imported book file.")
+                            }
+                            publishRecoveredCover(File(stage, "cover.jpg"), id)
+                        }
                     }
                 }
                 return EpubImportState.Complete(existing, true, message =
@@ -358,20 +375,19 @@ class EpubRepository(context: Context, private val dao: LocalBookDao,
         }
     }
 
-    private suspend fun saveCover(publication: Publication, target: File) {
-        val link = publication.linkWithRel("cover") ?: return
-        val resource = publication.get(link) ?: return
+    private suspend fun saveCover(publication: Publication, target: File) = EpubCoverExtractor.save(publication, target)
+
+    private fun publishRecoveredCover(staged: File, id: String) {
+        if (!staged.isFile) return
         try {
-            val data = resource.read().getOrNull() ?: return
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
-            var sample = 1
-            while (bounds.outWidth / sample > 720 || bounds.outHeight / sample > 1000) sample *= 2
-            val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return
-            try { target.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) } }
-            finally { bitmap.recycle() }
-        } finally { resource.close() }
+            try {
+                java.nio.file.Files.move(staged.toPath(), coverFile(id).toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(staged.toPath(), coverFile(id).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+            coverRevision.update { it + 1 }
+        } catch (_: Exception) { /* Keep a readable book and its generated cover on thumbnail storage failure. */ }
     }
     suspend fun delete(id: String) = withContext(Dispatchers.IO + NonCancellable) {
         ensureRecovered()

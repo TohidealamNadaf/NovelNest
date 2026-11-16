@@ -22,6 +22,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -100,6 +101,9 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 import org.readium.r2.navigator.epub.*
+import org.readium.r2.shared.publication.Locator
+import org.readium.r2.shared.publication.epub.EpubLayout
+import org.readium.r2.shared.publication.presentation.presentation
 import org.readium.r2.navigator.input.DragEvent
 import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
@@ -143,7 +147,8 @@ class EpubReaderActivity : FragmentActivity() {
         val app = application as NovelNestApplication
         model = ViewModelProvider(this, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                EpubReaderViewModel(id, app.epubRepository, studyRepository = app.studyRepository) as T
+                EpubReaderViewModel(id, app.epubRepository, studyRepository = app.studyRepository,
+                    preferences = app.preferencesManager) as T
         })[EpubReaderViewModel::class.java]
         setContent {
             NovelNestTheme(manageSystemBars = false) {
@@ -166,7 +171,8 @@ class EpubReaderActivity : FragmentActivity() {
                 var isBookmarkedPlaceholder by remember { mutableStateOf(false) }
                 var resourceError by remember { mutableStateOf<String?>(null) }
                 var percent by remember { mutableIntStateOf(0) }
-                var chapterPercent by remember { mutableIntStateOf(0) }
+                // Only the visible progress control observes this precise locator state.
+                val chapterLocator = remember { mutableStateOf<Locator?>(null) }
                 var currentHref by remember { mutableStateOf<org.readium.r2.shared.util.Url?>(null) }
                 var currentLocatorTitle by remember { mutableStateOf<String?>(null) }
                 val ready = state as? EpubReaderState.Ready
@@ -200,7 +206,11 @@ class EpubReaderActivity : FragmentActivity() {
                 val useChromeOverlays = isFullscreen || autoHideControls
                 val drawerVisible = drawerState.currentValue != DrawerValue.Closed || drawerState.targetValue != DrawerValue.Closed
                 val revealReaderChrome = showControlSheet || drawerVisible ||
-                    (autoHideControls && !isFullscreen && chromeState.autoHideControlsRevealed)
+                    (useChromeOverlays && chromeState.controlsRevealed)
+                // Normal chrome is already visible. Preserve that state when handing it to overlays;
+                // Auto-hide must not remove a visible header and animate a new one in from hidden.
+                val chromeTransition = updateTransition(
+                    targetState = !useChromeOverlays || revealReaderChrome, label = "EPUB reader chrome")
                 val readingWithoutChrome = useChromeOverlays && !revealReaderChrome
                 EpubReaderSystemBars(this@EpubReaderActivity,
                     hideBars = isFullscreen && !revealReaderChrome,
@@ -246,6 +256,18 @@ class EpubReaderActivity : FragmentActivity() {
                 LaunchedEffect(settings.keepScreenOn) { window.decorView.keepScreenOn = settings.keepScreenOn }
                 val canTapReader = ready != null && imageViewer == null && drawerState.currentValue == DrawerValue.Closed &&
                     drawerState.targetValue == DrawerValue.Closed
+                val readerChromeInteractive: () -> Boolean = {
+                    // Read current session state as well as animation state: rapid taps can arrive
+                    // before a StateFlow change has reached the next composition.
+                    val currentChrome = model.chromeState.value
+                    val overlayMode = ready != null && (currentChrome.fullscreen || currentChrome.autoHideControls)
+                    imageViewer == null && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        (!overlayMode || ((showControlSheet || drawerVisible || currentChrome.controlsRevealed) &&
+                            chromeTransition.currentState && chromeTransition.targetState && !chromeTransition.isRunning))
+                }
+                val withVisibleReaderChrome: (() -> Unit) -> Unit = { action ->
+                    if (readerChromeInteractive()) action()
+                }
                 val allowImageTap by rememberUpdatedState(!notesVisible)
                 val toggleReaderControls by rememberUpdatedState<() -> Boolean> {
                     if (!canTapReader || hasReaderSelection() || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) false
@@ -253,16 +275,21 @@ class EpubReaderActivity : FragmentActivity() {
                         if (showControlSheet) {
                             if (notesVisible) requestNotesExit(EpubNotesExit.DISMISS) else showControlSheet = false
                         } else {
-                            model.revealAutoHideControls()
-                            activeSheetPage = EpubBottomSheetPage.CONTROLS
-                            showControlSheet = true
+                            val currentChrome = model.chromeState.value
+                            if ((currentChrome.autoHideControls || currentChrome.fullscreen) && !currentChrome.controlsRevealed) {
+                                // Consume this tap only to reveal controls; a later, settled tap opens settings.
+                                model.revealReaderControls()
+                            } else if (readerChromeInteractive()) {
+                                activeSheetPage = EpubBottomSheetPage.CONTROLS
+                                showControlSheet = true
+                            }
                         }
                         true
                     }
                 }
                 val hideControlsOnReadingGesture by rememberUpdatedState<() -> Unit> {
-                    if (autoHideControls && canTapReader && !notesVisible && !hasReaderSelection() && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                        model.hideAutoHideControls()
+                    if (useChromeOverlays && canTapReader && !notesVisible && !hasReaderSelection() && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        model.hideReaderControls()
                         if (showControlSheet) showControlSheet = false
                     }
                 }
@@ -287,8 +314,8 @@ class EpubReaderActivity : FragmentActivity() {
                     onDispose { fragment?.removeInputListener(listener) }
                 }
                 BackHandler(enabled = useChromeOverlays && !showControlSheet && !drawerVisible && imageViewer == null &&
-                    (isFullscreen || !chromeState.autoHideControlsRevealed)) {
-                    if (isFullscreen) model.setFullscreen(false) else model.revealAutoHideControls()
+                    (isFullscreen || !chromeState.controlsRevealed)) {
+                    if (isFullscreen) model.setFullscreen(false) else model.revealReaderControls()
                 }
                 BackHandler(enabled = showControlSheet && canTapReader) {
                     if (notesVisible) {
@@ -313,30 +340,34 @@ class EpubReaderActivity : FragmentActivity() {
                         },
                         isBookmarked = isBookmarkedPlaceholder,
                         enabled = ready != null,
-                        onBack = { if (notesVisible) requestNotesExit(EpubNotesExit.FINISH) else finish() },
+                        onBack = { withVisibleReaderChrome { if (notesVisible) requestNotesExit(EpubNotesExit.FINISH) else finish() } },
                         onOpenChapters = {
-                            if (ready != null) {
+                            if (ready != null && readerChromeInteractive()) {
                                 if (notesVisible) requestNotesExit(EpubNotesExit.CHAPTERS)
                                 else scope.launch { drawerState.open() }
                             }
                         },
-                        onToggleBookmark = { isBookmarkedPlaceholder = !isBookmarkedPlaceholder },
+                        onToggleBookmark = { withVisibleReaderChrome { isBookmarkedPlaceholder = !isBookmarkedPlaceholder } },
                         onOpenSettings = {
-                            if (notesVisible) requestNotesExit(EpubNotesExit.READING_MODE)
-                            else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.READING_MODE) {
-                                showControlSheet = false
-                            } else {
-                                activeSheetPage = EpubBottomSheetPage.READING_MODE
-                                showControlSheet = true
+                            withVisibleReaderChrome {
+                                if (notesVisible) requestNotesExit(EpubNotesExit.READING_MODE)
+                                else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.READING_MODE) {
+                                    showControlSheet = false
+                                } else {
+                                    activeSheetPage = EpubBottomSheetPage.READING_MODE
+                                    showControlSheet = true
+                                }
                             }
                         },
                         onToggleControlSheet = {
-                            if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
-                            else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.CONTROLS) {
-                                showControlSheet = false
-                            } else {
-                                activeSheetPage = EpubBottomSheetPage.CONTROLS
-                                showControlSheet = true
+                            withVisibleReaderChrome {
+                                if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
+                                else if (showControlSheet && activeSheetPage == EpubBottomSheetPage.CONTROLS) {
+                                    showControlSheet = false
+                                } else {
+                                    activeSheetPage = EpubBottomSheetPage.CONTROLS
+                                    showControlSheet = true
+                                }
                             }
                         }
                     )
@@ -387,8 +418,10 @@ class EpubReaderActivity : FragmentActivity() {
                             IconButton(
                                 enabled = navigator != null,
                                 onClick = {
-                                    navigate({ resourceError = it }) {
-                                        goBackward(animated = !appSettings.reducedMotion)
+                                    withVisibleReaderChrome {
+                                        navigate({ resourceError = it }) {
+                                            goBackward(animated = !appSettings.reducedMotion)
+                                        }
                                     }
                                 }
                             ) {
@@ -405,10 +438,12 @@ class EpubReaderActivity : FragmentActivity() {
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable {
-                                        if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
-                                        else {
-                                            activeSheetPage = EpubBottomSheetPage.CONTROLS
-                                            showControlSheet = true
+                                        withVisibleReaderChrome {
+                                            if (notesVisible) requestNotesExit(EpubNotesExit.CONTROLS)
+                                            else {
+                                                activeSheetPage = EpubBottomSheetPage.CONTROLS
+                                                showControlSheet = true
+                                            }
                                         }
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -416,8 +451,10 @@ class EpubReaderActivity : FragmentActivity() {
                             IconButton(
                                 enabled = navigator != null,
                                 onClick = {
-                                    navigate({ resourceError = it }) {
-                                        goForward(animated = !appSettings.reducedMotion)
+                                    withVisibleReaderChrome {
+                                        navigate({ resourceError = it }) {
+                                            goForward(animated = !appSettings.reducedMotion)
+                                        }
                                     }
                                 }
                             ) {
@@ -572,9 +609,7 @@ class EpubReaderActivity : FragmentActivity() {
                                                         percent = ((locator.locations.totalProgression ?: model.progression()) * 100).toInt().coerceIn(0, 100)
                                                         currentHref = locator.href
                                                         currentLocatorTitle = locator.title
-                                                        chapterPercent = ((locator.locations.progression ?: model.progression()) * 100)
-                                                            .toInt()
-                                                            .coerceIn(0, 100)
+                                                        chapterLocator.value = locator
                                                     }
                                                 }
                                             } catch (cancelled: CancellationException) { throw cancelled }
@@ -623,11 +658,13 @@ class EpubReaderActivity : FragmentActivity() {
                                         if (!useChromeOverlays) readerFooter()
                                     }
 
-                                    EpubReaderChromeOverlay(
-                                        visible = useChromeOverlays && revealReaderChrome,
-                                        fromTop = false, reducedMotion = appSettings.reducedMotion,
-                                        modifier = Modifier.align(Alignment.BottomCenter)
-                                    ) { readerFooter() }
+                                    if (useChromeOverlays) {
+                                        EpubReaderChromeOverlay(
+                                            transition = chromeTransition,
+                                            fromTop = false, reducedMotion = appSettings.reducedMotion,
+                                            modifier = Modifier.align(Alignment.BottomCenter)
+                                        ) { readerFooter() }
+                                    }
 
                                     // ─── SLIDING BOTTOM SHEET OVERLAY (Controls, Font, Theme, Image Alignment, Reading Mode) ───
                                     androidx.compose.animation.AnimatedVisibility(
@@ -695,7 +732,21 @@ class EpubReaderActivity : FragmentActivity() {
                                                         EpubReaderBottomControlPanel(
                                                             currentChapterNumber = currentChapterIndex + 1,
                                                             totalChapters = toc.size.coerceAtLeast(1),
-                                                            chapterPercent = chapterPercent,
+                                                            chapterLocator = chapterLocator,
+                                                            chapterSeekingEnabled = showControlSheet && !drawerVisible && imageViewer == null &&
+                                                                result.publication.metadata.presentation.layout != EpubLayout.FIXED,
+                                                            onSeekChapter = { resource, progression ->
+                                                                if (!showControlSheet || drawerVisible || imageViewer != null ||
+                                                                    activeSheetPage != EpubBottomSheetPage.CONTROLS) false else {
+                                                                    val opened = navigate({ resourceError = it }) {
+                                                                        val target = epubChapterSeekLocator(currentLocator.value, resource, progression)
+                                                                        if (target == null || !result.publication.containsReadingResource(target.href)) false
+                                                                        else chapterReturns.explicitJump { go(target, animated = false) }
+                                                                    }
+                                                                    if (!opened) resourceError = "Could not change this chapter position. Please try again once the chapter is ready."
+                                                                    opened
+                                                                }
+                                                            },
                                                             bookPercent = percent,
                                                             navigationEnabled = navigator != null,
                                                             copyEnabled = !copyingChapter && navigator != null,
@@ -797,11 +848,13 @@ class EpubReaderActivity : FragmentActivity() {
                                         }
                                     }
 
-                                    EpubReaderChromeOverlay(
-                                        visible = useChromeOverlays && revealReaderChrome,
-                                        fromTop = true, reducedMotion = appSettings.reducedMotion,
-                                        modifier = Modifier.align(Alignment.TopCenter)
-                                    ) { readerHeader() }
+                                    if (useChromeOverlays) {
+                                        EpubReaderChromeOverlay(
+                                            transition = chromeTransition,
+                                            fromTop = true, reducedMotion = appSettings.reducedMotion,
+                                            modifier = Modifier.align(Alignment.TopCenter)
+                                        ) { readerHeader() }
+                                    }
                                 }
                             }
                         }
@@ -2135,7 +2188,9 @@ private val EpubControlPanelBackground = Color(0xFF12151B)
 private fun EpubReaderBottomControlPanel(
     currentChapterNumber: Int,
     totalChapters: Int,
-    chapterPercent: Int,
+    chapterLocator: State<Locator?>,
+    chapterSeekingEnabled: Boolean,
+    onSeekChapter: (String, Double) -> Boolean,
     bookPercent: Int,
     navigationEnabled: Boolean,
     copyEnabled: Boolean,
@@ -2166,59 +2221,14 @@ private fun EpubReaderBottomControlPanel(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ─── 1. CHAPTER & BOOK PROGRESS HEADER + SLIDER ───
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = NovelTextPrimary, fontWeight = FontWeight.Medium)) {
-                            append("Chapter ")
-                        }
-                        withStyle(SpanStyle(color = NovelPrimary, fontWeight = FontWeight.Bold)) {
-                            append(currentChapterNumber.toString())
-                        }
-                        withStyle(SpanStyle(color = NovelTextSecondary, fontWeight = FontWeight.Medium)) {
-                            append(" / $totalChapters")
-                        }
-                    },
-                    fontSize = 14.sp
-                )
-
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = NovelPrimary, fontWeight = FontWeight.SemiBold)) {
-                            append("${chapterPercent}%")
-                        }
-                        withStyle(SpanStyle(color = NovelTextSecondary, fontWeight = FontWeight.Medium)) {
-                            append(" • Book ${bookPercent}%")
-                        }
-                    },
-                    fontSize = 13.sp
-                )
-            }
-
-            Slider(
-                value = (chapterPercent / 100f).coerceIn(0f, 1f),
-                onValueChange = {},
-                valueRange = 0f..1f,
-                colors = SliderDefaults.colors(
-                    thumbColor = NovelPrimary,
-                    activeTrackColor = NovelPrimary,
-                    inactiveTrackColor = cardBorderColor
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(28.dp)
-            )
-        }
+        EpubChapterProgressControl(
+            currentChapterNumber = currentChapterNumber,
+            totalChapters = totalChapters,
+            chapterLocator = chapterLocator,
+            bookPercent = bookPercent,
+            enabled = navigationEnabled && chapterSeekingEnabled,
+            onSeek = onSeekChapter
+        )
 
         // ─── 2. PRIMARY 4-ACTION NAVIGATION CARD ───
         Surface(
