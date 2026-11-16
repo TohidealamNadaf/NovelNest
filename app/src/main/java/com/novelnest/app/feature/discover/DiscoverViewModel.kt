@@ -21,7 +21,14 @@ class DiscoverViewModel(
     initialSource: NovelSourceType = NovelSourceType.NOVEL_PHOENIX,
     private val navigationPreferences: NavigationPreferences? = null
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(DiscoverUiState(selectedSource = initialSource))
+    private val initialSections = repository.peekHomeSections(initialSource).orEmpty()
+    private val _uiState = MutableStateFlow(
+        DiscoverUiState(
+            isLoading = initialSections.isEmpty(),
+            selectedSource = initialSource,
+            sections = initialSections
+        )
+    )
     val uiState = _uiState.asStateFlow()
     private var loadJob: Job? = null
 
@@ -117,7 +124,15 @@ class DiscoverViewModel(
     fun selectSource(source: NovelSourceType) {
         navigationPreferences?.selectSource(source)
         if (_uiState.value.selectedSource == source) return
-        _uiState.update { it.copy(selectedSource = source, sections = emptyList(), errorMessage = null) }
+        val cached = repository.peekHomeSections(source).orEmpty()
+        _uiState.update {
+            it.copy(
+                selectedSource = source,
+                sections = cached,
+                isLoading = cached.isEmpty(),
+                errorMessage = null
+            )
+        }
         loadDiscover()
     }
 

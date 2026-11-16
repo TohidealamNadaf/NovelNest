@@ -44,7 +44,7 @@ object AsuraParser {
             AsuraUtils.objects(array(it, key)).filter { row -> !text(row, "public_url").startsWith("/novels/") }.map(::novel).distinctBy { row -> row.id }
         }.orEmpty()
         val sections = listOf(
-            NovelSection("asura-live-hero", "Featured Manhwa", type = SectionType.HERO_SLIDER, novels = entries(AsuraSelectors.HERO, "items")),
+            NovelSection("asura-live-hero", "Featured Manhwa", type = SectionType.HERO_SLIDER, novels = entries(AsuraSelectors.HERO, "items").take(10)),
             NovelSection("asura-live-trending", "Trending Manhwa", novels = entries(AsuraSelectors.TRENDING, "items")),
             NovelSection("asura-live-popular", "Popular Manhwa", novels = entries(AsuraSelectors.POPULAR, "items")),
             NovelSection("asura-live-latest", "Recently Released", novels = entries(AsuraSelectors.LATEST, "chapters"))

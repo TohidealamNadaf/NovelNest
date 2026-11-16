@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 interface NovelRepository {
     fun getHomeSections(source: NovelSourceType, forceRefresh: Boolean = false): Flow<Result<List<NovelSection>>>
 
+    /** Synchronous in-memory L1 cache lookup to avoid a loading-to-content swap during tab transitions. */
+    fun peekHomeSections(source: NovelSourceType): List<NovelSection>? = null
+
     suspend fun getBrowsePage(source: NovelSourceType, url: String? = null, forceRefresh: Boolean = false): Result<com.novelnest.app.data.model.BrowsePage> =
         Result.failure(UnsupportedOperationException("Catalog browsing is unavailable"))
 

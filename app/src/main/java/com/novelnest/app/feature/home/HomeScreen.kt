@@ -14,6 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.novelnest.app.feature.epub.EpubLibraryButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,12 +41,14 @@ fun HomeScreen(
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     onNavigateToEpub: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    gridStates: Map<NovelSourceType, LazyGridState> = remember {
+        NovelSourceType.entries.associateWith { LazyGridState() }
+    }
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val app = LocalContext.current.applicationContext as NovelNestApplication
     val profile by app.profileManager.profile.collectAsStateWithLifecycle()
-    val gridStates = remember { NovelSourceType.entries.associateWith { LazyGridState() } }
     var selected by remember { mutableStateOf<Novel?>(null) }
     val shownHistory = remember { mutableSetOf<NovelSourceType>() }
     LaunchedEffect(state.selectedSource, state.currentReading != null) {
@@ -123,9 +126,10 @@ fun HomeScreen(
             }
         }
         val bottomPadding = rememberFooterBottomPadding()
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()
+        val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+        val cardWidth = ((screenWidth - 32.dp - 24.dp) / 3).coerceAtLeast(88.dp)
+        Box(Modifier.weight(1f).fillMaxWidth()
             .sourceSwipeNavigation(state.selectedSource, viewModel::selectSource)) {
-            val cardWidth = (maxWidth - 32.dp - 24.dp) / 3
             LazyVerticalGrid(columns = GridCells.Fixed(3),
                 state = gridStates.getValue(state.selectedSource),
                 modifier = Modifier.fillMaxSize(),

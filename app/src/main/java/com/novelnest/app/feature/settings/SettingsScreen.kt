@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -23,7 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novelnest.app.core.designsystem.NovelBackground
 import com.novelnest.app.core.designsystem.NovelOnPrimary
 import com.novelnest.app.core.designsystem.NovelPrimary
@@ -60,12 +62,13 @@ enum class SettingsSubPage {
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     aiViewModel: AiReadingToolsViewModel? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    mainListState: LazyListState = rememberLazyListState()
 ) {
-    val readerSettings by viewModel.readerSettings.collectAsState()
-    val appSettings by viewModel.appSettings.collectAsState()
-    val cacheSize by viewModel.cacheSizeFormatted.collectAsState()
-    val clearSuccessMessage by viewModel.clearCacheSuccessMessage.collectAsState()
+    val readerSettings by viewModel.readerSettings.collectAsStateWithLifecycle()
+    val appSettings by viewModel.appSettings.collectAsStateWithLifecycle()
+    val cacheSize by viewModel.cacheSizeFormatted.collectAsStateWithLifecycle()
+    val clearSuccessMessage by viewModel.clearCacheSuccessMessage.collectAsStateWithLifecycle()
 
     var currentSubPage by remember { mutableStateOf(SettingsSubPage.MAIN) }
     var showResetDialog by remember { mutableStateOf(false) }
@@ -111,7 +114,8 @@ fun SettingsScreen(
                         appSettings = appSettings,
                         cacheSize = cacheSize,
                         onNavigateTo = { currentSubPage = it },
-                        onResetRequested = { showResetDialog = true }
+                        onResetRequested = { showResetDialog = true },
+                        listState = mainListState
                     )
                 }
 

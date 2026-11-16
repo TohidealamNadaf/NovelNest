@@ -42,14 +42,16 @@ fun DiscoverScreen(
     onNavigateToSearch: (NovelSourceType) -> Unit,
     onNovelClick: (Novel) -> Unit,
     onBrowse: (NovelSourceType) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listStates: Map<NovelSourceType, LazyListState> = remember {
+        NovelSourceType.entries.associateWith { LazyListState() }
+    }
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LifecycleStartEffect(viewModel) {
         viewModel.setRatingActive(true)
         onStopOrDispose { viewModel.setRatingActive(false) }
     }
-    val listStates = remember { NovelSourceType.entries.associateWith { LazyListState() } }
     val currentListState = listStates.getValue(state.selectedSource)
     val visibleSections by remember(currentListState) {
         derivedStateOf { currentListState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
@@ -172,7 +174,7 @@ fun DiscoverScreen(
                             Text(state.errorMessage.orEmpty(), color = NovelTextSecondary,
                                 modifier = Modifier.padding(horizontal = 16.dp))
                         }
-                        items(state.sections, key = { it.id }) { section ->
+                        items(state.sections, key = { it.id }, contentType = { it.type }) { section ->
                             if (section.type == SectionType.HERO_SLIDER) {
                                 HeroCarousel(novels = section.novels, onNovelClick = onNovelClick,
                                     onNovelVisibility = viewModel::ratingVisibility,

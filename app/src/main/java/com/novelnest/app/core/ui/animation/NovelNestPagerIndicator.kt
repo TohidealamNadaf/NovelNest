@@ -67,7 +67,15 @@ fun NovelNestPagerIndicator(
                     onClickLabel = "Go to slide ${index + 1}"
                 ) {
                     coroutineScope.launch {
-                        pagerState.animateScrollToPage(index)
+                        val currentVirtual = pagerState.currentPage
+                        val currentActual = Math.floorMod(currentVirtual, pageCount)
+                        var delta = index - currentActual
+                        if (pagerState.pageCount > pageCount) {
+                            if (delta > pageCount / 2) delta -= pageCount
+                            else if (delta < -pageCount / 2) delta += pageCount
+                        }
+                        val targetPage = (currentVirtual + delta).coerceIn(0, pagerState.pageCount - 1)
+                        pagerState.animateScrollToPage(targetPage)
                     }
                 }
             } else {
@@ -81,8 +89,7 @@ fun NovelNestPagerIndicator(
                         contentDescription = "Slide ${index + 1} of $pageCount"
                     }
                     .layout { measurable, _ ->
-                        val distance = ((pagerState.currentPage - index) + pagerState.currentPageOffsetFraction)
-                            .absoluteValue.coerceIn(0f, 1f)
+                        val distance = circularPageDistance(pagerState, index, pageCount)
                         val widthPx = lerp(inactiveDotWidth, activeDotWidth, 1f - distance).roundToPx()
                         val heightPx = dotHeight.roundToPx()
                         val placeable = measurable.measure(Constraints.fixed(widthPx, heightPx))
@@ -91,8 +98,7 @@ fun NovelNestPagerIndicator(
                         }
                     }
                     .drawBehind {
-                        val distance = ((pagerState.currentPage - index) + pagerState.currentPageOffsetFraction)
-                            .absoluteValue.coerceIn(0f, 1f)
+                        val distance = circularPageDistance(pagerState, index, pageCount)
                         val color = lerp(inactiveColor, activeColor, 1f - distance)
                         val radius = size.height / 2f
                         drawRoundRect(color = color, cornerRadius = CornerRadius(radius, radius))
@@ -101,4 +107,20 @@ fun NovelNestPagerIndicator(
             )
         }
     }
+}
+
+private fun circularPageDistance(
+    pagerState: PagerState,
+    dotIndex: Int,
+    actualPageCount: Int
+): Float {
+    if (actualPageCount <= 1) return 0f
+    val rawPosition = pagerState.currentPage + pagerState.currentPageOffsetFraction
+    if (pagerState.pageCount <= actualPageCount) {
+        return (rawPosition - dotIndex).absoluteValue.coerceIn(0f, 1f)
+    }
+    val modPosition = ((rawPosition % actualPageCount) + actualPageCount) % actualPageCount
+    val directDiff = (modPosition - dotIndex).absoluteValue
+    val wrapDiff = actualPageCount - directDiff
+    return minOf(directDiff, wrapDiff).coerceIn(0f, 1f)
 }

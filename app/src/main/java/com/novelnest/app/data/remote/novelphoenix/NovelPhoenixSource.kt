@@ -107,9 +107,9 @@ class NovelPhoenixSource(
             if (parsedNovels.isEmpty()) {
                 throw PhoenixException.ParseError("home", "No live novels were found")
             } else {
-                val heroList = parsedNovels.take(3)
-                val trendingList = parsedNovels.drop(3).take(7)
-                val latestList = parsedNovels.drop(10)
+                val heroList = parsedNovels.take(6)
+                val trendingList = parsedNovels.drop(6).take(8).ifEmpty { parsedNovels.drop(3) }
+                val latestList = parsedNovels.drop(14).ifEmpty { parsedNovels.drop(6) }
 
                 Result.success(listOf(
                     NovelSection(

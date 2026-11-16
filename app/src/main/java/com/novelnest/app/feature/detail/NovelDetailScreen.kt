@@ -1034,25 +1034,30 @@ private fun NovelDetailHeroHeader(
                         }
 
                         // Views Badge - Always kept on a single line with icon
-                        if (novel.views.isNotBlank()) {
+                        val formattedViews = remember(novel.views) {
+                            com.novelnest.app.data.model.formatCompactCount(novel.views)
+                        }
+                        if (formattedViews.isNotBlank()) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0x99161B22))
+                                    .background(Color(0xDD161B22))
+                                    .border(0.5.dp, NovelSurfaceBorder, RoundedCornerShape(6.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Visibility,
                                     contentDescription = null,
-                                    tint = NovelTextSecondary,
+                                    tint = NovelPrimary,
                                     modifier = Modifier.size(11.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = novel.views,
-                                    color = NovelTextSecondary,
+                                    text = formattedViews,
+                                    color = NovelTextPrimary,
                                     fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     softWrap = false
                                 )

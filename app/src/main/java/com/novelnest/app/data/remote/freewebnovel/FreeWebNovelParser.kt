@@ -67,8 +67,9 @@ object FreeWebNovelParser {
         val released = doc.select(FreeWebNovelSelectors.RELEASES).mapNotNull { card(it) }.distinctBy { it.id }
         val popular = parseListing(popularHtml, FreeWebNovelUrls.BASE_URL + "/sort/most-popular")
         if (recommended.isEmpty() || released.isEmpty() || popular.isEmpty()) throw FreeWebNovelException.ParseError("FreeWebNovel home sections were not recognized")
+        val heroNovels = (recommended + popular).distinctBy { it.id }.take(6)
         return listOf(
-            NovelSection("fwn-live-hero-v1", "FreeWebNovel Highlights", "", "Featured on FreeWebNovel", SectionType.HERO_SLIDER, recommended.take(3)),
+            NovelSection("fwn-live-hero-v1", "FreeWebNovel Highlights", "", "Featured on FreeWebNovel", SectionType.HERO_SLIDER, heroNovels),
             NovelSection("fwn-live-recommended-v1", "Recommended Novels", "", "Recommendations from FreeWebNovel", SectionType.HORIZONTAL_LIST, recommended),
             NovelSection("fwn-live-popular-v1", "Most Popular", "", "FreeWebNovel rankings", SectionType.HORIZONTAL_LIST, popular),
             NovelSection("fwn-live-latest-v1", "Recently Released", "", "Latest chapter updates", SectionType.HORIZONTAL_LIST, released)

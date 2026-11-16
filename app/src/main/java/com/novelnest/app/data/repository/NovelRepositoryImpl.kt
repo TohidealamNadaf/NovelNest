@@ -168,9 +168,37 @@ class NovelRepositoryImpl(
     override fun observeChapterSnapshots(source: NovelSourceType, novelSlugOrUrl: String): StateFlow<List<com.novelnest.app.data.model.Chapter>> =
         chapterSnapshot(source, novelSlugOrUrl).asStateFlow()
 
-    private fun availableSectionRatings(sections: List<NovelSection>): List<NovelSection> =
-        sections.map { section -> section.copy(novels = section.novels.map(NovelIdentity::normalize)
-            .distinctBy { it.source to it.id }.map(::withKnownRating)) }.reuseRatings()
+    private fun availableSectionRatings(sections: List<NovelSection>): List<NovelSection> {
+        val normalized = sections.map { section ->
+            section.copy(
+                novels = section.novels
+                    .map(NovelIdentity::normalize)
+                    .distinctBy { it.source to it.id }
+                    .map(::withKnownRating)
+            )
+        }.reuseRatings()
+        val allPool = normalized.flatMap { it.novels }.distinctBy { it.source to it.id }
+        return normalized.map { section ->
+            if (section.type != SectionType.HERO_SLIDER) {
+                section
+            } else {
+                val heroItems = when {
+                    section.novels.size > 10 -> section.novels.take(10)
+                    section.novels.size < 5 && allPool.size >= 5 -> {
+                        (section.novels + allPool).distinctBy { it.source to it.id }.take(6)
+                    }
+                    else -> section.novels
+                }
+                section.copy(novels = heroItems)
+            }
+        }
+    }
+
+    override fun peekHomeSections(source: NovelSourceType): List<NovelSection>? {
+        val now = System.currentTimeMillis()
+        val l1Entry = l1MemoryCache.get("sections_${source.name}") ?: return null
+        return if (now - l1Entry.first < L1_TTL_MILLIS) availableSectionRatings(l1Entry.second) else null
+    }
 
     override fun getHomeSections(
         source: NovelSourceType,

@@ -1,10 +1,18 @@
 package com.novelnest.app.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -57,6 +65,12 @@ fun NovelNestNavHost(
 
     var requestedDiscoverSource by rememberSaveable { mutableStateOf<Int?>(null) }
 
+    // Retain scroll states across Home, Discover, and Settings tab switches so lazy lists
+    // never reset to item 0 or re-measure cold when switching footer tabs.
+    val homeGridStates = remember { NovelSourceType.entries.associateWith { LazyGridState() } }
+    val discoverListStates = remember { NovelSourceType.entries.associateWith { LazyListState() } }
+    val settingsListState = remember { LazyListState() }
+
     NavHost(
         navController = navController,
         startDestination = NovelNestDestination.Home.route,
@@ -65,14 +79,17 @@ fun NovelNestNavHost(
         // HOME SCREEN
         composable(
             route = NovelNestDestination.Home.route,
-            enterTransition = { fadeIn(animationSpec = tween(300)) },
-            exitTransition = { fadeOut(animationSpec = tween(300)) }
+            enterTransition = { footerTabEnterTransition() },
+            exitTransition = { footerTabExitTransition() },
+            popEnterTransition = { footerTabEnterTransition() },
+            popExitTransition = { footerTabExitTransition() }
         ) {
             val homeViewModel: HomeViewModel = viewModel(factory = screenFactory {
                 HomeViewModel(app.bookmarkManager, app.readingProgressManager, repository, app.navigationPreferences)
             })
             HomeScreen(
                 viewModel = homeViewModel,
+                gridStates = homeGridStates,
                 onContinueReading = { novel, chapterIndex ->
                     app.navigationPreferences.selectSource(novel.source)
                     repository.rememberNovel(novel)
@@ -123,18 +140,28 @@ fun NovelNestNavHost(
         // DISCOVER SCREEN
         composable(
             route = NovelNestDestination.Discover.route,
-            enterTransition = { fadeIn(animationSpec = tween(300)) },
-            exitTransition = { fadeOut(animationSpec = tween(300)) }
+            enterTransition = { footerTabEnterTransition() },
+            exitTransition = { footerTabExitTransition() },
+            popEnterTransition = { footerTabEnterTransition() },
+            popExitTransition = { footerTabExitTransition() }
         ) {
             val discoverViewModel: DiscoverViewModel = viewModel(factory = screenFactory {
-                DiscoverViewModel(repository, NovelSourceType.fromOrdinal(requestedDiscoverSource ?: 0), app.navigationPreferences)
+                DiscoverViewModel(
+                    repository = repository,
+                    initialSource = requestedDiscoverSource?.let(NovelSourceType::fromOrdinal)
+                        ?: app.navigationPreferences.lastSource,
+                    navigationPreferences = app.navigationPreferences
+                )
             })
             LaunchedEffect(requestedDiscoverSource) {
-                requestedDiscoverSource?.let { discoverViewModel.selectSource(NovelSourceType.fromOrdinal(it)) }
-                requestedDiscoverSource = null
+                requestedDiscoverSource?.let {
+                    discoverViewModel.selectSource(NovelSourceType.fromOrdinal(it))
+                    requestedDiscoverSource = null
+                }
             }
             DiscoverScreen(
                 viewModel = discoverViewModel,
+                listStates = discoverListStates,
                 onBrowse = { source -> navController.navigate(NovelNestDestination.Browse.createRoute(source.ordinal)) },
                 onNavigateToSearch = { source ->
                     navController.navigate(NovelNestDestination.Search.createRoute(source.ordinal))
@@ -170,18 +197,21 @@ fun NovelNestNavHost(
         // SETTINGS SCREEN
         composable(
             route = NovelNestDestination.Settings.route,
-            enterTransition = { fadeIn(animationSpec = tween(300)) },
-            exitTransition = { fadeOut(animationSpec = tween(300)) }
+            enterTransition = { footerTabEnterTransition() },
+            exitTransition = { footerTabExitTransition() },
+            popEnterTransition = { footerTabEnterTransition() },
+            popExitTransition = { footerTabExitTransition() }
         ) {
-            val settingsViewModel = remember {
-                SettingsViewModel(app.preferencesManager, context)
-            }
+            val settingsViewModel: SettingsViewModel = viewModel(factory = screenFactory {
+                SettingsViewModel(app.preferencesManager, app)
+            })
             val aiViewModel: com.novelnest.app.feature.settings.AiReadingToolsViewModel = viewModel(factory = screenFactory {
                 com.novelnest.app.feature.settings.AiReadingToolsViewModel(app.aiConfiguration, app.aiModelDirectory, app.aiResultCache)
             })
             SettingsScreen(
                 viewModel = settingsViewModel,
-                aiViewModel = aiViewModel
+                aiViewModel = aiViewModel,
+                mainListState = settingsListState
             )
         }
 
@@ -441,4 +471,43 @@ private fun epubLibraryFactory(repository: com.novelnest.app.data.local.epub.Epu
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T =
         EpubLibraryViewModel(repository, collectionId, extras.createSavedStateHandle()) as T
+}
+
+private fun footerTabIndex(route: String?): Int = when (route) {
+    NovelNestDestination.Home.route -> 0
+    NovelNestDestination.Discover.route -> 1
+    NovelNestDestination.Settings.route -> 2
+    else -> -1
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.footerTabEnterTransition(): EnterTransition {
+    val fromIndex = footerTabIndex(initialState.destination.route)
+    val toIndex = footerTabIndex(targetState.destination.route)
+    return if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex) {
+        val direction = if (toIndex > fromIndex) 1 else -1
+        slideInHorizontally(
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+            initialOffsetX = { fullWidth -> direction * (fullWidth / 20) }
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        )
+    } else {
+        fadeIn(animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing))
+    }
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.footerTabExitTransition(): ExitTransition {
+    val fromIndex = footerTabIndex(initialState.destination.route)
+    val toIndex = footerTabIndex(targetState.destination.route)
+    return if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex) {
+        val direction = if (toIndex > fromIndex) 1 else -1
+        slideOutHorizontally(
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            targetOffsetX = { fullWidth -> -direction * (fullWidth / 24) }
+        ) + fadeOut(
+            animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
+        )
+    } else {
+        fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
+    }
 }

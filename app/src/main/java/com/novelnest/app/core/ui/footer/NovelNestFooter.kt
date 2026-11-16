@@ -1,9 +1,8 @@
 package com.novelnest.app.core.ui.footer
 
 import android.os.Build
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -14,7 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +24,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,11 +38,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +51,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
@@ -67,10 +63,11 @@ import com.novelnest.app.core.designsystem.NovelSurface
 import com.novelnest.app.core.designsystem.NovelSurfaceBorder
 import com.novelnest.app.core.designsystem.NovelTextSecondary
 import com.novelnest.app.core.ui.animation.NovelNestHapticType
-import androidx.compose.foundation.selection.selectable
 import com.novelnest.app.core.ui.animation.rememberAreAnimationsDisabled
 import com.novelnest.app.core.ui.animation.rememberNovelNestHaptic
 import kotlinx.coroutines.launch
+
+private val ActiveFooterContentColor = Color(0xFF0F1216)
 
 /**
  * Navigation destination specification for the footer component.
@@ -142,9 +139,10 @@ fun NovelNestFooter(
         contentAlignment = Alignment.Center
     ) {
         // Pill-shaped container: Solid background, smooth rounded corners, subtle border and shadow
-        androidx.compose.foundation.layout.BoxWithConstraints(
+        Box(
             modifier = Modifier
-                .widthIn(max = 290.dp).fillMaxWidth()
+                .widthIn(max = 290.dp)
+                .fillMaxWidth()
                 .height(FooterTokens.PillHeight)
                 .then(shadowModifier)
                 .clip(pillShape)
@@ -157,56 +155,62 @@ fun NovelNestFooter(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
-            val density = LocalDensity.current
-            val totalWidthPx = with(density) { maxWidth.toPx() }
             val count = destinations.size.coerceAtLeast(1)
-            val slotWidthPx = totalWidthPx / count
-            val pillRestWidthPx = (slotWidthPx - with(density) { 6.dp.toPx() }).coerceAtLeast(0f)
-            val halfPillWidthPx = pillRestWidthPx / 2f
-            val targetLeft = slotWidthPx * (selectedIndex + 0.5f) - halfPillWidthPx
-            val targetRight = slotWidthPx * (selectedIndex + 0.5f) + halfPillWidthPx
+            val targetSlot = selectedIndex.toFloat()
 
-            // Geometry changes create one correctly positioned pair. Selection changes
-            // retarget that pair instead of competing with an initialization snap effect.
-            val leftAnim = remember(totalWidthPx, pillRestWidthPx) { Animatable(targetLeft) }
-            val rightAnim = remember(totalWidthPx, pillRestWidthPx) { Animatable(targetRight) }
-            var previousIndex by remember(leftAnim) { mutableIntStateOf(selectedIndex) }
+            // Animate in normalized slot coordinates (0f..count-1f) so layout measurement never
+            // requires BoxWithConstraints/SubcomposeLayout or recreates Animatable instances.
+            val leftSlotAnim = remember { Animatable(targetSlot, visibilityThreshold = 0.0005f) }
+            val rightSlotAnim = remember { Animatable(targetSlot, visibilityThreshold = 0.0005f) }
 
-            LaunchedEffect(selectedIndex, leftAnim, rightAnim, areAnimationsDisabled) {
-                val previous = previousIndex
-                previousIndex = selectedIndex
+            LaunchedEffect(targetSlot, areAnimationsDisabled) {
                 if (areAnimationsDisabled) {
-                    leftAnim.snapTo(targetLeft)
-                    rightAnim.snapTo(targetRight)
+                    leftSlotAnim.snapTo(targetSlot)
+                    rightSlotAnim.snapTo(targetSlot)
                     return@LaunchedEffect
                 }
-                if (leftAnim.value == targetLeft && rightAnim.value == targetRight) return@LaunchedEffect
+                if (leftSlotAnim.value == targetSlot && rightSlotAnim.value == targetSlot) {
+                    return@LaunchedEffect
+                }
 
-                // A new selection cancels both old edge jobs together, then continues
-                // from their current positions. Rapid taps cannot leave a stale target.
-                val adjacent = kotlin.math.abs(selectedIndex - previous) == 1
-                val leadingLeft = adjacent && selectedIndex < previous
-                val leadingRight = adjacent && selectedIndex > previous
+                // Critically damped leading/trailing springs produce an organic capsule stretch
+                // without underdamped overshoot kinks when settling into the target slot.
+                val currentMid = (leftSlotAnim.value + rightSlotAnim.value) * 0.5f
+                val movingLeft = targetSlot < currentMid
+                val movingRight = targetSlot > currentMid
+
                 launch {
-                    leftAnim.animateTo(targetLeft, spring(
-                        dampingRatio = if (leadingLeft) 0.88f else if (adjacent) 0.85f else 0.88f,
-                        stiffness = if (leadingLeft) Spring.StiffnessMedium else Spring.StiffnessMediumLow
-                    ))
+                    leftSlotAnim.animateTo(
+                        targetValue = targetSlot,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = if (movingLeft) 680f else 440f,
+                            visibilityThreshold = 0.0005f
+                        )
+                    )
                 }
                 launch {
-                    rightAnim.animateTo(targetRight, spring(
-                        dampingRatio = if (leadingRight) 0.88f else if (adjacent) 0.85f else 0.88f,
-                        stiffness = if (leadingRight) Spring.StiffnessMedium else Spring.StiffnessMediumLow
-                    ))
+                    rightSlotAnim.animateTo(
+                        targetValue = targetSlot,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = if (movingRight) 680f else 440f,
+                            visibilityThreshold = 0.0005f
+                        )
+                    )
                 }
             }
 
-            // Read animated edges only during drawing: no per-frame recomposition or
+            // Read animated edges only during drawing: zero per-frame recomposition or
             // remeasurement of navigation items, labels, or click targets.
             Canvas(Modifier.fillMaxSize()) {
-                val left = minOf(leftAnim.value, rightAnim.value)
-                val width = maxOf(kotlin.math.abs(rightAnim.value - leftAnim.value), pillRestWidthPx)
-                val x = if (layoutDirection == LayoutDirection.Ltr) left else size.width - left - width
+                val slotWidthPx = size.width / count
+                val sideInsetPx = 3.dp.toPx()
+                val pillRestWidthPx = (slotWidthPx - sideInsetPx * 2f).coerceAtLeast(0f)
+                val rawLeft = minOf(leftSlotAnim.value, rightSlotAnim.value) * slotWidthPx + sideInsetPx
+                val rawRight = (maxOf(leftSlotAnim.value, rightSlotAnim.value) + 1f) * slotWidthPx - sideInsetPx
+                val width = maxOf(rawRight - rawLeft, pillRestWidthPx)
+                val x = if (layoutDirection == LayoutDirection.Ltr) rawLeft else size.width - rawLeft - width
                 drawRoundRect(
                     color = NovelPrimary,
                     topLeft = Offset(x, 0f),
@@ -253,13 +257,16 @@ private fun FooterNavItem(
 ) {
     val itemShape = RoundedCornerShape(25.dp)
 
-    // Contrast-aware coloring:
-    // Active icon & label on solid NovelPrimary indicator pill has crisp dark #0F1216 tint.
-    // Inactive icon & label uses NovelTextSecondary.
-    val contentColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF0F1216) else NovelTextSecondary,
-        animationSpec = if (areAnimationsDisabled) snap() else tween(durationMillis = 180),
-        label = "nav_item_content_color"
+    // Single float state read inside graphicsLayer during draw phase: avoids 60/120fps
+    // recompositions of FooterNavItem, Icon, and Text while NavHost transitions pages.
+    val selectionProgress = animateFloatAsState(
+        targetValue = if (isSelected) 1f else 0f,
+        animationSpec = if (areAnimationsDisabled) {
+            snap()
+        } else {
+            tween(durationMillis = 190, easing = FastOutSlowInEasing)
+        },
+        label = "nav_item_selection_progress"
     )
 
     Column(
@@ -277,7 +284,7 @@ private fun FooterNavItem(
         AnimatedNavIcon(
             destination = destination,
             isSelected = isSelected,
-            contentColor = contentColor,
+            selectionProgress = selectionProgress,
             areAnimationsDisabled = areAnimationsDisabled
         )
 
@@ -285,75 +292,97 @@ private fun FooterNavItem(
 
         Text(
             text = destination.label,
-            color = contentColor,
+            color = if (isSelected) ActiveFooterContentColor else NovelTextSecondary,
             fontSize = 10.5.sp,
             lineHeight = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1
+            maxLines = 1,
+            modifier = Modifier.graphicsLayer {
+                alpha = if (isSelected) {
+                    0.75f + 0.25f * selectionProgress.value
+                } else {
+                    1f - 0.15f * selectionProgress.value
+                }
+            }
         )
     }
 }
 
 /**
- * Animated navigation icon preserving all signature interactive motions:
+ * Animated navigation icon preserving all signature interactive motions purely in the draw layer:
  * - Home: Subtle vertical hop that returns smoothly to center + controlled scale pulse + filled transition
- * - Discover: 360-degree compass rotation + filled transition
- * - Settings: Controlled 60-degree mechanical rotation + filled transition
+ * - Discover: 360-degree compass rotation on selection + filled transition (without backward spin on deselect)
+ * - Settings: Controlled 60-degree mechanical rotation on selection + filled transition
  */
 @Composable
 private fun AnimatedNavIcon(
     destination: FooterDestination,
     isSelected: Boolean,
-    contentColor: Color,
+    selectionProgress: State<Float>,
     areAnimationsDisabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // 1. Home transient hop: springs up on tap and settles back to 0dp so it stays centered
-    val homeHopAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+    val isHome = remember(destination.route) { destination.route.contains("home", ignoreCase = true) }
+    val isDiscover = remember(destination.route) { destination.route.contains("discover", ignoreCase = true) }
+    val isSettings = remember(destination.route) { destination.route.contains("settings", ignoreCase = true) }
+
+    // 1. Home transient hop & Discover/Settings forward-only rotation on selection
+    val homeHopAnim = remember { Animatable(0f) }
+    val rotationAnim = remember { Animatable(0f) }
+
     LaunchedEffect(isSelected, areAnimationsDisabled) {
-        if (isSelected && destination.route.contains("home", ignoreCase = true) && !areAnimationsDisabled) {
+        if (!isSelected || areAnimationsDisabled) {
             homeHopAnim.snapTo(0f)
-            homeHopAnim.animateTo(
-                targetValue = -3f,
-                animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            )
-            homeHopAnim.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = Spring.StiffnessMedium
+            if (!isDiscover) rotationAnim.snapTo(0f)
+            return@LaunchedEffect
+        }
+        when {
+            isHome -> {
+                homeHopAnim.snapTo(0f)
+                homeHopAnim.animateTo(
+                    targetValue = -2.8f,
+                    animationSpec = tween(durationMillis = 95, easing = FastOutSlowInEasing)
                 )
-            )
-        } else {
-            homeHopAnim.snapTo(0f)
+                homeHopAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = 0.88f,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+            }
+            isDiscover -> {
+                rotationAnim.snapTo(0f)
+                rotationAnim.animateTo(
+                    targetValue = 360f,
+                    animationSpec = spring(
+                        dampingRatio = 0.9f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+                rotationAnim.snapTo(0f)
+            }
+            isSettings -> {
+                rotationAnim.snapTo(0f)
+                rotationAnim.animateTo(
+                    targetValue = 60f,
+                    animationSpec = spring(
+                        dampingRatio = 0.88f,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+            }
         }
     }
 
-    // 2. Discover & Settings rotation animation (controlled, refined, no wild overshoot)
-    val targetRotation = when {
-        !isSelected -> 0f
-        destination.route.contains("discover", ignoreCase = true) -> 360f
-        destination.route.contains("settings", ignoreCase = true) -> 60f
-        else -> 0f
-    }
-
-    val iconRotation by animateFloatAsState(
-        targetValue = if (areAnimationsDisabled) 0f else targetRotation,
-        animationSpec = if (areAnimationsDisabled) snap() else spring(
-            dampingRatio = 0.86f,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "nav_icon_rotation"
-    )
-
-    // 3. Subtle, refined scale pulse on selection (restrained to 1.06f)
-    val iconScale by animateFloatAsState(
+    // 2. Subtle, refined scale pulse on selection (read only inside graphicsLayer)
+    val iconScaleState = animateFloatAsState(
         targetValue = if (isSelected) 1.06f else 1.0f,
         animationSpec = if (areAnimationsDisabled) {
             snap()
         } else {
             spring(
-                dampingRatio = 0.85f,
+                dampingRatio = 0.88f,
                 stiffness = Spring.StiffnessMedium
             )
         },
@@ -365,27 +394,32 @@ private fun AnimatedNavIcon(
         modifier = modifier
             .size(24.dp)
             .graphicsLayer {
-                scaleX = iconScale
-                scaleY = iconScale
-                rotationZ = iconRotation
+                val scale = iconScaleState.value
+                scaleX = scale
+                scaleY = scale
+                rotationZ = rotationAnim.value
                 translationY = homeHopAnim.value.dp.toPx()
             }
             .clearAndSetSemantics { }
     ) {
-        // Crossfade between unselected (outline) and selected (filled)
-        Crossfade(
-            targetState = isSelected,
-            animationSpec = if (areAnimationsDisabled) snap() else tween(durationMillis = 180),
-            label = "nav_icon_morph"
-        ) { selected ->
-            val iconVector = if (selected) destination.selectedIcon else destination.unselectedIcon
-            Icon(
-                imageVector = iconVector,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+        // Pre-mounted unselected & selected icons crossfaded on the GPU via graphicsLayer alpha:
+        // zero Crossfade subtree allocations and zero recompositions during tab transitions.
+        Icon(
+            imageVector = destination.unselectedIcon,
+            contentDescription = null,
+            tint = NovelTextSecondary,
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { alpha = 1f - selectionProgress.value }
+        )
+        Icon(
+            imageVector = destination.selectedIcon,
+            contentDescription = null,
+            tint = ActiveFooterContentColor,
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { alpha = selectionProgress.value }
+        )
     }
 }
 

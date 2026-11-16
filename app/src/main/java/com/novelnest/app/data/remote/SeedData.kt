@@ -350,7 +350,7 @@ object SeedData {
                     iconEmoji = "",
                     subtitle = "Handpicked light & web novels",
                     type = SectionType.HERO_SLIDER,
-                    novels = novelPhoenixHeroSlides
+                    novels = (novelPhoenixHeroSlides + novelPhoenixTrending).distinctBy { it.id }.take(6)
                 ),
                 NovelSection(
                     id = "np-trending",
@@ -377,7 +377,7 @@ object SeedData {
                     iconEmoji = "",
                     subtitle = "Popular free web novels",
                     type = SectionType.HERO_SLIDER,
-                    novels = fwnHeroSlides
+                    novels = (fwnHeroSlides + fwnTrending).distinctBy { it.id }.take(5)
                 ),
                 NovelSection(
                     id = "fwn-trending",
