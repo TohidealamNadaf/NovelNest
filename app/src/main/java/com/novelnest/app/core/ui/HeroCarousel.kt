@@ -157,8 +157,8 @@ fun HeroCarousel(
                 val actualIdx = Math.floorMod(page, actualCount)
                 "${pageKeys.getOrElse(actualIdx) { actualIdx }}@$page"
             },
-            contentPadding = PaddingValues(horizontal = if (isLooping) 32.dp else 18.dp),
-            pageSpacing = 4.dp,
+            contentPadding = PaddingValues(horizontal = if (isLooping) 36.dp else 18.dp),
+            pageSpacing = 0.dp,
             beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
@@ -255,21 +255,15 @@ private fun HeroSlideCard(
                     .coerceIn(-1f, 1f)
                 val pageOffset = relativeOffset.absoluteValue
 
-                // Pivot from the lower-inner spine edge so adjacent cards fan outward and tuck
-                // underneath the center card like books stacked on top of one another
-                transformOrigin = TransformOrigin(
-                    pivotFractionX = (0.5f - relativeOffset * 0.35f).coerceIn(0.15f, 0.85f),
-                    pivotFractionY = 0.82f
-                )
-                cameraDistance = 14f * density
-                rotationZ = relativeOffset * 6.5f
-                rotationY = -relativeOffset * 12f
-                translationX = -relativeOffset * 22.dp.toPx()
-                translationY = pageOffset * 10.dp.toPx()
-                scaleX = lerp(1f, 0.91f, pageOffset)
+                // Symmetric center pivot with 3D Y-axis inward perspective, tucked behind the center card
+                transformOrigin = TransformOrigin.Center
+                cameraDistance = 12f * density
+                rotationY = -relativeOffset * 20f
+                translationX = -relativeOffset * 46.dp.toPx()
+                scaleX = lerp(1f, 0.92f, pageOffset)
                 scaleY = lerp(1f, 0.87f, pageOffset)
-                alpha = lerp(1f, 0.62f, pageOffset)
-                shadowElevation = lerp(20.dp.toPx(), 6.dp.toPx(), pageOffset)
+                alpha = lerp(1f, 0.68f, pageOffset)
+                shadowElevation = lerp(22.dp.toPx(), 6.dp.toPx(), pageOffset)
                 shape = outerCardShape
                 clip = true
             }
