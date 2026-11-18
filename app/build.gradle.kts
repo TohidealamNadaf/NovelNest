@@ -82,6 +82,7 @@ dependencies {
     implementation("org.readium.kotlin-toolkit:readium-streamer:3.0.3")
     implementation("org.readium.kotlin-toolkit:readium-navigator:3.0.3")
     implementation("androidx.fragment:fragment-ktx:1.7.1")
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)

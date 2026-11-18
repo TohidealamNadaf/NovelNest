@@ -55,7 +55,8 @@ enum class SettingsSubPage {
     AI_READING_TOOLS,
     APP_EXPERIENCE,
     NOTIFICATIONS,
-    STORAGE_CACHE
+    STORAGE_CACHE,
+    APP_LOCK
 }
 
 @Composable
@@ -134,6 +135,10 @@ fun SettingsScreen(
                         viewModel = viewModel,
                         onBack = { currentSubPage = SettingsSubPage.MAIN }
                     )
+                }
+
+                SettingsSubPage.APP_LOCK -> {
+                    AppLockPage(onBack = { currentSubPage = SettingsSubPage.MAIN })
                 }
 
                 SettingsSubPage.AUDIO_NARRATION -> {

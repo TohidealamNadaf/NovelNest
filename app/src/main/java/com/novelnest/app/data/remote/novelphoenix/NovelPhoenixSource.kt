@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.io.IOException
 
@@ -143,24 +144,19 @@ class NovelPhoenixSource(
     }
 
     override suspend fun search(query: String): Result<List<Novel>> = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val trimmed = query.trim()
-            if (trimmed.isBlank()) return@runCatching emptyList()
+            if (trimmed.isBlank()) return@withContext Result.success(emptyList())
 
-            // Try fast JSON search endpoint first
-            val searchApiUrl = "${sourceType.baseUrl}/ajax/searchLive?keyword=${java.net.URLEncoder.encode(trimmed, "UTF-8")}&type=title"
-            val jsonResponse = runCatching {
-                executePoliteGet(searchApiUrl, isAjax = true)
-            }.getOrNull()
-
-            val items = if (!jsonResponse.isNullOrBlank()) {
-                NovelPhoenixParser.parseLiveSearchJson(jsonResponse)
-            } else {
-                // Fallback to HTML search page
-                val htmlSearchUrl = "${sourceType.baseUrl}/search?keyword=${java.net.URLEncoder.encode(trimmed, "UTF-8")}&type=title"
-                val html = executePoliteGet(htmlSearchUrl)
-                NovelPhoenixParser.parseListingHtml(html)
-            }
+            // Use the rendered results' real poster URLs, as Browse does. The lightweight
+            // autocomplete response is not an authoritative poster source. One listing
+            // request supplies every cover; never fetch individual details for search cards.
+            val searchUrl = sourceType.baseUrl.toHttpUrl().newBuilder()
+                .addPathSegment("search")
+                .addQueryParameter("keyword", trimmed)
+                .addQueryParameter("type", "title")
+                .build().toString()
+            val items = NovelPhoenixParser.parseListingHtml(executePoliteGet(searchUrl))
 
             val mapped = items.map { item ->
                 val slug = extractCleanSlug(item.slug)
@@ -177,7 +173,11 @@ class NovelPhoenixSource(
                     rank = rankInt
                 )
             }
-            com.novelnest.app.data.model.NovelIdentity.distinct(mapped)
+            Result.success(com.novelnest.app.data.model.NovelIdentity.distinct(mapped))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 

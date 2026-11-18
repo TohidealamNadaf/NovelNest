@@ -176,7 +176,7 @@ Chapter loading/recovery investigation and live Affinity Chaos observations: [CH
    - When parsing `#content`, the parser must explicitly discard all `.nf-ads`, `ins`, and `iframe` nodes.
 5. **Fast Live Search vs Full Search**:
    - `GET /ajax/searchLive?keyword={query}&type=title` provides fast, clean JSON without requiring full DOM parsing.
-   - If fallback is needed, `GET /search?keyword={query}&type=title` provides the standard HTML listing.
+   - Production Search now uses `GET /search?keyword={query}&type=title` directly for the website poster markup. See [Search poster routing and verification](SEARCH_POSTERS.md). The AJAX contract above is retained for reference.
 6. **Chapter Identity vs Numbering Gaps**:
    - Chapter numbers in titles are labels, not array indexes (e.g. Genetic Ascension has 2451 chapters, but latest title is "Chapter 2452 ... [Bonus]").
    - The chapter's URL path (`/novel/{slug}/chapter-{id}`) serves as its unique identity.

@@ -2,6 +2,7 @@ package com.novelnest.app.feature.epub
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.novelnest.app.core.lifecycle.launchKeepingSession
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -118,7 +119,7 @@ fun EpubLibraryDialog(repository: EpubRepository, onDismiss: () -> Unit, onOpen:
                     onClick = {
                         try {
                             Toast.makeText(context, "Long-press a file in the picker to select multiple EPUBs.", Toast.LENGTH_LONG).show()
-                            picker.launch(Unit)
+                            picker.launchKeepingSession(context, Unit)
                         } catch (_: android.content.ActivityNotFoundException) {
                             error = "No document picker is available on this device."
                         } catch (_: SecurityException) {

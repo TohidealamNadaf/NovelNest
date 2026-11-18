@@ -5,6 +5,7 @@ import com.novelnest.app.core.ui.footer.rememberPageBottomPadding
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.novelnest.app.core.lifecycle.launchKeepingSession
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -182,7 +183,7 @@ fun ProfileScreen(
                                 modifier = Modifier
                                     .size(34.dp)
                                     .clip(CircleShape)
-                                    .clickable { photoPicker.launch(arrayOf("image/*")) }
+                                    .clickable { photoPicker.launchKeepingSession(context, arrayOf("image/*")) }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(

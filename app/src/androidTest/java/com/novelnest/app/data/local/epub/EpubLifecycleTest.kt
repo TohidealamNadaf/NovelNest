@@ -134,7 +134,15 @@ class EpubLifecycleTest {
             assertEquals(1, opens)
             repo.import(uri)
             advanceUntilIdle()
-            assertTrue(repo.importState.value.toString(), repo.importState.value is EpubImportState.Complete)
+            // Thumbnail extraction uses real Dispatchers.IO. Advancing virtual
+            // time cannot complete that work; await the same terminal contract
+            // on a real-time bounded dispatcher instead of sampling Working.
+            val completed = withContext(Dispatchers.IO) {
+                withTimeout(15_000) {
+                    repo.importState.first { it is EpubImportState.Complete || it is EpubImportState.Failed }
+                }
+            }
+            assertTrue(completed.toString(), completed is EpubImportState.Complete)
             assertEquals(2, opens)
         } finally { scope.cancel() }
     }

@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -37,6 +38,9 @@
         <activity android:name=".feature.dictionary.DictionaryLookupActivity"
             android:exported="false" android:label="@string/dictionary_action"
             android:theme="@style/Theme.NovelNest.Dictionary" />
+        <activity android:name=".feature.lock.AppLockActivity" android:exported="false"
+            android:launchMode="singleTop" android:theme="@style/Theme.NovelNest.Lock"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name=".feature.epub.EpubReaderActivity" android:exported="false" android:theme="@style/Theme.NovelNest.Epub" />
         <activity
             android:name=".MainActivity"

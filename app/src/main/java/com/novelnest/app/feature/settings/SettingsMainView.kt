@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Headphones
@@ -181,6 +182,11 @@ fun SettingsMainView(
                         onNavigateTo(SettingsSubPage.APP_EXPERIENCE)
                     }
                 )
+            }
+
+            item {
+                SettingsCategoryTile(title = "Lock & Biometrics", subtitle = "Normal PIN, EPUB-only PIN & biometric unlock",
+                    icon = Icons.Rounded.Lock, onClick = { onNavigateTo(SettingsSubPage.APP_LOCK) })
             }
 
             // 4. Notifications Category Tile

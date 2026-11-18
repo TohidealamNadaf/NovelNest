@@ -122,6 +122,12 @@ class NarrationService : Service() {
         // Every explicit startForegroundService call needs a fresh acknowledgement,
         // even when our local foreground flag was already true or Stop is pending.
         if (intent.action == START && !promote(force = true)) { stopSelf(); return START_NOT_STICKY }
+        val access = (application as com.novelnest.app.NovelNestApplication).appLock.state.value
+        if ((access.access ?: access.previousAccess) == com.novelnest.app.data.security.AppAccess.EPUB_ONLY ||
+            (intent.action == START && access.blocked)) {
+            stopSession()
+            return START_NOT_STICKY
+        }
         if (stopping) { stopSelf(); return START_NOT_STICKY }
         // Only an explicit Listen creates foreground playback. Old notification
         // controls cannot revive or change a replacement listening session.
@@ -604,7 +610,10 @@ class NarrationService : Service() {
         cleanup("foreground") { stopForeground(STOP_FOREGROUND_REMOVE) }
         foreground = false; stopSelf()
     }
-    override fun onTaskRemoved(rootIntent: Intent?) { if (!wanted) stopSession() }
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        (application as NovelNestApplication).appLock.lock()
+        if (!wanted) stopSession()
+    }
     override fun onDestroy() {
         if (activeService.get() === this) activeService.clear()
         if (!stopping) cleanup("checkpoint") { save() }

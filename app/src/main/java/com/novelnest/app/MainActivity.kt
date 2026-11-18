@@ -14,7 +14,10 @@ import android.window.SplashScreenView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -48,6 +51,17 @@ class MainActivity : ComponentActivity() {
         val id = notificationId(intent) ?: return
         if (id == handledNotificationId) return
         val app = application as NovelNestApplication
+        if (app.appLock.state.value.access == com.novelnest.app.data.security.AppAccess.EPUB_ONLY) {
+            notificationResolution?.cancel()
+            notificationOpen = null
+            app.pendingNotificationId = null
+            intent.removeExtra(EXTRA_NOTIFICATION_ID)
+            intent.removeExtra(EXTRA_NOVEL_ID)
+            return
+        }
+        // Capture before asynchronous inbox lookup: clearing the old task also
+        // cancels its lifecycleScope, so its resolved request is not a handoff.
+        app.pendingNotificationId = id
         notificationResolution?.cancel()
         notificationOpen = null
         notificationResolution = lifecycleScope.launch {
@@ -74,6 +88,8 @@ class MainActivity : ComponentActivity() {
         if (notificationOpen != request) return
         notificationOpen = null
         handledNotificationId = request.eventId
+        val app = application as NovelNestApplication
+        if (app.pendingNotificationId == request.eventId) app.pendingNotificationId = null
         if (notificationId(intent) == request.eventId) {
             intent.removeExtra(EXTRA_NOTIFICATION_ID)
             intent.removeExtra(EXTRA_NOVEL_ID)
@@ -192,12 +208,27 @@ class MainActivity : ComponentActivity() {
         val app = application as NovelNestApplication
         setContent {
             NovelNestTheme {
-                NovelNestApp(
-                    repository = novelRepository,
-                    navigationPreferences = app.navigationPreferences,
-                    notificationRequest = notificationOpen,
-                    onNotificationHandled = ::notificationHandled
-                )
+                val lockState by app.appLock.state.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(lockState.access) {
+                    if (app.appLock.state.value.access == com.novelnest.app.data.security.AppAccess.EPUB_ONLY) {
+                        notificationResolution?.cancel()
+                        notificationOpen = null
+                        app.pendingNotificationId = null
+                        intent.removeExtra(EXTRA_NOTIFICATION_ID)
+                        intent.removeExtra(EXTRA_NOVEL_ID)
+                    }
+                }
+                when (lockState.access ?: lockState.previousAccess) {
+                    com.novelnest.app.data.security.AppAccess.EPUB_ONLY -> com.novelnest.app.feature.lock.EpubOnlyApp()
+                    com.novelnest.app.data.security.AppAccess.FULL -> NovelNestApp(
+                        repository = novelRepository,
+                        navigationPreferences = app.navigationPreferences,
+                        notificationRequest = notificationOpen.takeIf { lockState.access == com.novelnest.app.data.security.AppAccess.FULL },
+                        onNotificationHandled = ::notificationHandled
+                    )
+                    null -> androidx.compose.foundation.layout.Box(
+                        androidx.compose.ui.Modifier.fillMaxSize().background(com.novelnest.app.core.designsystem.NovelBackground))
+                }
             }
         }
     }

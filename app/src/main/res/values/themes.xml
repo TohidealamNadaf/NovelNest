@@ -18,6 +18,18 @@
         <item name="android:windowBackground">@color/novelnest_launcher_background</item>
         <item name="android:colorAccent">#E2A765</item>
     </style>
+    <!-- The system resolves this before Activity.onCreate. Keep the first window
+         consistent with the lock UI instead of inheriting EPUB/DayNight bar colors. -->
+    <style name="Theme.NovelNest.Lock.Base" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/app_lock_background</item>
+        <item name="android:statusBarColor">@color/app_lock_background_top</item>
+        <item name="android:navigationBarColor">@color/app_lock_background_bottom</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="colorPrimary">@color/app_lock_background_top</item>
+        <item name="colorPrimaryDark">@color/app_lock_background_top</item>
+        <item name="colorAccent">@color/app_lock_background_bottom</item>
+    </style>
+    <style name="Theme.NovelNest.Lock" parent="Theme.NovelNest.Lock.Base" />
     <style name="Theme.NovelNest.Dictionary" parent="android:Theme.Material.Dialog.NoActionBar">
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsFloating">true</item>

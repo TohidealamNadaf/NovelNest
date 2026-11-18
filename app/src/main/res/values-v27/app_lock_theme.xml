@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NovelNest.Lock" parent="Theme.NovelNest.Lock.Base">
+        <!-- Dark navigation icons are available from API 27; minSdk is 26. -->
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

@@ -4,13 +4,17 @@ import android.content.ActivityNotFoundException
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.novelnest.app.core.lifecycle.launchKeepingSession
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -62,7 +66,8 @@ import com.novelnest.app.feature.home.HomeSectionTitle
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
-    onOpenBook: (String) -> Unit, onOpenSeries: (String) -> Unit) {
+    onOpenBook: (String) -> Unit, onOpenSeries: (String) -> Unit,
+    restrictedRoot: Boolean = false, onSettings: (() -> Unit)? = null) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val operation by viewModel.operation.collectAsStateWithLifecycle()
@@ -126,7 +131,7 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
         pickerError = null
         try {
             Toast.makeText(context.applicationContext, "Long-press a file in the picker to select multiple EPUBs.", Toast.LENGTH_LONG).show()
-            picker.launch(Unit)
+            picker.launchKeepingSession(context, Unit)
         }
         catch (_: ActivityNotFoundException) { pickerError = "No document picker is available on this device." }
         catch (_: SecurityException) { pickerError = "The document picker could not grant file access. Select the EPUBs again." }
@@ -215,11 +220,16 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = NovelBackground),
             navigationIcon = {
-                NovelNestIconButton(if (selectionMode) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.ArrowBack,
+                if (restrictedRoot && !selectionMode) {
+                    Icon(Icons.Rounded.AutoStories, contentDescription = "Novel Nest", tint = NovelPrimary,
+                        modifier = Modifier.padding(horizontal = 16.dp).size(24.dp))
+                } else NovelNestIconButton(if (selectionMode) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.ArrowBack,
                     if (selectionMode) "Clear selection" else "Back", enabled = !operation.busy,
                     onClick = { if (selectionMode) viewModel.clearSelection() else onBack() })
             },
             actions = {
+                if (!selectionMode && onSettings != null) NovelNestIconButton(Icons.Rounded.Settings,
+                    "EPUB reading preferences", tint = NovelPrimary, onClick = onSettings)
                 if (selectionMode) {
                     if (selectedBooksOnly) NovelNestIconButton(Icons.AutoMirrored.Rounded.DriveFileMove,
                         "Move selected EPUBs", tint = NovelPrimary, enabled = !operation.busy, onClick = {
@@ -254,8 +264,23 @@ fun EpubLibraryScreen(viewModel: EpubLibraryViewModel, onBack: () -> Unit,
                         }
                     }
                 } else {
-                    AnimatedVisibility(visible = !isSearchBarVisible,
-                        enter = fadeIn() + scaleIn(initialScale = 0.8f), exit = fadeOut() + scaleOut(targetScale = 0.8f)) {
+                    AnimatedVisibility(
+                        visible = !isSearchBarVisible,
+                        enter = expandHorizontally(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            expandFrom = Alignment.End
+                        ) + fadeIn(animationSpec = tween(durationMillis = 180)) + scaleIn(
+                            initialScale = 0.8f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ),
+                        exit = shrinkHorizontally(
+                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                            shrinkTowards = Alignment.End
+                        ) + fadeOut(animationSpec = tween(durationMillis = 150)) + scaleOut(
+                            targetScale = 0.8f,
+                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                        )
+                    ) {
                         NovelNestIconButton(Icons.Rounded.Search, searchPlaceholder, tint = NovelPrimary,
                             onClick = { searchCollapsed = false; searchRevealedByHeader = true })
                     }

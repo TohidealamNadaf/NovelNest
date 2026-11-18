@@ -9,8 +9,23 @@ import com.novelnest.app.data.database.NovelNestDatabase
 import com.novelnest.app.data.remote.network.HttpFactory
 import com.novelnest.app.data.repository.NovelRepository
 import com.novelnest.app.data.repository.NovelRepositoryImpl
+import kotlinx.coroutines.launch
 
 class NovelNestApplication : Application(), ImageLoaderFactory {
+    /** Main-thread-only ID handoff across authenticated task replacement; never persisted. */
+    internal var pendingNotificationId: String? = null
+
+    /** Foreground lock boundary; also lets app-opened pickers return without relocking. */
+    val appLockLifecycle by lazy { com.novelnest.app.core.lifecycle.AppLockLifecycle(this, appLock) }
+
+    val appLock by lazy {
+        com.novelnest.app.data.security.AppLockManager(
+            com.novelnest.app.data.security.AndroidAppLockStorage(this),
+            prepareBiometric = {
+                check(com.novelnest.app.data.security.AppBiometrics.available(this)) { "Biometrics are unavailable. Enroll a strong biometric in Android Settings." }
+                com.novelnest.app.data.security.AppBiometrics.prepareKey()
+            })
+    }
 
     internal val dictionaryRepository by lazy {
         com.novelnest.app.data.dictionary.DictionaryRepository(java.io.File(cacheDir, "dictionary"))
@@ -93,6 +108,8 @@ class NovelNestApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        registerActivityLifecycleCallbacks(appLockLifecycle)
+        bookmarkWriteScope.launch { appLock.initialize() }
         HttpFactory.initialize(cacheDir)
         notificationCoordinator.initialize()
         registerActivityLifecycleCallbacks(com.novelnest.app.core.lifecycle.AppActivityTracker(notificationCoordinator::activityChanged))

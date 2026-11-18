@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared by the Android window and Compose so the first frame has no color jump. -->
+    <color name="app_lock_background_top">#F3CFA2</color>
+    <color name="app_lock_background_center">#EBC088</color>
+    <color name="app_lock_background_bottom">#E2A765</color>
+</resources>
